@@ -1,0 +1,317 @@
+package com.presaince.parallax.data.update
+
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageInfo
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
+import android.util.Log
+import androidx.core.content.FileProvider
+import com.presaince.parallax.BuildConfig
+import java.io.File
+import java.io.IOException
+import java.io.RandomAccessFile
+import java.net.URI
+import java.security.MessageDigest
+import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import org.json.JSONObject
+
+// Single place to point at your own update server. Host version.json + the APK there.
+const val UPDATE_BASE_URL = "https://odesaplay.com.ua/other_apps/parallax/"
+
+data class UpdateInfo(
+    val versionCode: Int,
+    val versionName: String,
+    val apkUrl: String,
+    val notes: String = "",
+    val sha256: String? = null,
+)
+
+sealed interface UpdateState {
+    object Idle : UpdateState
+    object Checking : UpdateState
+    object UpToDate : UpdateState
+    data class Available(val info: UpdateInfo) : UpdateState
+    data class Downloading(val info: UpdateInfo, val progress: Float) : UpdateState
+    data class Downloaded(val info: UpdateInfo, val file: File) : UpdateState
+    data class Failed(val message: String?) : UpdateState
+}
+
+class UpdateManager(private val context: Context) {
+
+    companion object {
+        private const val TAG = "UpdateManager"
+
+        /** True when [candidate] is a semantically newer version name than [installed]; false when either is unparseable. */
+        internal fun versionNameGreater(candidate: String, installed: String): Boolean {
+            val a = candidate.split('.').mapNotNull { it.toIntOrNull() }
+            val b = installed.split('.').mapNotNull { it.toIntOrNull() }
+            val len = maxOf(a.size, b.size)
+            for (i in 0 until len) {
+                val x = a.getOrElse(i) { 0 }
+                val y = b.getOrElse(i) { 0 }
+                if (x != y) return x > y
+            }
+            return false
+        }
+
+        /**
+         * Only the configured origin may serve the APK. A TLS-verified `version.json` can still
+         * be tampered with at the origin, and without this a tampered one would also get to
+         * choose *where* the next APK is fetched from.
+         */
+        internal fun isTrustedApkUrl(url: String, baseUrl: String = UPDATE_BASE_URL): Boolean {
+            val candidate = runCatching { URI(url) }.getOrNull() ?: return false
+            val base = runCatching { URI(baseUrl) }.getOrNull() ?: return false
+            return candidate.scheme.equals("https", ignoreCase = true) &&
+                candidate.host?.equals(base.host, ignoreCase = true) == true &&
+                candidate.port == base.port
+        }
+
+        /** A supplied digest must match exactly; a mismatch is corruption or substitution. */
+        internal fun sha256Matches(expected: String, computed: String): Boolean =
+            expected.trim().equals(computed.trim(), ignoreCase = true)
+
+        /**
+         * Whether an archive may be handed to the installer over the installed build. An older
+         * archive never can — the installer would refuse it — and [allowSameVersion] widens the
+         * rule for the forced path to a rebuild of what is already installed, which repairs a
+         * corrupted install. That is the whole of what force adds on top of the archive checks.
+         */
+        internal fun installable(archiveCode: Long, installedCode: Long, allowSameVersion: Boolean): Boolean =
+            archiveCode > installedCode || (archiveCode == installedCode && allowSameVersion)
+
+        /**
+         * Defeats an intermediary that is still serving a cached copy — one of the ways a manifest
+         * falls behind the APK it points at. The origin ignores the unknown parameter; a caching
+         * proxy cannot match the previous URL. Host, scheme and path are untouched, so
+         * [isTrustedApkUrl] still holds for the result.
+         */
+        internal fun cacheBusted(url: String, stamp: Long): String {
+            val sep = if (url.contains('?')) "&" else "?"
+            return "$url${sep}_=$stamp"
+        }
+
+        /**
+         * The archive must carry the same signing key as the installed app. `null` means the
+         * archive's signers could not be read at all, which is just as disqualifying.
+         */
+        internal fun signersMatch(archive: Set<String>?, installed: Set<String>?): Boolean =
+            archive != null && installed != null && archive.isNotEmpty() && archive == installed
+    }
+
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
+        .build()
+
+    /**
+     * Reads version.json and returns what the server publishes, newer or not. Throws when the
+     * manifest is unreadable — the caller decides whether that is a failed check or a refusal.
+     *
+     * Always cache-busted. The client keeps no HTTP cache, so a stale manifest can only come from
+     * an intermediary; on a mobile network that is not hypothetical, and reading one makes the app
+     * report "up to date" while the server has moved. One query parameter is cheap insurance, and
+     * the origin ignores it. (It only helps against a proxy that keys on the query string — one
+     * that ignores query strings entirely would still serve the cached copy.)
+     */
+    suspend fun latest(): UpdateInfo = withContext(Dispatchers.IO) {
+        val target = cacheBusted(UPDATE_BASE_URL + "version.json", System.currentTimeMillis())
+        val request = Request.Builder().url(target).build()
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
+            val json = JSONObject(response.body?.string().orEmpty())
+            val notes = json.optJSONObject("notes")
+            val sha256Val = json.optString("sha256").takeIf { it.isNotBlank() }
+            val apkUrl = json.getString("apkUrl")
+            if (!isTrustedApkUrl(apkUrl)) {
+                throw IOException("version.json points at an untrusted download URL")
+            }
+            UpdateInfo(
+                versionCode = json.getInt("versionCode"),
+                versionName = json.optString("versionName"),
+                apkUrl = apkUrl,
+                notes = notes?.optString("en").orEmpty(),
+                sha256 = sha256Val,
+            )
+        }
+    }
+
+    /** Fetches version.json and returns Available only when the server has a newer build. */
+    suspend fun check(): UpdateState = try {
+        val latest = latest()
+        val newer = latest.versionCode > BuildConfig.VERSION_CODE ||
+            (latest.versionCode == BuildConfig.VERSION_CODE &&
+                versionNameGreater(latest.versionName, BuildConfig.VERSION_NAME))
+        if (newer) UpdateState.Available(latest) else UpdateState.UpToDate
+    } catch (e: Exception) {
+        UpdateState.Failed(e.message)
+    }
+
+    /**
+     * Streams the APK into cacheDir/updates/, reporting 0..1 progress, and validates the result.
+     *
+     * [force] is the escape hatch for a manifest that has fallen behind the APK it points at — the
+     * two are separate uploads and a half-finished release, or a proxy serving a stale copy, leaves
+     * them disagreeing. It drops only the two claims the manifest makes about itself: whether the
+     * build is newer, and whether the bytes are the ones it published. Every gate that is read off
+     * the archive itself — origin, package name, signing key, and now "not older than what is
+     * installed" — stays exactly as strict.
+     */
+    suspend fun download(info: UpdateInfo, force: Boolean = false, onProgress: (Float) -> Unit): File = withContext(Dispatchers.IO) {
+        val url = if (force) cacheBusted(info.apkUrl, System.currentTimeMillis()) else info.apkUrl
+        val request = Request.Builder().url(url).build()
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
+            val body = response.body ?: throw IOException("Empty response body")
+            val total = body.contentLength()
+            val dir = File(context.cacheDir, "updates").apply { mkdirs() }
+            val target = File(dir, "app-update.apk")
+            var downloaded = 0L
+
+            body.byteStream().use { input ->
+                target.outputStream().use { output ->
+                    val buffer = ByteArray(64 * 1024)
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read == -1) break
+                        output.write(buffer, 0, read)
+                        downloaded += read
+                        if (total > 0) onProgress(downloaded.toFloat() / total)
+                    }
+                }
+            }
+
+            if (total > 0 && downloaded != total) {
+                target.delete()
+                throw IOException("Incomplete download")
+            }
+
+            if (!isLikelyApk(target)) {
+                target.delete()
+                throw IOException("Downloaded file is not a valid APK — check the apkUrl in version.json")
+            }
+
+            // version.json is served from the same origin as the APK, so the digest is a
+            // corruption/substitution check rather than a security boundary: a mismatch is
+            // fatal, an absent digest (an older version.json) is tolerated because the archive
+            // pre-flight below is what actually gates the install.
+            val expected = info.sha256
+            if (expected == null) {
+                Log.w(TAG, "version.json carries no sha256 — skipping the checksum check")
+            } else if (!sha256Matches(expected, calculateSha256(target))) {
+                if (!force) {
+                    target.delete()
+                    throw IOException("APK checksum mismatch — the download does not match version.json")
+                }
+                // Precisely the desync the forced path exists for: the manifest still describes the
+                // previous APK. The signer check in the pre-flight below is the one that matters.
+                Log.w(TAG, "Forced download: sha256 does not match version.json — continuing on the archive checks alone")
+            }
+
+            try {
+                verifyArchive(target, allowSameVersion = force)
+            } catch (e: Exception) {
+                target.delete()
+                throw e
+            }
+
+            target
+        }
+    }
+
+    /**
+     * Pre-flight on the artifact itself, before the system installer sees it. Everything here
+     * reads the APK rather than version.json, so a tampered manifest cannot talk its way past
+     * it. The installer enforces signatures anyway — this only turns a scary system error into
+     * a clear refusal.
+     *
+     * [allowSameVersion] admits a rebuild of the installed versionCode, which repairs a corrupted
+     * install. A forced download still never installs anything *older*: the installer would refuse
+     * it, and the version number in the refusal is the diagnostic that names the desync.
+     */
+    @Suppress("DEPRECATION")
+    private fun verifyArchive(file: File, allowSameVersion: Boolean) {
+        val pm = context.packageManager
+        val flags = PackageManager.GET_SIGNING_CERTIFICATES
+        val archive = pm.getPackageArchiveInfo(file.absolutePath, flags)
+            ?: throw IOException("Downloaded file is not a readable APK")
+        if (archive.packageName != context.packageName) {
+            throw IOException("APK belongs to ${archive.packageName}, not ${context.packageName}")
+        }
+        val archiveCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            archive.longVersionCode
+        } else {
+            archive.versionCode.toLong()
+        }
+        val installed = BuildConfig.VERSION_CODE.toLong()
+        if (!installable(archiveCode, installed, allowSameVersion)) {
+            throw IOException("APK version $archiveCode is not newer than the installed ${BuildConfig.VERSION_CODE}")
+        }
+        // Signing info needs API 28; below that the installer is the only gate.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val installedInfo = pm.getPackageInfo(context.packageName, flags)
+            if (!signersMatch(signerHashes(archive), signerHashes(installedInfo))) {
+                throw IOException("APK is signed with a different key than the installed app")
+            }
+        }
+    }
+
+    /** SHA-256 of each APK signer certificate; `null` when the platform will not expose them. */
+    private fun signerHashes(info: PackageInfo): Set<String>? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return null
+        val signers = info.signingInfo?.apkContentsSigners ?: return null
+        return signers.mapTo(mutableSetOf()) { signer ->
+            MessageDigest.getInstance("SHA-256").digest(signer.toByteArray())
+                .joinToString("") { "%02x".format(it) }
+        }
+    }
+
+    private fun calculateSha256(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buf = ByteArray(64 * 1024)
+            var read: Int
+            while (input.read(buf).also { read = it } != -1) {
+                digest.update(buf, 0, read)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
+    }
+
+    private fun isLikelyApk(file: File): Boolean {
+        if (file.length() < 1_000_000L) return false
+        val magic = ByteArray(2)
+        RandomAccessFile(file, "r").use { it.readFully(magic) }
+        return magic[0] == 0x50.toByte() && magic[1] == 0x4B.toByte() // "PK" — ZIP/APK signature
+    }
+
+    fun canRequestInstall(): Boolean = context.packageManager.canRequestPackageInstalls()
+
+    fun openInstallPermissionSettings() {
+        context.startActivity(
+            Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}"))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        )
+    }
+
+    /** Builds the installer intent for the downloaded APK, or null when permission is missing. */
+    @Suppress("DEPRECATION")
+    fun buildInstallIntent(file: File): Intent? {
+        if (!canRequestInstall()) return null
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
+        // The system installer's own action: unlike a bare ACTION_VIEW + mime type, it cannot be
+        // claimed by an arbitrary app angling for the URI read grant.
+        return Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
+            setData(uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+    }
+}

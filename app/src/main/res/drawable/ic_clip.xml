@@ -1,0 +1,10 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- A range: two ends and the span between them. -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M3,7h3v10H3zM18,7h3v10h-3zM6.5,11h11v2h-11z" />
+</vector>

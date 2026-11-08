@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "name": "Fresh",
+  "from": { "kind": "related", "seed": "topChannels", "count": 4 },
+  "filters": { "maxAgeDays": 7 },
+  "score": { "views": 0.4, "recency": 1.0 },
+  "walk": { "hops": 2, "branch": 6, "wildcard": 0.1 }
+}

@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "name": "Long",
+  "from": { "kind": "related", "seed": "topChannels", "count": 3 },
+  "filters": { "minDurationSec": 900, "maxAgeDays": 60 },
+  "score": { "views": 1.0, "recency": 0.3 },
+  "walk": { "hops": 3, "branch": 5, "wildcard": 0.1 }
+}

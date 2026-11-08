@@ -1,0 +1,27 @@
+Parallax is a YouTube client that keeps your data on your phone.
+
+There is no account and no Parallax server. Subscriptions, history, watch progress and notes live
+in a local database. Uninstalling the app deletes them.
+
+What it does:
+
+- Search, play and queue nothing: one player, background audio, a media notification, and
+  picture-in-picture when you leave the app.
+- Gestures on the video: swipe for brightness or volume, double-tap to seek ten seconds, hold to
+  play at double speed, and an A-B loop for the part you are studying.
+- SponsorBlock skipping, on by default.
+- Import subscriptions from NewPipe (JSON), LibreTube (JSON) or a Google Takeout CSV, then read a
+  feed of what your channels posted. The feed is stored, so it opens offline.
+- Comments, with a jump into the YouTube app at the exact comment and second.
+- A local deck: notes pinned to a timestamp, typed or dictated. Speech is transcribed to text and
+  no audio file is kept.
+- Bored Mode: a bounded walk through the related-video graph, scored by a recipe you can read.
+  Every card shows the path that produced it. Recipes are plain JSON; four ship with the app.
+- Timestamp Resync, off by default: point it at your own model endpoint with your own key, and it
+  aligns comments that mention a time to the moment the subtitle actually says it.
+
+What it does not do: no tracking, no analytics, no account, no advertising. No stream URL is ever
+stored, because those URLs expire and belong to nobody.
+
+Parallax is free software under the GPLv3. It uses NewPipeExtractor, which is also GPLv3, as a
+dependency rather than vendoring any of its code.

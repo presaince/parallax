@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The Presaince mark, copied from the portfolio's public/favicon.svg: a P stroked with the brand
+  ramp on the #101014 tile, radius 7. Not redrawn, not re-derived.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="32dp"
+    android:height="32dp"
+    android:viewportWidth="32"
+    android:viewportHeight="32">
+
+    <path
+        android:pathData="M7,0 L25,0 A7,7 0 0 1 32,7 L32,25 A7,7 0 0 1 25,32 L7,32 A7,7 0 0 1 0,25 L0,7 A7,7 0 0 1 7,0 Z"
+        android:fillColor="#FF101014" />
+
+    <path
+        android:pathData="M11.5,23.5 L11.5,8.5 L16.7,8.5 A4.1,4.1 0 0 1 16.7,16.7 L11.5,16.7"
+        android:strokeWidth="3.2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:type="linear"
+                android:startX="0"
+                android:startY="0"
+                android:endX="32"
+                android:endY="32">
+                <item android:offset="0" android:color="#FFF8FAFC" />
+                <item android:offset="0.52" android:color="#FFA5E4F5" />
+                <item android:offset="1" android:color="#FF4CC2E8" />
+            </gradient>
+        </aapt:attr>
+    </path>
+</vector>

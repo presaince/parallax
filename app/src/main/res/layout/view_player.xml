@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  A TextureView, not the default SurfaceView. A SurfaceView lives in its own window layer, and in
+  a Compose scroll container it ends up above the app bar and swallows touches meant for the back
+  and menu buttons. A TextureView is part of the view hierarchy, so it cannot do that.
+-->
+<androidx.media3.ui.PlayerView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/player_view"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@android:color/black"
+    app:surface_type="texture_view"
+    app:use_controller="false" />

@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- pburger1 from portfolio/p-burger: the layered P, no tile. Copied, not redrawn. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="32dp"
+    android:height="32dp"
+    android:viewportWidth="32"
+    android:viewportHeight="32">
+    <path
+        android:pathData="M12.7,10.1 L18,10.1 A2.95,2.95 0 0 1 18,16 L12.7,16"
+        android:strokeWidth="3.2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:type="linear"
+                android:startX="9"
+                android:startY="7"
+                android:endX="19"
+                android:endY="26">
+                <item android:offset="0" android:color="#FFF8FAFC" />
+                <item android:offset="0.52" android:color="#FFA5E4F5" />
+                <item android:offset="1" android:color="#FF4CC2E8" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <path
+        android:pathData="M12.7,21.9 L18,21.9"
+        android:strokeWidth="3.2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:type="linear"
+                android:startX="9"
+                android:startY="7"
+                android:endX="19"
+                android:endY="26">
+                <item android:offset="0" android:color="#FFF8FAFC" />
+                <item android:offset="0.52" android:color="#FFA5E4F5" />
+                <item android:offset="1" android:color="#FF4CC2E8" />
+            </gradient>
+        </aapt:attr>
+    </path>
+</vector>
