@@ -31,6 +31,9 @@ interface VideoSource {
     suspend fun channelUploads(channelUrl: String, page: String? = null): AppResult<Page<VideoSummary>>
     suspend fun channelInfo(channelUrl: String): AppResult<Channel>
     suspend fun subtitles(id: String): AppResult<SubtitleTrack>
+
+    /** Drops any cached streams for [id], so the next [streams] call fetches fresh signed URLs. */
+    suspend fun invalidateStreams(id: String) { /* default no-op */ }
 }
 
 /** Both youtu.be/ID and youtube.com/watch?v=ID, plus the /shorts/ form. */

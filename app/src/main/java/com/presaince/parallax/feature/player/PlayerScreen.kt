@@ -241,13 +241,14 @@ fun PlayerScreen(
 
     // A stream that dies mid-video gets two quiet tries at where it was before the failure is
     // left on screen. Stream URLs expire and connections drop; asking the viewer to press Retry
-    // for that is exactly the "it keeps stopping" feeling.
+    // for that is exactly the "it keeps stopping" feeling. After a rejection the retry must
+    // fetch fresh signed URLs, not reuse the failed cached ones.
     var autoRetries by remember { mutableIntStateOf(0) }
     LaunchedEffect(playbackState.playerError) {
         if (playbackState.playerError == null || autoRetries >= 2) return@LaunchedEffect
         autoRetries++
         delay(1_200)
-        viewModel.reloadAt(playback.state.value.positionMs)
+        viewModel.retryAfterPlayerError(playback.state.value.positionMs)
     }
 
     val context = LocalContext.current
@@ -282,6 +283,7 @@ fun PlayerScreen(
     }
     var dictateSignal by remember { mutableIntStateOf(0) }
     var dragDown by remember { mutableStateOf(0f) }
+    var dragUp by remember { mutableStateOf(0f) }
     var dragStartedAt by remember { mutableLongStateOf(0L) }
     var volumeSteps by remember { mutableFloatStateOf(0f) }
     var brightnessLevel by remember { mutableFloatStateOf(0.5f) }
@@ -459,6 +461,18 @@ fun PlayerScreen(
         }
     }
 
+    // Full screen is the top of the ladder and normal at the top of the page is one step down.
+    // The fixed lock matches the fullscreen button so a sensor lock cannot snap back.
+    fun enterFullscreen() {
+        fullscreen = true
+        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+    }
+
+    fun exitFullscreen() {
+        fullscreen = false
+        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+    }
+
     val overlay: @Composable () -> Unit = {
         ControlsOverlay(
             visible = controlsVisible,
@@ -477,15 +491,10 @@ fun PlayerScreen(
             onSpeedEnd = { hud = null },
             onSpeedHold = { speedHolding = it },
             onToggleFullscreen = {
-                val next = !fullscreen
-                fullscreen = next
-                // Fixed landscape, not a sensor orientation: a sensor lock snaps back to
-                // portrait when auto-rotate is off, which is the "goes fullscreen then
-                // rotates back" the button never recovered from.
-                activity?.requestedOrientation = if (next) {
-                    ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                if (fullscreen) {
+                    exitFullscreen()
                 } else {
-                    ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                    enterFullscreen()
                 }
             },
             onOpenBug = onOpenBug,
@@ -522,6 +531,7 @@ fun PlayerScreen(
         enabled = !speedHolding && !speedPanelOpen,
         onVerticalStart = { zone ->
             dragDown = 0f
+            dragUp = 0f
             dragZone = zone
             dragStartedAt = SystemClock.uptimeMillis()
             volumeSteps = rawVolume(audio)
@@ -564,13 +574,13 @@ fun PlayerScreen(
                         hud = Hud(fraction = brightnessLevel, brightness = true)
                     }
                 }
-                // Centre downwards is the minimise gesture: the surface follows the finger, and
-                // a qualifying flick closes it at once. No animation on release, in either
-                // direction: it either leaves or snaps back with the finger.
+                // Centre vertical is the ladder gesture. Down follows the finger and a qualifying
+                // swipe steps down one level, up steps back one level. No animation on release.
                 else -> {
                     // The full finger travel, clamped only at the ends. The surface translation
                     // reads this directly, so what the picture does matches what the finger did.
                     dragDown = (dragDown + -fraction).coerceIn(0f, 1f)
+                    dragUp = (dragUp + fraction).coerceIn(0f, 1f)
                 }
             }
         },
@@ -579,13 +589,25 @@ fun PlayerScreen(
             val centre = dragZone != Zone.Left && dragZone != Zone.Right
             val elapsed = SystemClock.uptimeMillis() - dragStartedAt
             // A flick counts even when it is short; a slow drag has to travel to be meant.
-            val flung = dragDown > 0.03f && elapsed < 260
-            if (centre && (dragDown > 0.22f || flung)) {
-                // No backflip: the player closes at once, and the mini card takes over.
-                dragDown = 0f
-                onBack()
-            } else {
-                dragDown = 0f
+            val flungDown = dragDown > 0.03f && elapsed < 260
+            val flungUp = dragUp > 0.03f && elapsed < 260
+            when {
+                centre && (dragDown > 0.22f || flungDown) -> {
+                    // One step down: full screen to normal, normal to minimized.
+                    dragDown = 0f
+                    dragUp = 0f
+                    if (effectiveFullscreen) exitFullscreen() else onBack()
+                }
+                centre && !effectiveFullscreen && (dragUp > 0.22f || flungUp) -> {
+                    // One step back up: normal to full screen. At full screen an up swipe stays.
+                    dragDown = 0f
+                    dragUp = 0f
+                    enterFullscreen()
+                }
+                else -> {
+                    dragDown = 0f
+                    dragUp = 0f
+                }
             }
         },
         onHorizontalStart = { yFraction ->

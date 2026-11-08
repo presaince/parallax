@@ -98,6 +98,14 @@ class NewPipeSource(
         }
     }
 
+    override suspend fun invalidateStreams(id: String) {
+        streamInfoCache.remove(id)
+        streamInfoJobs[id]?.cancel()
+        streamInfoJobs.remove(id)
+        videoCache.remove(id)
+        log?.info("source", "streams cache cleared for $id")
+    }
+
     /** Reset per listing call: the log should explain a list, not flood it. */
     private var ambiguousSeen = 0
 
@@ -224,6 +232,7 @@ class NewPipeSource(
             val audioTracks = info.audioStreams.mapNotNull { it.audioTrackId }.distinct()
             val muxed = if (audioTracks.size > 1) null else pick(info.videoStreams, target)
             if (muxed != null) {
+                log?.info("source", "streams for $id target=${target}p muxed host=${hostOf(muxed)}")
                 StreamSet(muxedUrl = muxed)
             } else {
                 val video = pick(info.videoOnlyStreams, target)
@@ -231,6 +240,10 @@ class NewPipeSource(
                 if (video == null || audio == null) {
                     throw IllegalStateException("no playable stream for $id")
                 }
+                log?.info(
+                    "source",
+                    "streams for $id target=${target}p split video=${hostOf(video)} audio=${hostOf(audio)}",
+                )
                 StreamSet(videoUrl = video, audioUrl = audio)
             }
         }
@@ -502,6 +515,10 @@ class NewPipeSource(
     }
 
     private fun watchUrl(id: String) = "https://www.youtube.com/watch?v=$id"
+
+    /** Host only, never the token, so logs diagnose googlevideo without leaking the URL. */
+    private fun hostOf(url: String): String = runCatching { java.net.URI(url).host }.getOrNull() ?: "unknown"
+
     private companion object {
         const val USER_AGENT =
             "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) " +

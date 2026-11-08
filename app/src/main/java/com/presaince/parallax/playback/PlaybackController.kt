@@ -175,10 +175,20 @@ class PlaybackController(
             }
 
             override fun onPlayerError(error: PlaybackException) {
-                log.error(
-                    "player",
-                    "${error.errorCodeName}: ${error.message}; video=$currentVideoId",
-                )
+                // The HTTP status is the diagnosis: 403/429 means the signed URL was rejected,
+                // not the decoder. The cause chain carries it, the top message does not.
+                val detail = buildString {
+                    append("${error.errorCodeName}: ${error.message}; video=$currentVideoId")
+                    append(" cause=${error.cause?.javaClass?.simpleName}:${error.cause?.message}")
+                    val cause = error.cause
+                    if (cause != null) {
+                        val responseCode = runCatching {
+                            cause.javaClass.getMethod("getResponseCode").invoke(cause)
+                        }.getOrNull()
+                        if (responseCode != null) append(" http=$responseCode")
+                    }
+                }
+                log.error("player", detail)
                 _state.update { it.copy(playerError = error.errorCodeName) }
             }
         })
@@ -202,7 +212,9 @@ class PlaybackController(
         startService()
         playStartedAtMs = System.currentTimeMillis()
         readyLogged = false
-        log.info("player", "play $videoId (${if (streams.muxedUrl != null) "muxed" else "split"})")
+        val host = streams.muxedUrl?.let { hostOf(it) }
+            ?: listOfNotNull(streams.videoUrl, streams.audioUrl).joinToString(",") { hostOf(it) }
+        log.info("player", "play $videoId (${if (streams.muxedUrl != null) "muxed" else "split"} host=$host)")
 
         currentVideoId = videoId
         currentTitle = title
@@ -513,10 +525,14 @@ class PlaybackController(
         prefs.edit().putString(KEY_SPEED_PRESETS, clean.joinToString(",")).apply()
     }
 
-    private companion object {
+    private fun hostOf(url: String): String =
+        runCatching { java.net.URI(url).host }.getOrNull() ?: "unknown"
+
+    companion object {
         const val TICK_MS = 250L
-        /** Faster first frame: low minimum and playback thresholds, modest maximum. Min must stay
-         *  at or above the after-rebuffer threshold; ExoPlayer refuses the app otherwise. */
+        /** Balanced first frame. A tiny start regressed to a 27s READY in testing, so the
+         *  1200/2500 values from the last known fast open are the default. Min stays at or
+         *  above the after-rebuffer threshold; ExoPlayer refuses the app otherwise. */
         const val MIN_BUFFER_MS = 3_000
         const val MAX_BUFFER_MS = 8_000
         const val BUFFER_FOR_PLAYBACK_MS = 1_200

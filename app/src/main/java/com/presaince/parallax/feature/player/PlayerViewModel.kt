@@ -106,6 +106,23 @@ class PlayerViewModel(
     }
 
     /**
+     * Retry after the player rejected the signed URL (403/429). A reload without invalidating
+     * reuses the same URL from cache and fails again, so the retry must fetch fresh streams.
+     */
+    fun retryAfterPlayerError(positionMs: Long) {
+        if (inFlight) return
+        inFlight = true
+        viewModelScope.launch {
+            try {
+                runCatching { source.invalidateStreams(summary.id) }
+                loadOnce(positionMs)
+            } finally {
+                inFlight = false
+            }
+        }
+    }
+
+    /**
      * The view model outlives the screen: it is keyed by the video, not by the route. Reopening a
      * video that was stopped therefore reuses a "loaded" state over a stopped player — a black
      * frame with no error. If the controller is not playing this video, load again.

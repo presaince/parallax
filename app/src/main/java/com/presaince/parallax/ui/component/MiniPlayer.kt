@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -48,14 +47,16 @@ import com.presaince.parallax.R
 
 /**
  * The playing video stays reachable when you leave the player screen: a small live surface above
- * the navigation bar, not a thumbnail. Three sizes, one gesture: full, swipe down to mini, swipe
- * down again to super-min; swipe up steps back up, swipe up again to full. Tap anywhere larger
- * than super-min opens the full player; a tap in super-min grows one step. The X stops.
+ * the navigation bar, not a thumbnail. Two sizes on one ladder with the player screen:
+ * minimized with the live surface, super minimized as a plain bar.
+ * Swipe down steps one level toward super minimized, swipe up steps one level back.
+ * Swipe up from minimized returns to the player screen.
+ * A tap toggles play or pause only. The X stops.
  *
  * One surface is composed at a time: this card while the player screen is closed, that screen's own
  * surface while it is open. The player is shared, so playback never restarts.
  *
- * [level] is 0 (full), 1 (mini) or 2 (super-min hairline with only play/pause).
+ * [level] is 0 (minimized with the live surface) or 1 (super minimized plain bar).
  */
 @Composable
 fun MiniPlayer(
@@ -76,24 +77,8 @@ fun MiniPlayer(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            // Super-minimised is translucent: the content underneath shows through, with a
-            // hairline above the navigation bar marking the edge.
-            .background(
-                if (level >= 2) {
-                    MaterialTheme.colorScheme.surface.copy(alpha = 0.72f)
-                } else {
-                    MaterialTheme.colorScheme.surface
-                },
-            ),
+            .background(MaterialTheme.colorScheme.surface),
     ) {
-        if (level >= 2) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(1.dp)
-                    .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-            )
-        }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -109,18 +94,16 @@ fun MiniPlayer(
                         },
                         onDragEnd = {
                             when {
-                                dy > dragPx -> onLevel((level + 1).coerceAtMost(2))
-                                dy < -dragPx -> onLevel((level - 1).coerceAtLeast(0))
+                                dy > dragPx -> onLevel((level + 1).coerceAtMost(1))
+                                // Swipe up steps back one level, and up from minimized
+                                // returns to the player screen.
+                                dy < -dragPx -> if (level > 0) onLevel(level - 1) else onExpand()
                             }
                         },
                     )
                 }
-                .clickable(onClick = {
-                    // In super-min a tap grows one step; anywhere larger opens the player.
-                    if (level >= 2) onLevel(1) else onExpand()
-                })
-                .padding(horizontal = 8.dp, vertical = 6.dp)
-                .heightIn(min = if (level >= 2) 48.dp else 0.dp),
+                .clickable(onClick = onTogglePlay)
+                .padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -146,17 +129,13 @@ fun MiniPlayer(
                 }
             }
 
-            // Super-min is just the hairline and the one play/pause: no title, no X, so the
-            // row cannot read as two play buttons with an X appearing on swipe.
-            if (level < 2) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = if (level == 0) 2 else 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-            }
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = if (level == 0) 2 else 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
 
             // Pause is back, and it sits before the X rather than after it: stopping a video
             // is the destructive action, so it should never be the control nearest the thumb.
@@ -177,14 +156,12 @@ fun MiniPlayer(
                     )
                 }
             }
-            if (level < 2) {
-                IconButton(onClick = onClose, modifier = Modifier.size(36.dp)) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Stop and close",
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
+            IconButton(onClick = onClose, modifier = Modifier.size(36.dp)) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Stop and close",
+                    modifier = Modifier.size(20.dp),
+                )
             }
         }
 

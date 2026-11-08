@@ -109,9 +109,10 @@ fun ParallaxNav(container: AppContainer, theme: ThemeController) {
     val playbackState by container.playback.state.collectAsStateWithLifecycle()
     val playingVideoId = playbackState.videoId
 
-    // Full, swipe down to mini, swipe down again to super-min; swipe up to step back.
-    // Remembered per video and cleared when the full player is opened, so a different video
-    // always starts as a full card.
+    // Four stops on one ladder: full screen, normal at the top, minimized, super minimized.
+    // The player screen owns the first two and this card owns the last two, both stepping one
+    // level per swipe. Remembered per video and cleared when the player is opened, so a
+    // different video always starts at normal.
     var miniLevelFor by remember { mutableStateOf<Pair<String, Int>?>(null) }
     LaunchedEffect(isPlayer) {
         if (isPlayer) miniLevelFor = null
@@ -207,8 +208,8 @@ fun ParallaxNav(container: AppContainer, theme: ThemeController) {
                     onExpand = ::openPlayingVideo,
                     onClose = container.playback::stop,
                     onTogglePlay = container.playback::togglePlayPause,
-                    // Three sizes on one gesture: full, swipe down to mini, swipe down again to
-                    // super-min; swipe up to step back out.
+                    // Two sizes only, levels 0 and 1. Swipe down steps toward super minimized,
+                    // swipe up steps back and returns to the player screen.
                     level = miniLevelFor?.takeIf { it.first == playingVideoId }?.second ?: 0,
                     onLevel = { next ->
                         miniLevelFor = playingVideoId to next
