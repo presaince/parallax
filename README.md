@@ -32,23 +32,15 @@ Captured on a Pixel 7 from the debug build.
 - **Clip sharing.** One sheet for "This moment" or "A clip", two draggable ends, link carries the start, range travels as text.
 - **Bored Mode.** Recipe-driven recommendations (Deep Cut, Fresh, Longform, Short Break) with the walk visible.
 
-## What we improved
+## Improved over NewPipe and LibreTube
 
-Pulled from `LEDGER.md` (bugs fixed and upgrades shipped):
-
-- Glass no longer needs its own tone chips. It inherits the last ordinary theme you picked, so Dark → Glass gives dark glass and Light → Glass gives light glass.
-- The tab pager stays composed under every pushed screen. Going back never refetches and never loses scroll, which is what makes the minimise reveal feel instant.
-- Feed sorting is one shared row (Date, Likes, Views, Progress, Duration, A–Z) and History is a named pill on the header, not an icon lost beside a sort row.
-- Description collapse is measured by real text, not a fixed 72dp clip, and the preview takes the first four lines from the top.
-- Seek is seconds per tenth of the screen (2 / 5 / 10, rising with distance) instead of a share of the whole video, so a small swipe on a long video no longer jumps minutes.
-- The mini-player pause button is gone. It never answered reliably. X stops, sideways swipe hides the card while audio keeps playing, swipe up reopens.
-- The preference page puts Preview second, in its own full-width card, with layout modes and the six facts under it. You see the card you are changing.
-- Settings is eight sections behind a persistent search field with curated keywords and one-typo tolerance. Every section is its own route.
-- Bridge of features from the bug screen: note field and Send posts one JSON bundle, reports sit server-side behind a 403, and there is deliberately no shared secret in the APK. A token inside an APK would be extractable by anyone who unpacks it.
-- Keyboard for a left-edge speed panel, live-time share pill, PiP toggle, tappable description links, and a media notification that shows the thumbnail. Landscape exit no longer strands the app sideways.
-- Search is only on Feed and Library. Bored Mode, Settings and pushed screens stopped showing the magnifier for the same screen.
-
-For the full list see `LEDGER.md` → Bugs / Upgrades.
+| | NewPipe | LibreTube | Parallax |
+|---|---|---|---|
+| When YouTube changes something | Breaks until an app update ships. Frequent "Not loaded", error snackbars and ANRs when starting the player. | Depends on a Piped instance. When it goes down or gets blocked ("Sign in to confirm you're not a bot"), nothing loads until you find another instance. | `withSourceRepair` resets the extractor and retries once automatically on `ExtractorBroken` only. Success costs one fetch, no reset, no log. Canary test catches the next break nightly instead of waiting for a user report. No server in the path. |
+| First frame | Spinner over a dimmed thumbnail. Starting playback can stall on long videos. | Extra hop through the instance before the stream starts; a slow instance feels like a slow app. | The thumbnail is the progress. Kinetic breathe or Still, soft light band, no spinner. Staged load: video to first frame, then chapters, then comments. A mid-video stream death retries twice at the position it reached. |
+| Look | Functional but heavy red, dense lists that hold only a few videos per screen. | Clean Material You, but reads like every other Material You client. | Glass over an aurora floor, chosen accent with Shuffle, Side cards (picture left, words right). Preview lives on the same screen as the controls, so you see the card you are changing. |
+| Playback gestures | Standard controls, no minimising ladder. | Standard controls, good quality picker. | Vertical swipe for volume (left) and brightness (right), horizontal slide seeks in seconds not percentages, down drag minimises to a strip while audio keeps playing, swipe up reopens. 2dp progress line with SponsorBlock marks. |
+| What it doesn't have | No timestamped notes, no AI chapters, no clip range, no Bored Mode. | Strong SponsorBlock and DeArrow, but still a library surface. No notes, no Bored, no Resync. | Timestamped notes with dictation stamped at the playhead, AI chapters when the description has none, clip sheet with two draggable ends, Bored Mode recipes with a visible walk. |
 
 ## Private by design
 
