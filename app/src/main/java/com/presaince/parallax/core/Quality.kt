@@ -31,6 +31,16 @@ val QUALITY_STOPS: List<QualityStop> = listOf(
     QualityStop(Int.MAX_VALUE, "AI sim", "AI", "ai simulation = 1:1 with reality"),
 )
 
+/**
+ * First-load height cap for Auto. A chosen height wins as-is; Auto (0) caps at 720p so the
+ * first frame needs about a third of the bytes of a 1080p/4K highest-bitrate pick. The cap is
+ * at or below every QUALITY_STOPS height except 240/480, so low caps stay exact.
+ */
+fun firstLoadHeight(storedHeight: Int): Int =
+    if (storedHeight == 0) FIRST_LOAD_AUTO_HEIGHT else storedHeight
+
+private const val FIRST_LOAD_AUTO_HEIGHT = 720
+
 /** What to call a stored height. Unknown values keep their number rather than pretending. */
 fun qualityLabel(height: Int): String =
     QUALITY_STOPS.firstOrNull { it.height == height }?.label ?: "${height}p"

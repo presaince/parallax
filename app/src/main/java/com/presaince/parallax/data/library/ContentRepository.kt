@@ -20,7 +20,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 
 data class FeedRefresh(
@@ -38,6 +40,8 @@ class ContentRepository(
     private val source: VideoSource,
     private val db: ParallaxDb,
     private val log: AppLog,
+    /** Player buffering state, so a feed refresh does not compete with the first frame. */
+    private val playbackBusy: () -> Boolean = { false },
 ) {
 
     fun observeFeed(): Flow<List<VideoEntity>> = db.videos().observeFeed()
@@ -77,6 +81,11 @@ class ContentRepository(
                     db.videos().learnedCounts().associateBy { it.id }
                 }.getOrDefault(emptyMap())
                 for (batch in subscriptions.chunked(MAX_PARALLEL)) {
+                // Buffering owns the network: the first frame shares nothing with a feed batch.
+                while (playbackBusy()) {
+                    if (!isActive) return@withContext FeedRefresh(0, 0, 0, "Refresh stopped")
+                    delay(PLAYBACK_RETRY_MS)
+                }
                 val results = coroutineScope {
                     batch.map { subscription ->
                         async {
@@ -218,6 +227,7 @@ class ContentRepository(
 
     private companion object {
         const val MAX_PARALLEL = 4
+        const val PLAYBACK_RETRY_MS = 400L
         const val FIRST_PAGE = "first"
         const val COMMENTS_TTL_MS = 60 * 60 * 1000L
         const val RETAIN_MS = 30L * 24 * 60 * 60 * 1000L

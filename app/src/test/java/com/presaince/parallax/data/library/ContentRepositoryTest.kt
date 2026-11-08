@@ -19,6 +19,9 @@ import com.presaince.parallax.data.model.VideoDetail
 import com.presaince.parallax.data.model.VideoSummary
 import com.presaince.parallax.data.source.VideoSource
 import java.io.File
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -87,6 +90,31 @@ class ContentRepositoryTest {
         assertEquals(77L, stored?.likeCount)
         assertEquals(12L, stored?.commentCount)
     }
+
+    @Test
+    fun `a refresh waits while playback is buffering`() = runBlocking {
+        val state = BusyState(busy = true)
+        val repo = ContentRepository(
+            source = FakeSource(),
+            db = db,
+            log = AppLog(File(requireNotNull(System.getProperty("java.io.tmpdir")))),
+            playbackBusy = { state.busy },
+        )
+        db.subscriptions().insertAll(
+            listOf(SubscriptionEntity(url = "https://youtube.com/c/a", name = "A", addedAt = 0)),
+        )
+
+        val job = async { repo.refreshFeed(now = 1_000L) }
+        delay(200)
+        // The batch has not started while busy, so no video has been stored yet.
+        val during = db.videos().find("vid1")
+        assertEquals(null, during)
+        state.busy = false
+        val result = job.await()
+        assertEquals(1, result.channels)
+    }
+
+    private class BusyState(var busy: Boolean)
 
     @Test
     fun `a fresh video has no learned counts`() = runTest {

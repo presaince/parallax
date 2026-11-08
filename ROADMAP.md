@@ -73,8 +73,15 @@ Phases 1, 2, 3 and 6 are built and installed; the owner's check is what decides 
   button; Glass has an eight-level slider in the same tile; the player shows Queueing/Broken status;
   the shuffle chip reads "Focus"; super-minimised is reached by swipe up; likes and views show under
   the title; the channel name resolves through the video detail and subscriptions.
+- **Player load order**: one staged pipeline — video to the first frame, then chapters, then
+  comments, then "Up next" — with the AI-chapter fallback and the first comments page also gated
+  on the first frame, tested by `PlayerLoadStageTest`.
 - **Player fixes 2026-11-08**: the share timestamp is locked while seeking and only moves on finger
-  lift; speed haptics use the vibrator directly (tick per 0.1, heavier at 1.0x); fullscreen uses
+  lift; haptics go through the vibrator as touch usage, gated by a master switch plus per-feature
+  switches in the new Feedback settings section and by the system setting; home means zero
+  displacement — the seek cancel snap and the return to 1.0× — with chapter-boundary milestones
+  and volume/brightness clamps, all tested by `TicksTest`; home is detected as a crossing of zero,
+  never equality, since a drag jumps over it; fullscreen uses
   fixed landscape and portrait is restored by the nav, not by the player's dispose.
 - **Solid Glass is still Glass**: it raises the card opacity over the same aurora instead of
   falling back to the ordinary Dark/Light schemes. The aurora is now strong (0.52 dark / 0.34

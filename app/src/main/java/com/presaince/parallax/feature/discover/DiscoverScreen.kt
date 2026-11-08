@@ -99,7 +99,6 @@ fun DiscoverScreen(
     }
     // Bored's own setting: subscribed channels are the feed's job, not the walk's.
     var hideSubs by remember { mutableStateOf(prefs.getBoolean("bored_hide_subscribed", true)) }
-    var settingsOpen by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -110,57 +109,12 @@ fun DiscoverScreen(
             ) {
                 state.recipes.forEach { recipe ->
                     FilterChip(
-                        // A recipe is an action, not a filter: tapping it runs the walk. Holding
-                        // the tap highlighted made the row read as a mode that was still on.
                         selected = false,
                         onClick = { viewModel.selectAndWalk(recipe.name) },
                         label = { Text(recipe.name) },
                         colors = parallaxFilterChipColors(),
                     )
                 }
-            }
-            Box {
-                IconButton(onClick = { settingsOpen = true }) {
-                    Icon(
-                        imageVector = Icons.Default.Settings,
-                        contentDescription = "Bored settings",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                DropdownMenu(
-                    expanded = settingsOpen,
-                    onDismissRequest = { settingsOpen = false },
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("Skip subscribed channels") },
-                        trailingIcon = {
-                            Switch(
-                                checked = hideSubs,
-                                onCheckedChange = null,
-                            )
-                        },
-                        onClick = {
-                            hideSubs = !hideSubs
-                            prefs.edit().putBoolean("bored_hide_subscribed", hideSubs).apply()
-                            settingsOpen = false
-                            viewModel.refresh()
-                        },
-                    )
-                }
-            }
-            IconButton(
-                onClick = viewModel::refresh,
-                enabled = state.selected != null && !state.walking,
-            ) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_resync),
-                    contentDescription = "Another list",
-                    tint = if (state.selected != null) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                )
             }
         }
 
@@ -179,6 +133,12 @@ fun DiscoverScreen(
         state.recipe?.let { recipe ->
             RecipeWhy(
                 recipe = recipe,
+                hideSubscribed = hideSubs,
+                onHideSubscribed = {
+                    hideSubs = it
+                    prefs.edit().putBoolean("bored_hide_subscribed", it).apply()
+                    viewModel.refresh()
+                },
                 onTune = viewModel::tune,
             )
         }
@@ -260,9 +220,16 @@ private fun ScoreBadge(score: Double) {
  * override: it applies to the next fetch and is forgotten on restart, which keeps a built-in
  * recipe a recipe rather than a settings screen in disguise.
  */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-private fun RecipeWhy(recipe: Recipe, onTune: (Recipe) -> Unit) {
+private fun RecipeWhy(
+    recipe: Recipe,
+    hideSubscribed: Boolean,
+    onHideSubscribed: (Boolean) -> Unit,
+    onTune: (Recipe) -> Unit,
+) {
     var open by remember(recipe.name) { mutableStateOf(false) }
+    val isShortRecipe = recipe.name.equals("Short", ignoreCase = true) || recipe.name.contains("Short", ignoreCase = true)
 
     // One card, like every other settings block: the explanation and the controls belong to the
     // same object, so they read as one thing rather than loose rows on the page.
@@ -282,12 +249,6 @@ private fun RecipeWhy(recipe: Recipe, onTune: (Recipe) -> Unit) {
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.weight(1f),
                 )
-                Text(
-                    text = if (open) "Hide" else "Show",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.clickable { open = !open }.padding(start = 8.dp),
-                )
                 Icon(
                     imageVector = if (open) {
                         Icons.Default.KeyboardArrowUp
@@ -299,130 +260,128 @@ private fun RecipeWhy(recipe: Recipe, onTune: (Recipe) -> Unit) {
                     modifier = Modifier.size(20.dp).clickable { open = !open },
                 )
             }
-
+            Text(
+                text = explain(recipe),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             if (open) {
-                Text(
-                    text = explain(recipe),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                SwitchSetting(
+                    title = "Skip subscribed",
+                    checked = hideSubscribed,
+                    onChange = onHideSubscribed,
                 )
 
-        val minutes = (recipe.filters.minDurationSec ?: 0L) / 60L
-        SliderControl(
-            label = { value ->
-                if (value < 1f) "Any length" else "At least ${value.toInt()} min"
-            },
-            value = minutes.toFloat(),
-            range = 0f..60f,
-            steps = 11,
-        ) { value ->
-            onTune(
-                recipe.copy(
-                    filters = recipe.filters.copy(
-                        minDurationSec = value.toLong().takeIf { it > 0 }?.times(60),
-                    ),
-                ),
-            )
-        }
+                val length = recipe.filters.minDurationSec
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                ) {
+                    listOf("Any" to null, "15+ min" to 900L, "42+ min" to 2520L).forEach { (label, sec) ->
+                        FilterChip(
+                            selected = length == sec,
+                            onClick = {
+                                onTune(recipe.copy(filters = recipe.filters.copy(minDurationSec = sec)))
+                            },
+                            label = { Text(label) },
+                            colors = parallaxFilterChipColors(),
+                        )
+                    }
+                }
 
-        val age = recipe.filters.maxAgeDays
-        SliderControl(
-            label = { value ->
-                if (value >= 365f) "Any age" else "Up to ${value.toInt()} days old"
-            },
-            value = (age ?: 365).toFloat(),
-            range = 1f..365f,
-            steps = 0,
-        ) { value ->
-            onTune(
-                recipe.copy(
-                    filters = recipe.filters.copy(
-                        maxAgeDays = value.toInt().takeIf { it < 365 },
-                    ),
-                ),
-            )
-        }
+                val age = recipe.filters.maxAgeDays
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                ) {
+                    listOf("Any" to null, "7 days" to 7, "30 days" to 30, "90 days" to 90).forEach { (label, days) ->
+                        FilterChip(
+                            selected = age == days,
+                            onClick = {
+                                onTune(recipe.copy(filters = recipe.filters.copy(maxAgeDays = days)))
+                            },
+                            label = { Text(label) },
+                            colors = parallaxFilterChipColors(),
+                        )
+                    }
+                }
 
-        SliderControl(
-            label = { value -> "Surprise ${(value * 100).toInt()}%" },
-            value = recipe.walk.wildcard.toFloat(),
-            range = 0f..1f,
-            steps = 9,
-        ) { value ->
-            onTune(recipe.copy(walk = recipe.walk.copy(wildcard = value.toDouble())))
-        }
+                val wildcard = recipe.walk.wildcard
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                ) {
+                    listOf("Low" to 0.2, "Mixed" to 0.5, "High" to 0.85).forEach { (label, w) ->
+                        val selected = kotlin.math.abs(wildcard - w) < 0.06
+                        FilterChip(
+                            selected = selected,
+                            onClick = {
+                                onTune(recipe.copy(walk = recipe.walk.copy(wildcard = w)))
+                            },
+                            label = { Text(label) },
+                            colors = parallaxFilterChipColors(),
+                        )
+                    }
+                }
 
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            val noShorts = "shorts" in recipe.filters.excludeKeywords
-            val noLive = "live" in recipe.filters.excludeKeywords
-            FilterChip(
-                selected = noShorts,
-                onClick = {
-                    onTune(
-                        recipe.copy(
-                            filters = recipe.filters.copy(
-                                excludeKeywords = toggleKeyword(
-                                    recipe.filters.excludeKeywords, "shorts", !noShorts,
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                ) {
+                    val noShorts = "shorts" in recipe.filters.excludeKeywords
+                    val noLive = "live" in recipe.filters.excludeKeywords
+                    if (!isShortRecipe) {
+                        FilterChip(
+                            selected = noShorts,
+                            onClick = {
+                                onTune(
+                                    recipe.copy(
+                                        filters = recipe.filters.copy(
+                                            excludeKeywords = toggleKeyword(
+                                                recipe.filters.excludeKeywords, "shorts", !noShorts,
+                                            ),
+                                        ),
+                                    ),
+                                )
+                            },
+                            label = { Text("Shorts") },
+                            colors = parallaxFilterChipColors(),
+                        )
+                    }
+                    FilterChip(
+                        selected = noLive,
+                        onClick = {
+                            onTune(
+                                recipe.copy(
+                                    filters = recipe.filters.copy(
+                                        excludeKeywords = toggleKeyword(
+                                            recipe.filters.excludeKeywords, "live", !noLive,
+                                        ),
+                                    ),
                                 ),
-                            ),
-                        ),
+                            )
+                        },
+                        label = { Text("Live") },
+                        colors = parallaxFilterChipColors(),
                     )
-                },
-                label = { Text("No Shorts") },
-                colors = parallaxFilterChipColors(),
-            )
-            FilterChip(
-                selected = noLive,
-                onClick = {
-                    onTune(
-                        recipe.copy(
-                            filters = recipe.filters.copy(
-                                excludeKeywords = toggleKeyword(
-                                    recipe.filters.excludeKeywords, "live", !noLive,
-                                ),
-                            ),
-                        ),
-                    )
-                },
-                label = { Text("No live") },
-                colors = parallaxFilterChipColors(),
-            )
-        }
+                }
             }
-
         }
     }
 }
 
 @Composable
-private fun SliderControl(
-    label: (Float) -> String,
-    value: Float,
-    range: ClosedFloatingPointRange<Float>,
-    steps: Int,
-    onCommit: (Float) -> Unit,
-) {
-    var draft by remember(value) { mutableFloatStateOf(value.coerceIn(range)) }
-    Row(verticalAlignment = Alignment.CenterVertically) {
+private fun SwitchSetting(title: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Text(
-            // The caption follows the thumb, not the last committed value: dragging shows the
-            // number it is about to mean, and the fetch still waits for the finger to lift.
-            text = label(draft),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.width(128.dp),
-        )
-        Slider(
-            value = draft,
-            onValueChange = { draft = it },
-            onValueChangeFinished = { onCommit(draft) },
-            valueRange = range,
-            steps = steps,
+            text = title,
+            style = MaterialTheme.typography.bodyMedium,
             modifier = Modifier.weight(1f),
         )
+        Switch(checked = checked, onCheckedChange = onChange)
     }
 }
 

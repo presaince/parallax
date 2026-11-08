@@ -92,6 +92,12 @@ interface HistoryDao {
     suspend fun events(limit: Int): List<HistoryProgress>
 }
 
+/** One video's note count, for the card badges. */
+data class NoteCount(
+    val videoId: String,
+    val n: Int,
+)
+
 /** A watched video with its watch count, for the history list. */
 data class HistoryGroup(
     val videoId: String,
@@ -186,6 +192,12 @@ interface CommentCacheDao {    @Query("SELECT * FROM comment_cache WHERE videoId
 interface NoteDao {
     @Query("SELECT * FROM notes WHERE videoId = :videoId AND kind = :kind ORDER BY atSec")
     fun observeFor(videoId: String, kind: String): Flow<List<NoteEntity>>
+
+    /** Voice-note counts per video, for the card badges. */
+    @Query(
+        "SELECT videoId, COUNT(*) AS n FROM notes WHERE kind = :kind GROUP BY videoId",
+    )
+    fun counts(kind: String): Flow<List<NoteCount>>
 
     @Query("SELECT * FROM notes WHERE videoId = :videoId ORDER BY atSec")
     suspend fun forVideo(videoId: String): List<NoteEntity>

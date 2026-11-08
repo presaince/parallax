@@ -15,6 +15,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -54,6 +55,7 @@ import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -123,12 +125,10 @@ fun SettingsSectionScreen(
     when (section) {
         SettingsSectionId.APPEARANCE -> AppearanceSection(theme)
         SettingsSectionId.PLAYBACK -> PlaybackSection(playback)
+        SettingsSectionId.FEEDBACK -> FeedbackSection()
         SettingsSectionId.REGION -> RegionSection(onRegionChange)
         SettingsSectionId.SPONSOR -> SponsorSection(playback)
         SettingsSectionId.ACCOUNTS -> AccountsSection(resyncStore, posting, auth)
-        SettingsSectionId.AI -> AiSection(resyncStore)
-        SettingsSectionId.RESYNC -> ResyncSection(resyncStore)
-        SettingsSectionId.POSTING -> PostingSection(posting, auth)
         SettingsSectionId.DATA -> DataSection(db, recipes)
         SettingsSectionId.DIAGNOSTICS -> DiagnosticsSection(onOpenLogs, log)
         // One About page, not two: the section is the whole thing.
@@ -136,7 +136,7 @@ fun SettingsSectionScreen(
     }
 }
 
-/** One Accounts & keys page: the model key and the posting keys live together. */
+/** One AI & accounts page: the model key and the posting keys live together. */
 @Composable
 private fun AccountsSection(
     resyncStore: ResyncStore,
@@ -144,36 +144,21 @@ private fun AccountsSection(
     auth: com.presaince.parallax.data.auth.YouTubeAuth,
 ) {
     Page {
-        Caption("Timestamp resync")
+        Text(
+            text = "One key powers AI mode: timestamp alignment, AI chapters, summaries and " +
+                "search self-repair. Posting is the separate Google sign-in below. Both are " +
+                "off by default.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Caption("AI")
         ResyncBody(resyncStore)
-        Caption("Posting")
+        Caption("Google posting")
         // PostingScreen is a full scroll page of its own; a fixed window keeps the two keys on
         // one page without nested unbounded scroll containers.
         Box(modifier = Modifier.fillMaxWidth().height(700.dp)) {
             PostingSection(posting, auth)
         }
-    }
-}
-
-/** The AI page: the same Resync key, cached like ai_chapters. Summary and ask arrive here. */
-@Composable
-private fun AiSection(resyncStore: ResyncStore) {
-    Page {
-        Text(
-            text = "AI uses the Resync key above. A video summary, a cleaned description and ask-a-question " +
-                "over the transcript are generated on demand and cached per video. Channel blurbs use the same key.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Caption("Resync key")
-        ResyncBody(resyncStore)
-        Caption("Coming next")
-        Text(
-            text = "Summary, cleaned description, ask-a-question and channel blurbs. Each answer is cached; " +
-                "regeneration is explicit, never silent.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
     }
 }
 
@@ -785,17 +770,22 @@ private fun PreviewWords(
 }
 
 /**
- * The Glass theme's own button, and the surface switch inside it. Top half is the glass look,
- * bottom half the solid one; the half in use stays tinted, so the tile always answers "which
- * surface" even while another theme is active. Tapping either half selects Glass with that
- * surface, which is what the old separate "Surfaces" block was asking twice.
+ * The Glass theme's own button: just Glass, no Solid word. The whole tile is the fill, in the
+ * volume/brightness language: the tile's color rises from the bottom with the level, 1 to 10,
+ * with the glass icon riding on it like the other theme tiles. It slides up and down anywhere on
+ * the tile. Tapping turns Glass on from another theme at the remembered level; off is picking
+ * another theme.
  */
 @Composable
 private fun androidx.compose.foundation.layout.RowScope.GlassTile(theme: ThemeController) {
     val active = theme.mode == ThemeMode.GLASS
-    val glass = !theme.solidSurfaces
     val shape = RoundedCornerShape(20.dp)
-    Column(
+    val levelFraction = (theme.glassLevel.coerceIn(1, 10) - 1) / 9f
+    var tileHeightPx by remember { mutableFloatStateOf(0f) }
+    // The whole tile is the slider: no inner capsule, no number. The fill's height is the
+    // reading, and dragging anywhere on the tile sets it. The gesture is keyless on purpose:
+    // keying it on the level recreated the detector mid-drag, which is the flaky feel.
+    Box(
         modifier = Modifier
             .weight(1f)
             .heightIn(min = 74.dp)
@@ -808,66 +798,60 @@ private fun androidx.compose.foundation.layout.RowScope.GlassTile(theme: ThemeCo
                     MaterialTheme.colorScheme.surfaceVariant
                 },
                 shape = shape,
-            ),
-    ) {
-        // Top half is the levels: the same shape, a slider with eight levels instead of two
-        // fixed fills. Bottom half stays the solid escape hatch.
-        SurfaceHalf(
-            label = "Glass",
-            selected = glass,
-            active = active,
-            brush = Brush.linearGradient(
-                listOf(
-                    MaterialTheme.colorScheme.primary.copy(alpha = 0.30f),
-                    MaterialTheme.colorScheme.tertiary.copy(alpha = 0.16f),
-                    MaterialTheme.colorScheme.surface.copy(alpha = 0.55f),
-                ),
-            ),
-            onClick = {
+            )
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
+            .onSizeChanged { tileHeightPx = it.height.toFloat() }
+            .pointerInput(Unit) {
+                detectVerticalDragGestures(
+                    onDragStart = { },
+                    onVerticalDrag = { change, _ ->
+                        change.consume()
+                        if (tileHeightPx > 1f) {
+                            val t = 1f - ((change.position.y / tileHeightPx).coerceIn(0f, 1f))
+                            val steps = (t * 9f).roundToInt().coerceIn(0, 9)
+                            val level = steps + 1
+                            if (level != theme.glassLevel) theme.chooseGlassLevel(level)
+                        }
+                    },
+                )
+            }
+            .clickable {
                 theme.chooseSolidSurfaces(false)
                 theme.chooseMode(ThemeMode.GLASS)
             },
-            modifier = Modifier.weight(1f),
-        )
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f))
-        // The levels: 0 is the clearest glass, 7 nearly solid. Same tile, a dial now.
-        Row(
+        contentAlignment = Alignment.Center,
+    ) {
+        // The entire tile fills with the theme color up to the level, like the display slider's
+        // fill rising behind its number: the top stays the track, the bottom is the value.
+        // Solid like the volume/brightness pill fill, not a fading gradient.
+        Box(
             modifier = Modifier
+                .align(Alignment.BottomStart)
                 .fillMaxWidth()
-                .heightIn(min = 30.dp)
-                .padding(horizontal = 12.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = "${theme.glassLevel}",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.width(20.dp),
+                .fillMaxHeight(levelFraction.coerceIn(0.12f, 1f))
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)),
+        )
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(
+                painter = painterResource(R.drawable.ic_glass),
+                contentDescription = "Glass theme",
+                tint = if (active) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
             )
-            androidx.compose.material3.Slider(
-                value = theme.glassLevel.toFloat(),
-                onValueChange = { theme.chooseGlassLevel(it.roundToInt()) },
-                valueRange = 0f..7f,
-                steps = 6,
-                modifier = Modifier.weight(1f),
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = "Glass",
+                style = MaterialTheme.typography.labelMedium,
+                color = if (active) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
             )
         }
-        SurfaceHalf(
-            label = "Solid",
-            selected = !glass,
-            active = active,
-            brush = Brush.linearGradient(
-                listOf(
-                    MaterialTheme.colorScheme.surfaceVariant,
-                    MaterialTheme.colorScheme.surfaceVariant,
-                ),
-            ),
-            onClick = {
-                theme.chooseSolidSurfaces(glass)
-                theme.chooseMode(ThemeMode.GLASS)
-            },
-            modifier = Modifier.weight(1f),
-        )
     }
 }
 
@@ -1326,6 +1310,84 @@ private fun PlaybackSection(playback: PlaybackController) {
     }
 }
 
+/** One home for what the app feels like, not just what it shows. Haptics lives here and
+ *  anything else the phone can sense goes here too instead of a new top-level section. */
+@Composable
+private fun FeedbackSection() {
+    val context = LocalContext.current
+    fun pref(name: String): Boolean =
+        context.getSharedPreferences("parallax", android.content.Context.MODE_PRIVATE)
+            .getBoolean(name, true)
+    fun setPref(name: String, value: Boolean) {
+        context.getSharedPreferences("parallax", android.content.Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(name, value)
+            .apply()
+    }
+    var master by remember { mutableStateOf(pref("haptics_enabled")) }
+    var seekCancel by remember { mutableStateOf(pref("haptics_seek_cancel")) }
+    var speedHome by remember { mutableStateOf(pref("haptics_speed_home")) }
+    var clamps by remember { mutableStateOf(pref("haptics_clamps")) }
+    var milestones by remember { mutableStateOf(pref("haptics_milestones")) }
+    val systemHaptics = com.presaince.parallax.ui.component.systemHapticsOn(context)
+
+    Page {
+        SwitchRow(
+            title = "Haptics",
+            summary = "Follows the system haptic setting, which is currently " +
+                (if (systemHaptics) "on." else "off, so nothing will be felt until it is on."),
+            checked = master,
+            onCheckedChange = { enabled ->
+                master = enabled
+                setPref("haptics_enabled", enabled)
+                if (enabled) com.presaince.parallax.ui.component.TickRunner(context).step()
+            },
+        )
+        TextButton(
+            onClick = { com.presaince.parallax.ui.component.TickRunner(context).step() },
+        ) { Text("Feel a test tick") }
+
+        Caption("Marks")
+        SwitchRow(
+            title = "Seek cancel snap",
+            summary = "A double-click when a seek comes back to where it started, meaning " +
+                "don't seek. It is the gesture's own zero, never the start of the video.",
+            checked = seekCancel,
+            onCheckedChange = { enabled ->
+                seekCancel = enabled
+                setPref("haptics_seek_cancel", enabled)
+            },
+        )
+        SwitchRow(
+            title = "Speed home snap",
+            summary = "The same snap back at 1.0×, the speed's resting value.",
+            checked = speedHome,
+            onCheckedChange = { enabled ->
+                speedHome = enabled
+                setPref("haptics_speed_home", enabled)
+            },
+        )
+        SwitchRow(
+            title = "Volume and brightness ends",
+            summary = "A snap when either gesture reaches the top or the bottom of its range.",
+            checked = clamps,
+            onCheckedChange = { enabled ->
+                clamps = enabled
+                setPref("haptics_clamps", enabled)
+            },
+        )
+        SwitchRow(
+            title = "Chapter milestones",
+            summary = "A lighter tick when a seek crosses a chapter boundary.",
+            checked = milestones,
+            onCheckedChange = { enabled ->
+                milestones = enabled
+                setPref("haptics_milestones", enabled)
+            },
+        )
+    }
+}
+
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun SponsorSection(playback: PlaybackController) {
@@ -1357,22 +1419,28 @@ private fun SponsorSection(playback: PlaybackController) {
                 SponsorCategories.all
                     .sortedBy { SponsorCategories.label(it).length }
                     .forEach { category ->
+                        // Normal chips, like every toggle in the app: the colored dot is the
+                        // category's identity and stays; the fill is the theme's own.
                         val checked = category in playbackState.sponsorCategories
+                        val categoryColor = SponsorCategories.color(category)
                         FilterChip(
                             selected = checked,
                             onClick = { playback.setSponsorCategory(category, !checked) },
                             label = { Text(SponsorCategories.label(category)) },
                             colors = parallaxFilterChipColors(),
+                            leadingIcon = {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .clip(CircleShape)
+                                        .background(categoryColor),
+                                )
+                            },
                         )
                     }
             }
         }
     }
-}
-
-@Composable
-private fun ResyncSection(resyncStore: ResyncStore) {
-    Page { ResyncBody(resyncStore) }
 }
 
 @Composable
@@ -1385,7 +1453,7 @@ private fun ResyncBody(resyncStore: ResyncStore) {
     var saved by remember { mutableStateOf(false) }
 
         SwitchRow(
-            title = "Align comment timestamps",
+            title = "AI mode",
             summary = "Off by default. Your own model endpoint and key; only the cue slice for " +
                 "the comments you align is sent. Turning this on also lets the app generate AI " +
                 "chapters for videos that have none.",
@@ -1432,7 +1500,7 @@ private fun ResyncBody(resyncStore: ResyncStore) {
                 },
                 modifier = Modifier.padding(top = 4.dp),
             ) {
-                Text(if (saved) "Saved" else "Save Resync")
+                Text(if (saved) "Saved" else "Save AI key")
             }
         }
 }
@@ -1829,7 +1897,7 @@ private fun RegionSection(onRegionChange: (List<String>) -> Unit) {
                             com.presaince.parallax.ui.component.FlagBackground(
                                 code = region.code,
                                 modifier = Modifier.matchParentSize(),
-                                alpha = if (selected) 0.42f else 0.24f,
+                                alpha = if (selected) 0.62f else 0.38f,
                             )
                             Box(
                                 modifier = Modifier
@@ -1837,8 +1905,8 @@ private fun RegionSection(onRegionChange: (List<String>) -> Unit) {
                                     .background(
                                         Brush.horizontalGradient(
                                             listOf(
-                                                MaterialTheme.colorScheme.surface.copy(alpha = 0.90f),
-                                                MaterialTheme.colorScheme.surface.copy(alpha = 0.45f),
+                                                MaterialTheme.colorScheme.surface.copy(alpha = 0.78f),
+                                                MaterialTheme.colorScheme.surface.copy(alpha = 0.30f),
                                             ),
                                         ),
                                     ),
@@ -1853,21 +1921,6 @@ private fun RegionSection(onRegionChange: (List<String>) -> Unit) {
                         },
                         modifier = Modifier.padding(start = 14.dp),
                     )
-                    if (main) {
-                        Text(
-                            text = "Main",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier
-                                .align(Alignment.CenterEnd)
-                                .padding(end = 14.dp)
-                                .background(
-                                    MaterialTheme.colorScheme.primary.faded(0.16f),
-                                    RoundedCornerShape(50),
-                                )
-                                .padding(horizontal = 8.dp, vertical = 2.dp),
-                        )
-                    }
                         }
                     }
                     repeat(3 - chunk.size) { Spacer(Modifier.weight(1f)) }

@@ -7,10 +7,12 @@ package com.presaince.parallax.data.source
 import com.presaince.parallax.core.AppLog
 import com.presaince.parallax.core.AppResult
 import com.presaince.parallax.core.cleanHtml
+import com.presaince.parallax.core.firstLoadHeight
 import com.presaince.parallax.data.model.Channel
 import com.presaince.parallax.data.model.Comment
 import com.presaince.parallax.data.model.Cue
 import com.presaince.parallax.data.model.Page
+import com.presaince.parallax.data.model.PreviewFrames
 import com.presaince.parallax.data.model.StreamSet
 import com.presaince.parallax.data.model.SubtitleTrack
 import com.presaince.parallax.data.model.StreamState
@@ -19,10 +21,15 @@ import com.presaince.parallax.data.model.VideoSummary
 import com.presaince.parallax.data.resync.SubtitleParser
 import java.io.IOException
 import java.util.Locale
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.util.concurrent.ConcurrentHashMap
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.schabi.newpipe.extractor.MediaFormat
@@ -59,12 +66,37 @@ class NewPipeSource(
 
     // TTL caches: metadata 6h, related 12h, channel uploads 30m (comments 1h live in
     // ContentRepository beside their on-disk pages). In-memory, so a restart still fetches.
-    private val videoCache = mutableMapOf<String, Pair<Long, VideoDetail>>()
-    private val relatedCache = mutableMapOf<String, Pair<Long, List<VideoSummary>>>()
-    private val uploadsCache = mutableMapOf<String, Pair<Long, Page<VideoSummary>>>()
+    // Concurrent so parallel opens do not race a plain map into a second fetch.
+    private val videoCache = ConcurrentHashMap<String, Pair<Long, VideoDetail>>()
+    private val relatedCache = ConcurrentHashMap<String, Pair<Long, List<VideoSummary>>>()
+    private val uploadsCache = ConcurrentHashMap<String, Pair<Long, Page<VideoSummary>>>()
+    private val streamInfoCache = ConcurrentHashMap<String, Pair<Long, StreamInfo>>()
+    /** One in-flight fetch per video, shared by metadata and streams. */
+    private val streamInfoJobs = ConcurrentHashMap<String, Deferred<StreamInfo>>()
+    private val fetchScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val metadataTTL = 6L * 60 * 60 * 1000
     private val relatedTTL = 12L * 60 * 60 * 1000
     private val uploadsTTL = 30L * 60 * 1000
+    private val streamInfoTTL = 60L * 60 * 1000
+
+    /**
+     * One parse per video: metadata and streams share it, so opening a video costs one fetch.
+     * Concurrent callers share the same in-flight job instead of fetching twice.
+     */
+    private suspend fun streamInfo(id: String): StreamInfo {
+        val now = System.currentTimeMillis()
+        streamInfoCache[id]?.takeIf { now - it.first < streamInfoTTL }?.let { return it.second }
+        val job = streamInfoJobs.computeIfAbsent(id) {
+            fetchScope.async { StreamInfo.getInfo(service, watchUrl(id)) }
+        }
+        try {
+            val parsed = job.await()
+            streamInfoCache[id] = System.currentTimeMillis() to parsed
+            return parsed
+        } finally {
+            streamInfoJobs.remove(id, job)
+        }
+    }
 
     /** Reset per listing call: the log should explain a list, not flood it. */
     private var ambiguousSeen = 0
@@ -151,7 +183,7 @@ class NewPipeSource(
             return@withContext AppResult.Ok(it.second)
         }
         withSourceRepair(log, "video", { resetMainRegion() }) {
-            val info = StreamInfo.getInfo(service, watchUrl(id))
+            val info = streamInfo(id)
             val detail = VideoDetail(
                 id = id,
                 url = watchUrl(id),
@@ -161,6 +193,19 @@ class NewPipeSource(
                 durationSec = info.duration,
                 description = cleanHtml(runCatching { info.description?.content() }.getOrNull().orEmpty()),
                 likeCount = runCatching { info.likeCount }.getOrNull()?.takeIf { it >= 0 },
+                previewFrames = runCatching {
+                    info.previewFrames.map {
+                        PreviewFrames(
+                            urls = it.urls,
+                            framesPerPageX = it.framesPerPageX,
+                            framesPerPageY = it.framesPerPageY,
+                            frameWidth = it.frameWidth,
+                            frameHeight = it.frameHeight,
+                            durationPerFrameMs = it.durationPerFrame,
+                            totalCount = it.totalCount,
+                        )
+                    }
+                }.getOrDefault(emptyList()),
             )
             videoCache[id] = now to detail
             detail
@@ -169,12 +214,13 @@ class NewPipeSource(
 
     override suspend fun streams(id: String): AppResult<StreamSet> = withContext(Dispatchers.IO) {
         withSourceRepair(log, "streams", { resetMainRegion() }) {
-            val info = StreamInfo.getInfo(service, watchUrl(id))
+            val info = streamInfo(id)
 
             // Progressive (video+audio in one file) is the smallest moving part and plays
             // everywhere, but it comes with whichever audio track YouTube chose for the file. A
             // video with several language tracks is played as a merge so the language is ours.
-            val target = qualityHeight()
+            // The target is the first-load ceiling, so Auto does not start at the highest bitrate.
+            val target = firstLoadTargetHeight()
             val audioTracks = info.audioStreams.mapNotNull { it.audioTrackId }.distinct()
             val muxed = if (audioTracks.size > 1) null else pick(info.videoStreams, target)
             if (muxed != null) {
@@ -223,7 +269,7 @@ class NewPipeSource(
             }
             ambiguousSeen = 0
             withSourceRepair(log, "related", { resetMainRegion() }) {
-                val items = StreamInfo.getInfo(service, watchUrl(id)).relatedItems
+                val items = streamInfo(id).relatedItems
                     .filterIsInstance<StreamInfoItem>()
                     .mapNotNull { it.toSummary() }
                 relatedCache[id] = now to items
@@ -295,7 +341,7 @@ class NewPipeSource(
     override suspend fun subtitles(id: String): AppResult<SubtitleTrack> =
         withContext(Dispatchers.IO) {
             withSourceRepair(log, "subtitles", { resetMainRegion() }) {
-                val info = StreamInfo.getInfo(service, watchUrl(id))
+                val info = streamInfo(id)
                 val candidates = info.subtitles
                     .filter { it.isUrl() && it.content.isNotBlank() }
                     .sortedWith(
@@ -367,6 +413,9 @@ class NewPipeSource(
         appContext?.getSharedPreferences("parallax", android.content.Context.MODE_PRIVATE)
             ?.getInt("video_quality", 0)
     }.getOrNull() ?: 0
+
+    /** First-load ceiling: Auto caps below the highest bitrate so first frame buffers faster. */
+    private fun firstLoadTargetHeight(): Int = firstLoadHeight(qualityHeight())
 
     /**
      * The original language wins, never a dub and never an audio-description track. Only then does

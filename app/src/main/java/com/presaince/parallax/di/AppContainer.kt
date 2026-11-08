@@ -98,7 +98,7 @@ class AppContainer(context: Context) {
             .build()
     }
 
-    val content: ContentRepository by lazy { ContentRepository(source, db, log) }
+    val content: ContentRepository by lazy { ContentRepository(source, db, log, playbackBusy = { playback.state.value.isBuffering }) }
 
     val resyncStore: ResyncStore by lazy {
         ResyncStore(prefs, SecurePrefs(appContext))

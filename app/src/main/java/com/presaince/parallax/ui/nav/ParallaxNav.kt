@@ -117,11 +117,13 @@ fun ParallaxNav(container: AppContainer, theme: ThemeController) {
         if (isPlayer) miniLevelFor = null
     }
 
-    // Leaving the player restores portrait here, in the nav, not in the player's dispose: that
-    // dispose runs on fullscreen toggles too, and forcing portrait there snapped the picture
-    // back before the rotation could land.
+    // The player asks for the sensor, so turning the phone in actually turns the activity; without
+    // it the app sits locked in portrait and no rotation code can ever run. The rest of the app
+    // keeps the portrait lock the manifest (and MainActivity) gives it.
     LaunchedEffect(isPlayer) {
-        if (!isPlayer) {
+        if (isPlayer) {
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR
+        } else {
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         }
     }
@@ -207,7 +209,7 @@ fun ParallaxNav(container: AppContainer, theme: ThemeController) {
                     onTogglePlay = container.playback::togglePlayPause,
                     // Three sizes on one gesture: full, swipe down to mini, swipe down again to
                     // super-min; swipe up to step back out.
-                    level = if (miniLevelFor?.first == playingVideoId) miniLevelFor.second else 0,
+                    level = miniLevelFor?.takeIf { it.first == playingVideoId }?.second ?: 0,
                     onLevel = { next ->
                         miniLevelFor = playingVideoId to next
                     },
@@ -323,6 +325,7 @@ fun ParallaxNav(container: AppContainer, theme: ThemeController) {
                             source = container.source,
                             channelUrl = current.url,
                             channelName = current.name,
+                            db = container.db,
                             onOpenVideo = { push(Route.Player(it)) },
                         )
                         is Route.Player -> PlayerScreen(

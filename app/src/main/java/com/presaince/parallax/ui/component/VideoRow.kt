@@ -18,6 +18,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -54,17 +55,15 @@ fun VideoRow(
     val pictureOnly = style.layout == CardLayout.MINIMAL &&
         !style.title && !style.channel && !style.age && !style.views && !style.likes
 
-    // Card border as a signal: watch progress only, so the border never lies about recency.
-    val signalBorder = if (watched != null && watched > 0.05f) {
-        Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(8.dp))
-    } else {
-        Modifier
-    }
     when (style.layout) {
+        // No border on the card: the progress line under the thumbnail already says how far
+        // the video was watched, and a border only repeats it.
         CardLayout.CLASSIC -> Column(
             modifier = modifier
-                .then(signalBorder)
                 .fillMaxWidth()
+                .padding(vertical = 5.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp))
                 .clickable(onClick = onClick)
                 .padding(vertical = 6.dp),
         ) {
@@ -80,7 +79,7 @@ fun VideoRow(
                     Box(modifier = Modifier.align(Alignment.TopEnd)) { trailing() }
                 }
                 if (badge != null) {
-                    Box(modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp)) { badge() }
+                    Box(modifier = Modifier.align(Alignment.TopEnd).padding(6.dp)) { badge() }
                 }
             }
             CardWords(
@@ -94,6 +93,9 @@ fun VideoRow(
         CardLayout.SIDE -> Row(
             modifier = modifier
                 .fillMaxWidth()
+                .padding(vertical = 5.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp))
                 .clickable(onClick = onClick)
                 .padding(vertical = 6.dp),
             verticalAlignment = Alignment.Top,
@@ -110,7 +112,7 @@ fun VideoRow(
                     Box(modifier = Modifier.align(Alignment.TopEnd)) { trailing() }
                 }
                 if (badge != null) {
-                    Box(modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp)) { badge() }
+                    Box(modifier = Modifier.align(Alignment.TopEnd).padding(6.dp)) { badge() }
                 }
             }
             CardWords(
@@ -124,6 +126,9 @@ fun VideoRow(
         CardLayout.MINIMAL -> Row(
             modifier = modifier
                 .fillMaxWidth()
+                .padding(vertical = 4.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp))
                 .clickable(onClick = onClick)
                 .padding(vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -140,7 +145,7 @@ fun VideoRow(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 if (badge != null) {
-                    Box(modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp)) { badge() }
+                    Box(modifier = Modifier.align(Alignment.TopEnd).padding(6.dp)) { badge() }
                 }
             }
             if (!pictureOnly) {
@@ -165,7 +170,14 @@ fun VideoTile(
     style: CardStyle,
     badge: (@Composable () -> Unit)? = null,
 ) {
-    Box(modifier = modifier.fillMaxWidth().clickable(onClick = onClick)) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick),
+    ) {
         Thumbnail(
             url = Thumbnails.forVideo(video.id, video.thumbnailUrl),
             durationSec = if (style.duration) video.durationSec else 0,
@@ -174,7 +186,7 @@ fun VideoTile(
             modifier = Modifier.fillMaxWidth(),
         )
         if (badge != null) {
-            Box(modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp)) { badge() }
+            Box(modifier = Modifier.align(Alignment.TopEnd).padding(6.dp)) { badge() }
         }
     }
 }

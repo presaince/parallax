@@ -27,7 +27,7 @@ class ThemeController(private val context: Context) {
     var solidSurfaces: Boolean by mutableStateOf(readSolidSurfaces(context))
         private set
 
-    /** Glass only: eight levels, 0 clearest to 7 nearly solid. */
+    /** Glass only: ten levels, 1 clearest to 10 nearly solid. */
     var glassLevel: Int by mutableStateOf(readGlassLevel(context))
         private set
 
@@ -83,7 +83,7 @@ class ThemeController(private val context: Context) {
     }
 
     fun chooseGlassLevel(level: Int) {
-        glassLevel = level.coerceIn(0, 7)
+        glassLevel = level.coerceIn(1, 10)
         writeGlassLevel(context, glassLevel)
     }
 

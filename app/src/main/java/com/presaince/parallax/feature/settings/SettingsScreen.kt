@@ -100,17 +100,19 @@ fun SettingsScreen(
             append(" · ")
             append(if (hideLive) "live hidden" else "live shown")
         },
+        SettingsSectionId.FEEDBACK to if (
+            context.getSharedPreferences("parallax", Context.MODE_PRIVATE)
+                .getBoolean("haptics_enabled", true)
+        ) "Haptics on" else "Haptics off",
         SettingsSectionId.REGION to regionLabel,
         SettingsSectionId.SPONSOR to if (playbackState.sponsorSkip) {
             "On · ${playbackState.sponsorCategories.size} categories"
         } else {
             "Off"
         },
-        SettingsSectionId.RESYNC to if (resync.enabled) "On" else "Off",
-        SettingsSectionId.POSTING to when {
-            !postingState.configured -> "Off"
-            postingState.enabled && postingState.signedIn -> "On"
-            postingState.enabled -> "Sign in"
+        SettingsSectionId.ACCOUNTS to when {
+            resync.enabled -> "AI on"
+            postingState.configured -> "Google set up"
             else -> "Off"
         },
         SettingsSectionId.DATA to "Import and export subscriptions",

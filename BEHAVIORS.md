@@ -125,8 +125,16 @@ three-digit minutes ("100:30"); the title is what remains after the timestamp.
 
 **Rule.** At the end of a video, related videos appear under "Up next" behind a Settings switch.
 
-**Edge.** The list loads once via the source boundary when the playhead reaches the end, and is
-hidden entirely when the switch is off.
+**Edge.** The list is prefetched once the load stages reach it (or at three quarters through, so
+a slow comments fetch cannot stall the end screen) and is hidden entirely when the switch is off.
+
+**Rule.** A video loads in one order: streams to the first frame, then the detail and chapters,
+then comments, then "Up next". The AI-chapter fallback and the first comments page also wait for
+the first frame, so the picture never loses bandwidth to the words beneath it.
+
+**Enforced by** `feature/player/PlayerViewModel.kt` (`playerStage`), `feature/player/PlayerScreen.kt`,
+`playback/PlaybackController.kt` (`firstFrameReady`), `feature/comments/CommentsViewModel.kt`
+(`preloadFirstPage`).
 
 **Rule.** The channel name under the title is a door: tapping it opens the channel page. The video's
 facts (views, age) sit on the right of the same line.

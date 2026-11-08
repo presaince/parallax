@@ -257,22 +257,32 @@ private fun CommentRow(
                 onTextLayout = { overflowing = it.hasVisualOverflow },
             )
         }
-        // Only a comment that is cut off, or one already opened, gets the chevron.
-        if (overflowing || expanded) {
-            Icon(
-                imageVector = if (expanded) {
-                    Icons.Default.KeyboardArrowUp
-                } else {
-                    Icons.Default.KeyboardArrowDown
-                },
-                contentDescription = if (expanded) "Show less" else "Show the whole comment",
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier
-                    .align(Alignment.End)
-                    .size(24.dp)
-                    .clickable { expanded = !expanded },
+        // The reply count is visible before the row is opened: how many replies exist is part
+        // of the comment, not of its expansion.
+        if (comment.replyCount > 0 && !expanded) {
+            Text(
+                text = plural(comment.replyCount.toLong(), "reply", "replies"),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp),
             )
         }
+
+        // Every row gets its chevron: a conditional one hid on short comments, which read as
+        // "this comment cannot be opened".
+        Icon(
+            imageVector = if (expanded) {
+                Icons.Default.KeyboardArrowUp
+            } else {
+                Icons.Default.KeyboardArrowDown
+            },
+            contentDescription = if (expanded) "Show less" else "Show the whole comment",
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier
+                .align(Alignment.End)
+                .size(24.dp)
+                .clickable { expanded = !expanded },
+        )
 
         if (!expanded) return@Column
 

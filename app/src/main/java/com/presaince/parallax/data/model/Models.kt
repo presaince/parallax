@@ -22,6 +22,33 @@ data class VideoSummary(
     val streamState: StreamState = StreamState.NORMAL,
 )
 
+/** One storyboard: a grid of video frames whose images are paged by url. */
+data class PreviewFrames(
+    val urls: List<String>,
+    val framesPerPageX: Int,
+    val framesPerPageY: Int,
+    val frameWidth: Int,
+    val frameHeight: Int,
+    val durationPerFrameMs: Int,
+    val totalCount: Int,
+) {
+    /**
+     * Tile containing [frameMs], as page index, column and row. This mirrors
+     * Frameset.getFrameBoundsAt, including its page arithmetic, so the tile matches
+     * the extractor's own mapping. Callers draw that tile from that page's image.
+     */
+    fun tileAt(frameMs: Long): Triple<Int, Int, Int>? {
+        val perPage = framesPerPageX * framesPerPageY
+        if (urls.isEmpty() || perPage <= 0 || durationPerFrameMs <= 0) return null
+        val absolute = (frameMs / durationPerFrameMs).toInt().coerceIn(0, totalCount)
+        val relative = absolute % perPage
+        val row = Math.floorDiv(relative, framesPerPageX)
+        val col = relative % framesPerPageY
+        val page = Math.floorDiv(absolute, perPage).coerceIn(0, urls.lastIndex)
+        return Triple(page, col, row)
+    }
+}
+
 data class VideoDetail(
     val id: String,
     val url: String,
@@ -31,6 +58,7 @@ data class VideoDetail(
     val durationSec: Long,
     val description: String,
     val likeCount: Long? = null,
+    val previewFrames: List<PreviewFrames> = emptyList(),
 )
 
 /**

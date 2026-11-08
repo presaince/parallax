@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
@@ -80,6 +81,7 @@ fun ScrollToTopButton(
             Icon(
                 imageVector = Icons.Filled.KeyboardArrowUp,
                 contentDescription = "Back to top",
+                tint = MaterialTheme.colorScheme.primary,
             )
         }
     }

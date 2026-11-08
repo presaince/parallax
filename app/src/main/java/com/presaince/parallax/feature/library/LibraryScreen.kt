@@ -63,8 +63,10 @@ import com.presaince.parallax.data.library.ContentRepository
 import com.presaince.parallax.data.model.VideoSummary
 import com.presaince.parallax.feature.collections.CollectionsSection
 import com.presaince.parallax.ui.component.ChannelAvatar
+import com.presaince.parallax.ui.component.NoteCountBadge
 import com.presaince.parallax.ui.component.ScrollToTopButton
 import com.presaince.parallax.ui.component.VideoRow
+import com.presaince.parallax.ui.component.noteCounts
 import com.presaince.parallax.ui.theme.parallaxFilterChipColors
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -83,6 +85,7 @@ fun LibraryScreen(
         },
     )
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val notes = noteCounts(db)
 
     Column(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
@@ -181,6 +184,7 @@ fun LibraryScreen(
             ) {
                 ChannelSections(
                     state = state,
+                    notes = notes,
                     onOpenChannel = onOpenChannel,
                     onOpenVideo = onOpenVideo,
                 )
@@ -247,6 +251,7 @@ private fun ChannelGrid(
 @Composable
 private fun ChannelSections(
     state: LibraryUiState,
+    notes: Map<String, Int>,
     onOpenChannel: (String, String) -> Unit,
     onOpenVideo: (VideoSummary) -> Unit,
 ) {
@@ -265,6 +270,9 @@ private fun ChannelSections(
                     watched = state.watchedFraction(progress.videoId),
                     meta = "${formatDuration(progress.positionMs / 1000)} watched",
                     onClick = { onOpenVideo(progress.toSummary()) },
+                    badge = notes[progress.videoId]?.takeIf { it > 0 }?.let { n ->
+                        { NoteCountBadge(count = n) }
+                    },
                 )
             }
         }
@@ -284,6 +292,9 @@ private fun ChannelSections(
                     video = video.toSummary(),
                     watched = state.watchedFraction(video.id),
                     onClick = { onOpenVideo(video.toSummary()) },
+                    badge = notes[video.id]?.takeIf { it > 0 }?.let { n ->
+                        { NoteCountBadge(count = n) }
+                    },
                 )
             }
             if (videos.isEmpty()) {

@@ -14,6 +14,7 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
@@ -52,7 +53,12 @@ data class PlaybackState(
     val videoTitle: String = "",
     /** The last mid-playback failure, so the screen can try once more without the user asking. */
     val playerError: String? = null,
+    /** True once the current video has reached READY: the first-frame gate for lower-priority loads. */
+    val firstFrameReady: Boolean = false,
 )
+
+/** A sponsor seek during buffering discards what ExoPlayer buffered and restarts it. */
+internal fun shouldSkipSegment(playbackState: Int): Boolean = playbackState == Player.STATE_READY
 
 /**
  * The one owner of the player. The service keeps it alive in the foreground; screens only read
@@ -69,7 +75,23 @@ class PlaybackController(
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
-    val player: ExoPlayer = ExoPlayer.Builder(appContext).build()
+    val player: ExoPlayer = ExoPlayer.Builder(appContext)
+        // Smaller start buffer: the defaults ask for 2.5s before the first frame, which is most
+        // of the 6s Queueing wait when the pick is high-bitrate and the feed is fetching.
+        .setLoadControl(
+            DefaultLoadControl.Builder()
+                .setBufferDurationsMs(
+                    MIN_BUFFER_MS,
+                    MAX_BUFFER_MS,
+                    BUFFER_FOR_PLAYBACK_MS,
+                    BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS,
+                )
+                .build(),
+        )
+        .build()
+
+    /** One factory for every play, instead of a fresh data source per video. */
+    private val mediaFactory = ProgressiveMediaSource.Factory(DefaultDataSource.Factory(appContext))
 
     private val _state = MutableStateFlow(
         PlaybackState(
@@ -103,7 +125,12 @@ class PlaybackController(
     private var currentChannel: String = ""
     private var currentThumb: String? = null
     private var pendingResumeMs: Long? = null
+    private var pendingSegmentsFetch = false
     private var ticksSinceSave = 0
+    /** When [play] was called, so buffering time can be logged alongside fetch time. */
+    private var playStartedAtMs = 0L
+    /** True once READY for the current play has been logged. */
+    private var readyLogged = false
     /** True between the deliberate stop/clear and the prepare at the start of [play]. */
     private var preparing = false
 
@@ -123,6 +150,11 @@ class PlaybackController(
                         isBuffering = playbackState == Player.STATE_BUFFERING,
                     )
                 }
+                if (playbackState == Player.STATE_READY && currentVideoId != null && !readyLogged) {
+                    readyLogged = true
+                    _state.update { it.copy(firstFrameReady = true) }
+                    log.info("player", "ready in ${System.currentTimeMillis() - playStartedAtMs}ms for $currentVideoId")
+                }
                 // IDLE with a video loaded means something took the media away. It is the only
                 // clue when a stream stops on its own, so the log names it.
                 if (playbackState == Player.STATE_IDLE && currentVideoId != null && !preparing) {
@@ -133,6 +165,12 @@ class PlaybackController(
                     pendingResumeMs = null
                     player.seekTo(resume.coerceIn(0, player.duration.coerceAtLeast(0)))
                     log.info("player", "resumed at ${resume}ms")
+                }
+                // Sponsor data is a separate request; starting it only now leaves the
+                // connections and the bandwidth to the first frame.
+                if (playbackState == Player.STATE_READY && pendingSegmentsFetch) {
+                    pendingSegmentsFetch = false
+                    currentVideoId?.let { fetchSegments(it) }
                 }
             }
 
@@ -162,6 +200,8 @@ class PlaybackController(
         resumeAtMs: Long? = null,
     ) {
         startService()
+        playStartedAtMs = System.currentTimeMillis()
+        readyLogged = false
         log.info("player", "play $videoId (${if (streams.muxedUrl != null) "muxed" else "split"})")
 
         currentVideoId = videoId
@@ -212,7 +252,6 @@ class PlaybackController(
                     .build(),
             )
         } else {
-            val factory = ProgressiveMediaSource.Factory(DefaultDataSource.Factory(appContext))
             val videoItem = MediaItem.Builder()
                 .setUri(requireNotNull(streams.videoUrl))
                 .setMediaId(videoId)
@@ -221,8 +260,8 @@ class PlaybackController(
             val audioItem = MediaItem.fromUri(requireNotNull(streams.audioUrl))
             player.setMediaSource(
                 MergingMediaSource(
-                    factory.createMediaSource(videoItem),
-                    factory.createMediaSource(audioItem),
+                    mediaFactory.createMediaSource(videoItem),
+                    mediaFactory.createMediaSource(audioItem),
                 ),
             )
         }
@@ -230,16 +269,15 @@ class PlaybackController(
         lastSkipEndMs = -1L
         segments = emptyList()
         rawSegments = emptyList()
-        segmentsJob?.cancel()
-        segmentsJob = scope.launch {
-            rawSegments = runCatching { sponsorBlock.segments(videoId) }.getOrDefault(emptyList())
-            applyCategoryFilter()
-        }
+        // Deferred until READY so the SponsorBlock request does not compete with the first
+        // frame for the shared pool and bandwidth.
+        pendingSegmentsFetch = true
 
-        player.prepare()
-        preparing = false
+        // Play when ready, before prepare, so the first frame starts as soon as it can.
         player.playWhenReady = true
         player.setPlaybackSpeed(normalSpeed)
+        player.prepare()
+        preparing = false
         // A seek before the timeline exists clamps to zero, which is exactly how a resume turns
         // into "start from the beginning". Hold it until the player is ready.
         pendingResumeMs = resumeAtMs?.takeIf { it > 5_000 }
@@ -251,6 +289,7 @@ class PlaybackController(
                 videoId = videoId,
                 videoTitle = title,
                 playerError = null,
+                firstFrameReady = false,
                 segments = emptyList(),
                 lastSkip = null,
             )
@@ -276,6 +315,7 @@ class PlaybackController(
                 videoId = null,
                 videoTitle = "",
                 playerError = null,
+                firstFrameReady = false,
                 segments = emptyList(),
                 lastSkip = null,
             )
@@ -349,9 +389,31 @@ class PlaybackController(
         _state.update { it.copy(speed = player.playbackParameters.speed) }
     }
 
+    private fun fetchSegments(videoId: String) {
+        segmentsJob?.cancel()
+        segmentsJob = scope.launch {
+            rawSegments = runCatching { sponsorBlock.segments(videoId) }.getOrDefault(emptyList())
+            applyCategoryFilter()
+            if (rawSegments.isEmpty()) {
+                log.info("player", "sponsor segments empty for $videoId")
+            } else {
+                log.info("player", "sponsor segments ${rawSegments.size} for $videoId")
+            }
+        }
+    }
+
     fun setSponsorSkip(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_SPONSOR_SKIP, enabled).apply()
         _state.update { it.copy(sponsorSkip = enabled) }
+        log.info("player", "sponsor skip ${if (enabled) "on" else "off"}")
+        if (enabled) {
+            lastSkipEndMs = -1L
+            val videoId = currentVideoId
+            if (videoId != null && rawSegments.isEmpty() && segments.isEmpty()) {
+                log.info("player", "sponsor refetch for $videoId after enable")
+                fetchSegments(videoId)
+            }
+        }
     }
 
     /** One category on or off. The next video uses it, and the current one re-filters now. */
@@ -378,7 +440,9 @@ class PlaybackController(
         val position = player.currentPosition.coerceAtLeast(0L)
         val duration = player.duration.coerceAtLeast(0L)
 
-        if (current.sponsorSkip && segments.isNotEmpty()) {
+        // No seek while buffering: a seek discards buffered data and restarts buffering, so a
+        // segment at 0 would add a second buffer cycle to the first frame.
+        if (current.sponsorSkip && segments.isNotEmpty() && !current.isBuffering && shouldSkipSegment(player.playbackState)) {
             val hit = segments.firstOrNull { it.contains(position) }
             if (hit != null && hit.endMs != lastSkipEndMs) {
                 lastSkipEndMs = hit.endMs
@@ -388,11 +452,12 @@ class PlaybackController(
             }
         }
 
-        _state.update {
-            it.copy(
-                positionMs = player.currentPosition.coerceAtLeast(0L),
-                durationMs = duration,
-            )
+        // No update when idle: the same position re-emitted every tick recomposes the
+        // whole player screen for nothing while it is loading or paused.
+        if (position != current.positionMs || duration != current.durationMs) {
+            _state.update {
+                it.copy(positionMs = position, durationMs = duration)
+            }
         }
 
         // Persist while playing, from here rather than a ViewModel: the screen can be gone and
@@ -450,6 +515,12 @@ class PlaybackController(
 
     private companion object {
         const val TICK_MS = 250L
+        /** Faster first frame: low minimum and playback thresholds, modest maximum. Min must stay
+         *  at or above the after-rebuffer threshold; ExoPlayer refuses the app otherwise. */
+        const val MIN_BUFFER_MS = 3_000
+        const val MAX_BUFFER_MS = 8_000
+        const val BUFFER_FOR_PLAYBACK_MS = 1_200
+        const val BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS = 2_500
         const val SAVE_EVERY_TICKS = 20
         const val KEY_SPONSOR_SKIP = "sponsor_skip"
         const val KEY_SPONSOR_CATEGORIES = "sponsor_categories"

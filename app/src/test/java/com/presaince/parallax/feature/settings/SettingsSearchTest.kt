@@ -22,7 +22,7 @@ class SettingsSearchTest {
     fun `finds a row by the words a person types`() {
         assertTrue("Skip SponsorBlock segments" in titles("ads"))
         assertTrue("Import subscriptions" in titles("takeout"))
-        assertTrue("Resync endpoint" in titles("api key"))
+        assertTrue("Model endpoint (AI)" in titles("api key"))
     }
 
     @Test
@@ -34,7 +34,7 @@ class SettingsSearchTest {
 
     @Test
     fun `a swapped pair costs one edit, not two`() {
-        assertTrue("Align comment timestamps" in titles("commnets"))
+        assertTrue("AI mode" in titles("commnets"))
         assertTrue("Logs" in titles("lgos"))
     }
 

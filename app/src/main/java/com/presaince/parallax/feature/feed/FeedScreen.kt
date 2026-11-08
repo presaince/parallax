@@ -37,6 +37,13 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
@@ -70,6 +77,7 @@ import com.presaince.parallax.data.model.StreamState
 import com.presaince.parallax.data.model.VideoSummary
 import com.presaince.parallax.ui.component.CardLayout
 import com.presaince.parallax.ui.component.CardStyle
+import com.presaince.parallax.ui.component.NoteCountBadge
 import com.presaince.parallax.ui.component.ScrollToTopButton
 import com.presaince.parallax.ui.component.VideoRow
 import com.presaince.parallax.ui.component.VideoTile
@@ -124,6 +132,7 @@ fun FeedScreen(
             onRefresh = viewModel::refresh,
             onOpenVideo = onOpenVideo,
             onRemove = viewModel::removeHistory,
+            onUndo = viewModel::undoRemove,
             onClear = viewModel::clearHistory,
         )
     } else {
@@ -202,6 +211,11 @@ private fun FeedList(
     pictureOnly: Boolean,
     cardStyle: CardStyle,
 ) {
+    fun noteBadge(videoId: String): (@Composable () -> Unit)? {
+        val n = state.noteCounts[videoId] ?: return null
+        if (n <= 0) return null
+        return { NoteCountBadge(count = n) }
+    }
     val videos = state.videos
         .filter { video -> video.title.any { it.isLetterOrDigit() } }
         .filter { video -> !hideLive || video.streamState == "NORMAL" }
@@ -332,6 +346,7 @@ private fun FeedList(
                                 video = video.toSummary(),
                                 watched = state.watchedFraction(video.id),
                                 onClick = { onOpenVideo(video.toSummary()) },
+                                badge = noteBadge(video.id),
                             )
                         }
                         if (state.refreshing && state.videos.isEmpty()) {
@@ -360,9 +375,22 @@ private fun HistoryList(
     onRefresh: () -> Unit,
     onOpenVideo: (VideoSummary) -> Unit,
     onRemove: (String) -> Unit,
+    onUndo: () -> Unit,
     onClear: (FeedViewModel.ClearPeriod) -> Unit,
 ) {
     var pendingClear by remember { mutableStateOf<FeedViewModel.ClearPeriod?>(null) }
+    val snackbar = remember { SnackbarHostState() }
+    // One swipe, one undo: the row is gone at once, and the strip is the way back.
+    LaunchedEffect(state.lastRemoved) {
+        if (state.lastRemoved != null) {
+            val result = snackbar.showSnackbar(
+                message = "Removed from history",
+                actionLabel = "Undo",
+                duration = SnackbarDuration.Long,
+            )
+            if (result == SnackbarResult.ActionPerformed) onUndo()
+        }
+    }
     val listState = rememberLazyListState()
     // A sort change while the header is on screen must not carry the header away.
     var anchorTop by remember { mutableStateOf(false) }
@@ -447,39 +475,55 @@ private fun HistoryList(
                         durationSec = 0,
                         thumbnailUrl = entry.thumbUrl,
                     )
-                    VideoRow(
-                        video = summary,
-                        watched = state.watchedFraction(entry.videoId),
-                        meta = buildString {
-                            append(entry.channelName)
-                            append(" · watched ${timeAgo(entry.watchedAt)}")
-                            if (entry.watches > 1) append(" · ${entry.watches} times")
-                        },
-                        onClick = { onOpenVideo(summary) },
-                        trailing = {
-                            IconButton(
-                                onClick = { onRemove(entry.videoId) },
-                                modifier = Modifier
-                                    .padding(6.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0xCC000000))
-                                    .border(1.dp, Color(0x66FFFFFF), CircleShape),
-                            ) {
-                                Icon(
-                                    painter = painterResource(R.drawable.ic_close),
-                                    contentDescription = "Remove from history",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(16.dp),
-                                )
+                    // Slide to delete: the row swipes away and the undo strip answers, instead
+                    // of a big X circle on the thumbnail fading into Side and Minimal layouts.
+                    val dismissState = rememberSwipeToDismissBoxState(
+                        confirmValueChange = { target ->
+                            if (target == SwipeToDismissBoxValue.EndToStart) {
+                                onRemove(entry.videoId)
+                                true
+                            } else {
+                                false
                             }
                         },
                     )
+                    SwipeToDismissBox(
+                        modifier = Modifier.padding(top = 10.dp),
+                        state = dismissState,
+                        backgroundContent = {
+                            // The swipe is the whole gesture: no icon, no word behind the row.
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                            )
+                        },
+                        enableDismissFromStartToEnd = false,
+                    ) {
+                        VideoRow(
+                            video = summary,
+                            watched = state.watchedFraction(entry.videoId),
+                            meta = buildString {
+                                append(entry.channelName)
+                                append(" · watched ${timeAgo(entry.watchedAt)}")
+                                if (entry.watches > 1) append(" · ${entry.watches} times")
+                            },
+                            onClick = { onOpenVideo(summary) },
+                            badge = state.noteCounts[entry.videoId]?.takeIf { it > 0 }?.let { n ->
+                                { NoteCountBadge(count = n) }
+                            },
+                        )
+                    }
                 }
             }
         }
         ScrollToTopButton(
             listState = listState,
             modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+        )
+        SnackbarHost(
+            hostState = snackbar,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp),
         )
     }
     }

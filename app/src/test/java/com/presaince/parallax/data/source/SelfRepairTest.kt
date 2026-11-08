@@ -79,6 +79,17 @@ class SelfRepairTest {
     }
 
     @Test
+    fun `a successful call stays silent and never resets`() = runTest {
+        val log = com.presaince.parallax.core.AppLog(tmp.newFolder())
+        var resets = 0
+        val result = withSourceRepair(log, "video", { resets++ }) { 42 }
+        assertTrue(result is AppResult.Ok)
+        assertEquals(42, (result as AppResult.Ok).value)
+        assertEquals(0, resets)
+        assertTrue(log.recent().isEmpty())
+    }
+
+    @Test
     fun `the wrapper recovers after a reset`() = runTest {
         val log = com.presaince.parallax.core.AppLog(tmp.newFolder())
         var calls = 0
@@ -90,9 +101,9 @@ class SelfRepairTest {
         assertTrue(result is AppResult.Ok)
         assertEquals(42, (result as AppResult.Ok).value)
         val lines = log.recent().joinToString("\n") { it.message }
-        assertTrue(lines.contains("video start"))
         assertTrue(lines.contains("video failed"))
         assertTrue(lines.contains("video recovered"))
+        assertTrue(!lines.contains("video start"))
     }
 
     @Test

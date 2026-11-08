@@ -21,7 +21,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 data class PlayerUiState(
     val title: String,
@@ -31,9 +30,28 @@ data class PlayerUiState(
     val views: Long? = null,
     val description: String = "",
     val aiChapters: List<Chapter> = emptyList(),
+    val previewFrames: List<com.presaince.parallax.data.model.PreviewFrames> = emptyList(),
     val loading: Boolean = true,
+    /** True once the detail (description, chapters source) has landed, after the video itself. */
+    val detailReady: Boolean = false,
     val error: String? = null,
 )
+
+/**
+ * The player loads in one order: the video to its first frame, then chapters, then
+ * comments, then "Up next". Each stage starts only once the previous one has settled,
+ * so the picture never waits on the words beneath it.
+ */
+enum class PlayerLoadStage { Video, Chapters, Comments, UpNext }
+
+/** The highest stage that is ready, or the stage that is currently loading. */
+fun playerStage(videoReady: Boolean, detailReady: Boolean, commentsReady: Boolean): PlayerLoadStage =
+    when {
+        !videoReady -> PlayerLoadStage.Video
+        !detailReady -> PlayerLoadStage.Chapters
+        !commentsReady -> PlayerLoadStage.Comments
+        else -> PlayerLoadStage.UpNext
+    }
 
 class PlayerViewModel(
     private val source: VideoSource,
@@ -119,15 +137,18 @@ class PlayerViewModel(
     private suspend fun loadOnce(resumeOverrideMs: Long? = null) = coroutineScope {
         _state.update { it.copy(loading = true, error = null) }
 
-        // The description is not on the player path, so it is fetched alongside the streams
-        // and filled in when it arrives.
+        // Streams and the resume lookup run together, and the description rides along
+        // without holding playback up. They all share one StreamInfo fetch.
         val detail = async { source.video(summary.id) }
-
-        val resumeMs = resumeOverrideMs ?: withContext(Dispatchers.IO) {
-            runCatching { db.progress().find(summary.id)?.positionMs }.getOrNull()
+        val resume = async(Dispatchers.IO) {
+            resumeOverrideMs
+                ?: runCatching { db.progress().find(summary.id)?.positionMs }.getOrNull()
         }
 
-        when (val result = source.streams(summary.id)) {
+        val streamsStartedAt = System.currentTimeMillis()
+        val streamsResult = source.streams(summary.id)
+        log.info("source", "streams for ${summary.id} ready in ${System.currentTimeMillis() - streamsStartedAt}ms: ${if (streamsResult is AppResult.Ok) "ok" else "err"}")
+        when (val result = streamsResult) {
             is AppResult.Ok -> {
                 playback.play(
                     videoId = summary.id,
@@ -135,7 +156,7 @@ class PlayerViewModel(
                     channel = summary.channelName,
                     thumbUrl = summary.thumbnailUrl,
                     streams = result.value,
-                    resumeAtMs = resumeMs,
+                    resumeAtMs = resume.await(),
                 )
                 _state.update { it.copy(loading = false) }
             }
@@ -150,17 +171,20 @@ class PlayerViewModel(
         (detail.await() as? AppResult.Ok)?.let { loaded ->
             _state.update {
                 it.copy(
+                    detailReady = true,
                     title = loaded.value.title.ifBlank { it.title },
                     channelName = loaded.value.channelName.ifBlank { it.channelName },
                     channelUrl = loaded.value.channelUrl ?: it.channelUrl,
                     likes = loaded.value.likeCount ?: it.likes,
                     description = loaded.value.description,
+                    previewFrames = loaded.value.previewFrames,
                 )
             }
             loaded.value.likeCount?.let { likes ->
                 // The listings never carry a like count, so this is the only place it is learned,
-                // and without it the likes setting on a card has nothing to show.
-                withContext(Dispatchers.IO) {
+                // and without it the likes setting on a card has nothing to show. Fire and forget:
+                // it never holds the load up.
+                viewModelScope.launch(Dispatchers.IO) {
                     runCatching { db.videos().setLikeCount(summary.id, likes) }
                 }
             }

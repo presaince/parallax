@@ -39,4 +39,17 @@ object SponsorCategories {
         FILLER -> "Filler"
         else -> category
     }
+
+    /** One canonical colour per category, so the timeline, the rows and Settings agree. */
+    fun color(category: String): androidx.compose.ui.graphics.Color = when (category) {
+        SPONSOR -> androidx.compose.ui.graphics.Color(0xFFFFC107)
+        SELF_PROMO -> androidx.compose.ui.graphics.Color(0xFF69F0AE)
+        INTERACTION -> androidx.compose.ui.graphics.Color(0xFFFF4081)
+        INTRO -> androidx.compose.ui.graphics.Color(0xFFBDBDBD)
+        OUTRO -> androidx.compose.ui.graphics.Color(0xFFBDBDBD)
+        PREVIEW -> androidx.compose.ui.graphics.Color(0xFF4FC3F7)
+        MUSIC_OFFTOPIC -> androidx.compose.ui.graphics.Color(0xFFBA68C8)
+        FILLER -> androidx.compose.ui.graphics.Color(0xFF9575CD)
+        else -> androidx.compose.ui.graphics.Color(0xFFBDBDBD)
+    }
 }

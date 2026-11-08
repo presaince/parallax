@@ -35,8 +35,11 @@ import com.presaince.parallax.core.formatDuration
 import com.presaince.parallax.core.timeAgo
 import com.presaince.parallax.data.model.VideoSummary
 import com.presaince.parallax.data.source.VideoSource
+import com.presaince.parallax.data.db.ParallaxDb
+import com.presaince.parallax.ui.component.NoteCountBadge
 import com.presaince.parallax.ui.component.ScrollToTopButton
 import com.presaince.parallax.ui.component.VideoRow
+import com.presaince.parallax.ui.component.noteCounts
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -44,6 +47,7 @@ fun ChannelScreen(
     source: VideoSource,
     channelUrl: String,
     channelName: String,
+    db: ParallaxDb,
     onOpenVideo: (VideoSummary) -> Unit,
 ) {
     val viewModel: ChannelViewModel = viewModel(
@@ -53,6 +57,7 @@ fun ChannelScreen(
         },
     )
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val notes = noteCounts(db)
     val hideLive = LocalContext.current
         .getSharedPreferences("parallax", android.content.Context.MODE_PRIVATE)
         .getBoolean("hide_live", false)
@@ -95,7 +100,13 @@ fun ChannelScreen(
                     modifier = Modifier.fillMaxSize(),
                 ) {
                     items(visible, key = { it.id }) { video ->
-                        VideoRow(video = video, onClick = { onOpenVideo(video) })
+                        VideoRow(
+                            video = video,
+                            onClick = { onOpenVideo(video) },
+                            badge = notes[video.id]?.takeIf { it > 0 }?.let { n ->
+                                { NoteCountBadge(count = n) }
+                            },
+                        )
                     }
 
                     if (state.next != null) {

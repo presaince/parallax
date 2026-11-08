@@ -35,8 +35,6 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import android.os.SystemClock
-import android.os.VibrationEffect
-import android.os.Vibrator
 import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -158,6 +156,7 @@ import com.presaince.parallax.feature.player.gesture.playbackGestures
 import com.presaince.parallax.ui.component.LinkifiedText
 import com.presaince.parallax.ui.component.SineRiver
 import com.presaince.parallax.ui.component.compactCount
+import com.presaince.parallax.ui.component.rememberTicks
 import com.presaince.parallax.ui.theme.faded
 import com.presaince.parallax.ui.theme.parallaxFilterChipColors
 import coil3.compose.AsyncImage
@@ -213,6 +212,26 @@ fun PlayerScreen(
 
     val loadState by viewModel.state.collectAsStateWithLifecycle()
     val playbackState by playback.state.collectAsStateWithLifecycle()
+    val commentsState by commentsViewModel.state.collectAsStateWithLifecycle()
+
+    // The staged load order: video to its first frame, then chapters, then comments, then
+    // "Up next". Each step starts only once the previous has settled; the picture never
+    // waits on the words beneath it.
+    LaunchedEffect(
+        playbackState.firstFrameReady,
+        loadState.detailReady,
+        video.id,
+    ) {
+        if (playbackState.firstFrameReady && loadState.detailReady) {
+            commentsViewModel.preloadFirstPage()
+        }
+    }
+    val commentsReady = commentsState.firstPageLoaded
+    val stage = playerStage(
+        videoReady = playbackState.firstFrameReady,
+        detailReady = loadState.detailReady,
+        commentsReady = commentsReady,
+    )
 
     // Reopening a video that was stopped reuses this view model. If the controller no longer owns
     // this video, play it again instead of sitting on a loaded title over a black frame.
@@ -242,6 +261,9 @@ fun PlayerScreen(
     }
     val audio = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val ticks = rememberTicks()
+    var seekDeltaMs by remember { mutableLongStateOf(0L) }
+    var seekFromMs by remember { mutableLongStateOf(0L) }
 
     var hud by remember { mutableStateOf<Hud?>(null) }
     var scrubTargetMs by remember { mutableStateOf<Long?>(null) }
@@ -294,6 +316,12 @@ fun PlayerScreen(
     var speedPanelOpen by remember { mutableStateOf(false) }
     var fullscreen by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+
+    // Turning the phone in is a fullscreen in, turning it back is a fullscreen out. The
+    // manifest already lists orientation in configChanges, so no recreation fights the flag.
+    LaunchedEffect(landscape) {
+        if (landscape) fullscreen = true else fullscreen = false
+    }
 
     // Fullscreen means landscape plus no system bars, and both are restored on the way out.
     // Rotating the phone is treated as fullscreen too, so a turn and the button agree.
@@ -363,8 +391,14 @@ fun PlayerScreen(
     }
 
     // Only the model fills a gap: its features are off unless the user enabled the endpoint and key.
-    LaunchedEffect(chapters.isEmpty(), loadState.description.isNotEmpty()) {
-        if (chapters.isEmpty() && loadState.description.isNotEmpty()) {
+    // It also waits for the first frame: the staged order is video, then chapters, and the model
+    // request must not compete with the picture.
+    LaunchedEffect(
+        playbackState.firstFrameReady,
+        chapters.isEmpty(),
+        loadState.description.isNotEmpty(),
+    ) {
+        if (playbackState.firstFrameReady && chapters.isEmpty() && loadState.description.isNotEmpty()) {
             viewModel.loadAiChapters()
         }
     }
@@ -504,12 +538,14 @@ fun PlayerScreen(
                     // an Int lost most of a slow swipe, which is why the slider felt stuck.
                     volumeSteps = (volumeSteps + fraction * maxVolume(audio) * 2f)
                         .coerceIn(0f, maxVolume(audio))
+                    val after = volumeSteps.roundToInt()
+                    ticks.clamp(before.toFloat(), after.toFloat(), 0f, maxVolume(audio).toFloat())
                     audio.setStreamVolume(
                         AudioManager.STREAM_MUSIC,
-                        volumeSteps.roundToInt(),
+                        after,
                         0,
                     )
-                    if (volumeSteps.roundToInt() != before) {
+                    if (after != before) {
                         hud = Hud(fraction = volumeFraction(audio))
                     }
                 }
@@ -518,6 +554,7 @@ fun PlayerScreen(
                     // drag is how the page below scrolls, so it must not dim the screen instead.
                     val before = brightnessLevel
                     brightnessLevel = (brightnessLevel + fraction).coerceIn(0.01f, 1f)
+                    ticks.clamp(before, brightnessLevel, 0.01f, 1f)
                     if (kotlin.math.abs(brightnessLevel - before) > 0.001f) {
                         activity?.window?.let { window ->
                             window.attributes = window.attributes.apply {
@@ -555,6 +592,8 @@ fun PlayerScreen(
             shareLockedMs = playbackState.positionMs
             scrubStartMs = playbackState.positionMs
             scrubTargetMs = playbackState.positionMs
+            seekDeltaMs = 0L
+            seekFromMs = playbackState.positionMs
             scrubTravel = 0f
             hud = Hud(
                 label = formatSeekDelta(0),
@@ -573,6 +612,14 @@ fun PlayerScreen(
             val target = (scrubTargetMs ?: playbackState.positionMs) + movedMs
             scrubTargetMs = target.coerceIn(0, playbackState.durationMs)
             val settled = scrubTargetMs ?: 0L
+            // The cancel snap when the displacement is back at zero, and a light tick for a
+            // chapter boundary crossed on the way. Positions are carried between events, so
+            // both are spaced by value, not by time.
+            val delta = settled - scrubStartMs
+            ticks.cancelSnap(seekDeltaMs, delta)
+            ticks.milestone(seekFromMs, settled, shownChapters.map { it.atSec * 1000 })
+            seekDeltaMs = delta
+            seekFromMs = settled
             // Seek while the finger is still down: the picture follows the pill instead of
             // waiting for the release. Throttled so a jittery finger does not spam the player.
             val now = SystemClock.uptimeMillis()
@@ -616,9 +663,17 @@ fun PlayerScreen(
                 if (barStartMs == null) {
                     barStartMs = playbackState.positionMs
                     shareLockedMs = playbackState.positionMs
+                    seekDeltaMs = 0L
+                    seekFromMs = playbackState.positionMs
                 }
                 scrubTargetMs = (fraction * duration).toLong()
-                playback.seekTo(scrubTargetMs ?: 0L)
+                val settled = scrubTargetMs ?: 0L
+                val delta = settled - (barStartMs ?: playbackState.positionMs)
+                ticks.cancelSnap(seekDeltaMs, delta)
+                ticks.milestone(seekFromMs, settled, shownChapters.map { it.atSec * 1000 })
+                seekDeltaMs = delta
+                seekFromMs = settled
+                playback.seekTo(settled)
             }
         },
         onBarEnd = {
@@ -864,8 +919,16 @@ fun PlayerScreen(
         }
         val atEnd = playbackState.durationMs > 0 &&
             playbackState.positionMs >= playbackState.durationMs - 500
-        LaunchedEffect(atEnd, endEnabled) {
-            if (endEnabled && atEnd && relatedToShow.isEmpty()) {
+        // The last stage of the load order: prefetched once comments have settled, or at
+        // three quarters through if a slow comments fetch would otherwise stall the end
+        // screen. It is only ever shown at the end.
+        val pastThreeQuarters = playbackState.durationMs > 0 &&
+            playbackState.positionMs >= playbackState.durationMs * 3 / 4
+        LaunchedEffect(stage, pastThreeQuarters, endEnabled) {
+            if (endEnabled &&
+                (stage == PlayerLoadStage.UpNext || pastThreeQuarters) &&
+                relatedToShow.isEmpty()
+            ) {
                 when (val result = source.related(video.id)) {
                     is com.presaince.parallax.core.AppResult.Ok -> relatedToShow = result.value.take(10)
                     is com.presaince.parallax.core.AppResult.Err -> Unit
@@ -1071,6 +1134,8 @@ fun PlayerScreen(
                         positionMs = playbackState.positionMs,
                         videoId = video.id,
                         durationMs = playbackState.durationMs,
+                        previewFrames = loadState.previewFrames,
+                        log = log,
                         expanded = sponsorExpanded,
                         onToggle = { sponsorExpanded = !sponsorExpanded },
                         onSeek = { ms -> playback.seekTo(ms) },
@@ -1378,6 +1443,8 @@ private fun SponsorSegmentsBlock(
     positionMs: Long,
     videoId: String,
     durationMs: Long,
+    previewFrames: List<com.presaince.parallax.data.model.PreviewFrames>,
+    log: AppLog? = null,
     expanded: Boolean,
     onToggle: () -> Unit,
     onSeek: (Long) -> Unit,
@@ -1407,7 +1474,8 @@ private fun SponsorSegmentsBlock(
                 val active = segment.contains(positionMs)
                 // Frame at start + 5s so an imprecise timestamp lands on the segment's
                 // likely first real picture. Short segments sample their midpoint instead.
-                val thumbUrl = segmentThumbUrl(videoId, segment, durationMs)
+                val frameMs = segmentFrameMs(segment)
+                val frameset = previewFrames.firstOrNull()
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1422,22 +1490,25 @@ private fun SponsorSegmentsBlock(
                         .padding(horizontal = 16.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    AsyncImage(
-                        model = thumbUrl,
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier
-                            .size(width = 64.dp, height = 36.dp)
-                            .clip(RoundedCornerShape(6.dp))
-                            .border(2.dp, segmentColor(segment.category), RoundedCornerShape(6.dp)),
-                    )
-                    Box(
-                        modifier = Modifier
-                            .padding(horizontal = 8.dp)
-                            .size(width = 4.dp, height = 28.dp)
-                            .clip(RoundedCornerShape(2.dp))
-                            .background(segmentColor(segment.category)),
-                    )
+                    if (frameset != null) {
+                        PreviewTile(
+                            frameset = frameset,
+                            frameMs = frameMs,
+                            borderColor = segmentColor(segment.category),
+                            fallbackUrl = segmentThumbUrl(videoId, segment, durationMs),
+                            log = log,
+                        )
+                    } else {
+                        AsyncImage(
+                            model = segmentThumbUrl(videoId, segment, durationMs),
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .size(width = 64.dp, height = 36.dp)
+                                .clip(RoundedCornerShape(6.dp))
+                                .border(2.dp, segmentColor(segment.category), RoundedCornerShape(6.dp)),
+                        )
+                    }
                     Text(
                         text = com.presaince.parallax.data.sponsorblock.SponsorCategories.label(segment.category),
                         style = MaterialTheme.typography.bodyMedium,
@@ -1446,7 +1517,7 @@ private fun SponsorSegmentsBlock(
                         } else {
                             MaterialTheme.colorScheme.onSurface
                         },
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.padding(horizontal = 10.dp).weight(1f),
                     )
                     Text(
                         text = "${formatDuration(segment.startMs / 1000)} - ${formatDuration(segment.endMs / 1000)}",
@@ -1454,6 +1525,63 @@ private fun SponsorSegmentsBlock(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+            }
+        }
+    }
+}
+
+/** The storyboard tile at [frameMs]: the page image cropped to one cell. */
+@Composable
+private fun PreviewTile(
+    frameset: com.presaince.parallax.data.model.PreviewFrames,
+    frameMs: Long,
+    borderColor: Color,
+    fallbackUrl: String,
+    log: AppLog? = null,
+) {
+    val tile = frameset.tileAt(frameMs)
+    val (page, col, row) = tile ?: Triple(0, 0, 0)
+    val url = frameset.urls.getOrNull(page).orEmpty()
+    var loaded by remember(url, col, row, frameMs) { androidx.compose.runtime.mutableStateOf(false) }
+    var failed by remember(url, col, row, frameMs) { androidx.compose.runtime.mutableStateOf(url.isBlank()) }
+    androidx.compose.runtime.LaunchedEffect(url, col, row, frameMs) {
+        val hostPath = runCatching {
+            val uri = java.net.URI(url)
+            "${uri.host ?: "unknown"}${uri.path ?: ""}"
+        }.getOrDefault("unknown")
+        log?.info("segments", "tile frame=$frameMs page=$page col=$col row=$row host=$hostPath")
+    }
+    Box(
+        modifier = Modifier
+            .size(width = 64.dp, height = 36.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .border(2.dp, borderColor, RoundedCornerShape(6.dp)),
+    ) {
+        // The quartile frame is the placeholder behind the tile, so a slow or failed
+        // storyboard page still shows a picture instead of black.
+        AsyncImage(
+            model = fallbackUrl,
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize(),
+        )
+        if (!failed) {
+            Box(
+                modifier = Modifier
+                    .size(
+                        width = (64 * frameset.framesPerPageX).dp,
+                        height = (36 * frameset.framesPerPageY).dp,
+                    )
+                    .offset((-64 * col).dp, (-36 * row).dp),
+            ) {
+                AsyncImage(
+                    model = url,
+                    contentDescription = null,
+                    contentScale = ContentScale.FillBounds,
+                    onError = { failed = true; log?.warn("segments", "tile failed frame=$frameMs url=${runCatching { java.net.URI(url).host }.getOrNull()}") },
+                    onSuccess = { loaded = true },
+                    modifier = Modifier.fillMaxSize(),
+                )
             }
         }
     }
@@ -1705,15 +1833,8 @@ private fun SeekUndoChip(undo: SeekUndo, onUndo: () -> Unit, modifier: Modifier 
     }
 }
 
-private fun segmentColor(category: String): Color = when (category) {
-    com.presaince.parallax.data.sponsorblock.SponsorCategories.SPONSOR -> Color(0xFFFFC107)
-    com.presaince.parallax.data.sponsorblock.SponsorCategories.SELF_PROMO -> Color(0xFF69F0AE)
-    com.presaince.parallax.data.sponsorblock.SponsorCategories.INTERACTION -> Color(0xFFFF4081)
-    com.presaince.parallax.data.sponsorblock.SponsorCategories.PREVIEW -> Color(0xFF4FC3F7)
-    com.presaince.parallax.data.sponsorblock.SponsorCategories.MUSIC_OFFTOPIC -> Color(0xFFBA68C8)
-    com.presaince.parallax.data.sponsorblock.SponsorCategories.FILLER -> Color(0xFF9575CD)
-    else -> Color(0xFFBDBDBD)
-}
+private fun segmentColor(category: String): Color =
+    com.presaince.parallax.data.sponsorblock.SponsorCategories.color(category)
 
 @Composable
 private fun SponsorChip(
@@ -2006,24 +2127,10 @@ private fun ControlsOverlay(
                     // gesture now, so the arrow buttons are gone.
                     var dial by remember { mutableStateOf<SpeedDial?>(null) }
                     var qualityMenuOpen by remember { mutableStateOf(false) }
-                    val speedContext = androidx.compose.ui.platform.LocalContext.current
-                    val speedView = androidx.compose.ui.platform.LocalView.current
-                    fun speedTick(home: Boolean) {
-                        // The constants path is silent on some builds; the vibrator path is
-                        // direct, so the tick is felt: short for a step, longer at home (1.0x).
-                        val vibrator = speedContext.getSystemService(android.content.Context.VIBRATOR_SERVICE) as? Vibrator
-                        if (vibrator?.hasVibrator() == true) {
-                            vibrator.vibrate(
-                                VibrationEffect.createOneShot(
-                                    if (home) 28L else 8L,
-                                    if (home) 180 else 90,
-                                ),
-                            )
-                        } else {
-                            speedView.performHapticFeedback(
-                                android.view.HapticFeedbackConstants.KEYBOARD_TAP,
-                            )
-                        }
+                    val ticks = rememberTicks()
+                    fun speedTick(fromTenths: Int, toTenths: Int) {
+                        // The snap back at 1.0x, gated by its own setting inside TickRunner.
+                        ticks.speedHome(fromTenths, toTenths)
                     }
                     Box(
                         modifier = Modifier
@@ -2053,11 +2160,12 @@ private fun ControlsOverlay(
                                             val steps = (travelled / 24f).roundToInt()
                                             val tenths = (baseTenths + steps).coerceIn(3, 50)
                                             if (tenths != applied) {
-                                                val home = tenths == 10
+                                                val previous = applied
                                                 applied = tenths
                                                 dial = SpeedDial(tenths / 10f, change.position.y)
-                                                // Small tick per step, heavier at home (1.0x).
-                                                speedTick(home)
+                                                // The snap back at home (1.0x) when the drag
+                                                // lands on it or jumps over it.
+                                                speedTick(previous, tenths)
                                                 onSpeedAdjust(
                                                     tenths / 10f,
                                                     (change.position.y / height)
@@ -2345,22 +2453,9 @@ private fun SpeedPanel(
     var dragBase by remember { mutableFloatStateOf(speed) }
     var accumulated by remember { mutableFloatStateOf(0f) }
     var lastTenths by remember { mutableIntStateOf((speed * 10).roundToInt()) }
-    val panelContext = androidx.compose.ui.platform.LocalContext.current
-    val panelView = androidx.compose.ui.platform.LocalView.current
-    fun panelTick(home: Boolean) {
-        val vibrator = panelContext.getSystemService(android.content.Context.VIBRATOR_SERVICE) as? Vibrator
-        if (vibrator?.hasVibrator() == true) {
-            vibrator.vibrate(
-                VibrationEffect.createOneShot(
-                    if (home) 28L else 8L,
-                    if (home) 180 else 90,
-                ),
-            )
-        } else {
-            panelView.performHapticFeedback(
-                android.view.HapticFeedbackConstants.KEYBOARD_TAP,
-            )
-        }
+    val ticks = rememberTicks()
+    fun panelTick(fromTenths: Int, toTenths: Int) {
+        ticks.speedHome(fromTenths, toTenths)
     }
 
     Box(
@@ -2396,9 +2491,9 @@ private fun SpeedPanel(
                             val steps = (accumulated / 24f).roundToInt()
                             val tenths = ((dragBase * 10).roundToInt() + steps).coerceIn(3, 50)
                             if (tenths != lastTenths) {
-                                val home = tenths == 10
+                                val previous = lastTenths
                                 lastTenths = tenths
-                                panelTick(home)
+                                panelTick(previous, tenths)
                             }
                             preview = tenths / 10f
                         },

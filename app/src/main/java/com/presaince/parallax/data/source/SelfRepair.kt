@@ -21,8 +21,9 @@ import org.json.JSONObject
 const val REPAIR_TAG = "selfrepair"
 
 /**
- * On-device self-repair for the source layer. The extractor breaks in a handful of recognisable
- * ways; this runs the cheap healing first and records every step so a failure reads like a trace.
+ * Self-repair for the source layer, only when extraction breaks. A successful call runs
+ * [block] once and returns, with no reset and no log. Only an [SourceError.ExtractorBroken]
+ * pays for the reset-and-retry, so a normal open costs one fetch.
  */
 suspend fun <T> withSourceRepair(
     log: AppLog?,
@@ -30,22 +31,12 @@ suspend fun <T> withSourceRepair(
     reset: suspend () -> Unit,
     block: suspend () -> T,
 ): AppResult<T> {
-    log?.info(REPAIR_TAG, "$op start")
     val first = sourceAttempt { block() }
-    when (first) {
-        is AppResult.Ok -> {
-            log?.info(REPAIR_TAG, "$op ok")
-            return first
-        }
-        is AppResult.Err -> {
-            val kind = first.sourceError?.let { it::class.simpleName } ?: "none"
-            log?.warn(REPAIR_TAG, "$op failed kind=$kind msg=${first.message.take(180)}")
-            if (first.sourceError != SourceError.ExtractorBroken) {
-                log?.info(REPAIR_TAG, "$op healing skipped: not extractor-broken")
-                return first
-            }
-        }
-    }
+    if (first is AppResult.Ok) return first
+    val error = first as AppResult.Err
+    val kind = error.sourceError?.let { it::class.simpleName } ?: "none"
+    log?.warn(REPAIR_TAG, "$op failed kind=$kind msg=${error.message.take(180)}")
+    if (error.sourceError != SourceError.ExtractorBroken) return first
     log?.info(REPAIR_TAG, "$op healing: resetting extractor, retrying once")
     runCatching { reset() }.onFailure { log?.warn(REPAIR_TAG, "$op reset failed: ${it.message}") }
     val second = sourceAttempt { block() }

@@ -43,6 +43,8 @@ data class CommentsUiState(
     val total: Long? = null,
     /** The video's owner has switched comments off. */
     val commentsDisabled: Boolean = false,
+    /** True once the first comments page has settled, success or failure. */
+    val firstPageLoaded: Boolean = false,
 )
 
 class CommentsViewModel(
@@ -59,8 +61,19 @@ class CommentsViewModel(
     init {
         refreshPostingState()
         _state.update { it.copy(resyncReady = resyncStore.load().ready) }
+        // Comments load on first expand, not with the player: the streams fetch owns the
+        // network at queueing time, and the collapsed header only needs the cached total.
+    }
+
+    /** True once the first page has been requested, so collapsing does not refetch. */
+    private var firstPageRequested = false
+
+    /** First page in the background, without expanding: the player's load order reaches
+     *  comments after chapters, and opening the section should not start the network then. */
+    fun preloadFirstPage() {
+        if (firstPageRequested) return
+        firstPageRequested = true
         loadFirstPage()
-        loadAligned()
     }
 
     fun loadFirstPage() {
@@ -84,7 +97,13 @@ class CommentsViewModel(
     }
 
     fun toggleExpanded() {
-        _state.update { it.copy(expanded = !it.expanded) }
+        val nowExpanded = !_state.value.expanded
+        _state.update { it.copy(expanded = nowExpanded) }
+        if (nowExpanded && !firstPageRequested) {
+            firstPageRequested = true
+            loadFirstPage()
+            loadAligned()
+        }
     }
 
     fun replyTo(comment: Comment?) {
@@ -209,10 +228,15 @@ class CommentsViewModel(
                         loading = false,
                         total = result.value.total ?: it.total,
                         commentsDisabled = if (append) it.commentsDisabled else result.value.disabled,
+                        firstPageLoaded = if (page == null && !append) true else it.firstPageLoaded,
                     )
                 }
                 is AppResult.Err -> _state.update {
-                    it.copy(loading = false, error = result.message)
+                    it.copy(
+                        loading = false,
+                        error = result.message,
+                        firstPageLoaded = if (page == null && !append) true else it.firstPageLoaded,
+                    )
                 }
             }
         }

@@ -152,18 +152,19 @@ fun writeSolidSurfaces(context: Context, solid: Boolean) {
         .apply()
 }
 
-// Eight levels for the Glass slider: the same shape, a dial instead of two halves.
+// Ten levels for the Glass capsule: the same shape, a dial with no off state. Off is picking
+// another theme; the tap turns Glass on at the remembered level.
 private const val KEY_GLASS_LEVEL = "glass_level"
 
 fun readGlassLevel(context: Context): Int =
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        .getInt(KEY_GLASS_LEVEL, 3)
-        .coerceIn(0, 7)
+        .getInt(KEY_GLASS_LEVEL, 4)
+        .coerceIn(1, 10)
 
 fun writeGlassLevel(context: Context, level: Int) {
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         .edit()
-        .putInt(KEY_GLASS_LEVEL, level.coerceIn(0, 7))
+        .putInt(KEY_GLASS_LEVEL, level.coerceIn(1, 10))
         .apply()
 }
 
@@ -313,7 +314,7 @@ private fun glassScheme(
     accent: Accent,
     dark: Boolean,
     solid: Boolean,
-    level: Int = 3,
+    level: Int = 4,
 ): ColorScheme {
     val base = if (dark) darkScheme(accent) else lightScheme(accent)
     // Solid is Glass with the dial turned down, not Glass replaced by Dark or Light. The aurora
@@ -324,8 +325,8 @@ private fun glassScheme(
     // strong composites to the same near-black as a closed surface, which is why the two settings
     // used to look identical on a real screen: the transparency was real but there was nothing
     // behind it to see. The fill is thinner and the backdrop much louder.
-    // Level 0 is the clearest glass, level 7 nearly solid.
-    val t = level.coerceIn(0, 7) / 7f
+    // Level 1 is the clearest glass, level 10 nearly solid.
+    val t = (level.coerceIn(1, 10) - 1) / 9f
     val surfaceAlpha = if (solid) {
         if (dark) 0.88f else 0.94f
     } else {
@@ -351,7 +352,7 @@ fun ParallaxTheme(
     accent: Accent = Accents.cyan,
     solidSurfaces: Boolean = false,
     glassDark: Boolean? = null,
-    glassLevel: Int = 3,
+    glassLevel: Int = 4,
     content: @Composable () -> Unit,
 ) {
     val systemDark = isSystemInDarkTheme()

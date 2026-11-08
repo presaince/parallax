@@ -14,12 +14,10 @@ import com.presaince.parallax.R
 enum class SettingsSectionId {
     APPEARANCE,
     PLAYBACK,
+    FEEDBACK,
     REGION,
     SPONSOR,
     ACCOUNTS,
-    AI,
-    RESYNC,
-    POSTING,
     DATA,
     DIAGNOSTICS,
     ABOUT,
@@ -29,12 +27,10 @@ val SettingsSectionId.title: String
     get() = when (this) {
         SettingsSectionId.APPEARANCE -> "Appearance"
         SettingsSectionId.PLAYBACK -> "Playback"
+        SettingsSectionId.FEEDBACK -> "Feedback"
         SettingsSectionId.REGION -> "Content region"
         SettingsSectionId.SPONSOR -> "SponsorBlock"
-        SettingsSectionId.ACCOUNTS -> "Accounts & keys"
-        SettingsSectionId.AI -> "AI"
-        SettingsSectionId.RESYNC -> "Timestamp resync"
-        SettingsSectionId.POSTING -> "Posting"
+        SettingsSectionId.ACCOUNTS -> "AI & accounts"
         SettingsSectionId.DATA -> "Data"
         SettingsSectionId.DIAGNOSTICS -> "Diagnostics"
         SettingsSectionId.ABOUT -> "About"
@@ -45,12 +41,10 @@ val SettingsSectionId.icon: Int
     get() = when (this) {
         SettingsSectionId.APPEARANCE -> R.drawable.ic_palette
         SettingsSectionId.PLAYBACK -> R.drawable.ic_speed
+        SettingsSectionId.FEEDBACK -> R.drawable.ic_volume
         SettingsSectionId.REGION -> R.drawable.ic_public
         SettingsSectionId.SPONSOR -> R.drawable.ic_sponsor
-        SettingsSectionId.ACCOUNTS -> R.drawable.ic_key
-        SettingsSectionId.AI -> R.drawable.ic_resync
-        SettingsSectionId.RESYNC -> R.drawable.ic_resync
-        SettingsSectionId.POSTING -> R.drawable.ic_key
+        SettingsSectionId.ACCOUNTS -> R.drawable.ic_resync
         SettingsSectionId.DATA -> R.drawable.ic_data
         SettingsSectionId.DIAGNOSTICS -> R.drawable.ic_logs
         SettingsSectionId.ABOUT -> R.drawable.ic_info
@@ -86,6 +80,17 @@ val settingsEntries: List<SettingsEntry> = listOf(
     entry("Video cards", SettingsSectionId.APPEARANCE,
         "card", "cards", "row", "rows", "title", "channel name", "ago", "age", "views",
         "view count", "likes", "duration", "length", "metadata", "details"),
+    entry("Haptics", SettingsSectionId.FEEDBACK,
+        "haptics", "haptic", "vibration", "vibrate", "touch", "feedback", "buzz", "tick", "ticks",
+        "cancel", "snap", "seek cancel"),
+    entry("Seek cancel snap", SettingsSectionId.FEEDBACK,
+        "seek", "cancel", "snap", "home", "zero", "don't seek", "dont seek", "undo seek"),
+    entry("Speed home snap", SettingsSectionId.FEEDBACK,
+        "speed", "snap", "home", "1.0", "normal speed", "cancel"),
+    entry("Volume and brightness clamps", SettingsSectionId.FEEDBACK,
+        "volume", "brightness", "clamp", "end", "max", "min", "limit", "snap"),
+    entry("Chapter milestones", SettingsSectionId.FEEDBACK,
+        "chapter", "chapters", "milestone", "milestones", "boundary", "boundaries", "tick"),
     entry("Gestures", SettingsSectionId.PLAYBACK,
         "gesture", "gestures", "tap", "swipe", "slide", "seek", "scrub", "volume", "brightness",
         "minimise", "minimize", "flick", "double tap", "tutorial", "help", "controls"),
@@ -121,10 +126,10 @@ val settingsEntries: List<SettingsEntry> = listOf(
         "intro", "outro", "filler", "self promotion", "self promo", "interaction", "music",
         "non music", "preview", "recap", "category", "categories", "sponsorblock", "tea",
         "highlight", "tangent"),
-    entry("Align comment timestamps", SettingsSectionId.ACCOUNTS,
-        "resync", "re sync", "timestamp", "timestamps", "align", "alignment", "comment",
-        "comments", "offset", "clock", "cue", "subtitle", "subtitles", "timing"),
-    entry("Resync endpoint", SettingsSectionId.ACCOUNTS,
+    entry("AI mode", SettingsSectionId.ACCOUNTS,
+        "ai", "ai mode", "resync", "re sync", "timestamp", "timestamps", "align", "alignment", "comment",
+        "comments", "offset", "clock", "cue", "subtitle", "subtitles", "timing", "chapters", "summary"),
+    entry("Model endpoint (AI)", SettingsSectionId.ACCOUNTS,
         "endpoint", "url", "server", "model", "api", "api key", "key", "token", "llm", "ai",
         "openai", "ollama", "local model", "prompt", "gemini", "anthropic"),
     entry("Post comments", SettingsSectionId.ACCOUNTS,

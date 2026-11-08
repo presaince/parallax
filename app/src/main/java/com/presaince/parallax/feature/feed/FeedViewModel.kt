@@ -28,12 +28,15 @@ data class FeedUiState(
     val videos: List<VideoEntity> = emptyList(),
     val history: List<HistoryGroup> = emptyList(),
     val progress: Map<String, ProgressEntity> = emptyMap(),
+    val noteCounts: Map<String, Int> = emptyMap(),
     val tab: FeedTab = FeedTab.FEED,
     val refreshing: Boolean = false,
     val message: String? = null,
     val lastFetchedAt: Long? = null,
     val sortFeed: SortState = SortState(SortOption.DATE),
     val sortHistory: SortState = SortState(SortOption.DATE),
+    /** The row the swipe just removed, held for one snackbar's undo. */
+    val lastRemoved: HistoryGroup? = null,
 ) {
     /** What the line above the list says. The feed is a database view, so this is honest. */
     val updatedLabel: String
@@ -62,10 +65,12 @@ class FeedViewModel(
         content.observeFeed(),
         db.history().observeGrouped(),
         db.progress().observeAll(),
+        db.notes().counts("deck"),
         status,
-    ) { videos, history, progress, current ->
+    ) { videos, history, progress, noteCounts, current ->
         val byVideo = progress.associateBy { it.videoId }
         current.copy(
+            noteCounts = noteCounts.associate { it.videoId to it.n },
             videos = sortList(
                 videos,
                 current.sortFeed,
@@ -143,7 +148,34 @@ class FeedViewModel(
     }
 
     fun removeHistory(videoId: String) {
-        viewModelScope.launch { dbRef.history().clear(videoId) }
+        viewModelScope.launch {
+            val group = state.value.history.firstOrNull { it.videoId == videoId }
+            dbRef.history().clear(videoId)
+            status.value = status.value.copy(lastRemoved = group)
+        }
+    }
+
+    /** Puts the swiped row back as one watch event. The watch count does not survive a swipe. */
+    fun undoRemove() {
+        viewModelScope.launch {
+            val group = status.value.lastRemoved
+            if (group != null) {
+                dbRef.history().add(
+                    com.presaince.parallax.data.db.HistoryEntity(
+                        videoId = group.videoId,
+                        title = group.title,
+                        channelName = group.channelName,
+                        watchedAt = group.watchedAt,
+                        thumbUrl = group.thumbUrl,
+                    ),
+                )
+                status.value = status.value.copy(lastRemoved = null)
+            }
+        }
+    }
+
+    fun dismissRemoved() {
+        status.value = status.value.copy(lastRemoved = null)
     }
 
     enum class ClearPeriod { TODAY, WEEK, ALL }
