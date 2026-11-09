@@ -53,11 +53,13 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import com.presaince.parallax.ui.component.LevelPill
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import coil3.compose.AsyncImage
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
@@ -72,6 +74,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -93,6 +96,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.runtime.mutableLongStateOf
@@ -153,6 +157,7 @@ import com.presaince.parallax.feature.comments.CommentsViewModel
 import com.presaince.parallax.feature.notes.NotesTab
 import com.presaince.parallax.feature.player.gesture.Zone
 import com.presaince.parallax.feature.player.gesture.playbackGestures
+import com.presaince.parallax.ui.component.CardStyle
 import com.presaince.parallax.ui.component.LinkifiedText
 import com.presaince.parallax.ui.component.SineRiver
 import com.presaince.parallax.ui.component.compactCount
@@ -162,6 +167,7 @@ import com.presaince.parallax.ui.theme.parallaxFilterChipColors
 import coil3.compose.AsyncImage
 import com.presaince.parallax.playback.PlaybackController
 import com.presaince.parallax.playback.PlaybackState
+import com.presaince.parallax.playback.STALL_RETRY_LIMIT
 import kotlin.math.roundToInt
 import kotlin.math.PI
 import kotlin.math.sin
@@ -213,6 +219,7 @@ fun PlayerScreen(
     val loadState by viewModel.state.collectAsStateWithLifecycle()
     val playbackState by playback.state.collectAsStateWithLifecycle()
     val commentsState by commentsViewModel.state.collectAsStateWithLifecycle()
+    val watches = com.presaince.parallax.ui.component.watchCounts(db)
 
     // The staged load order: video to its first frame, then chapters, then comments, then
     // "Up next". Each step starts only once the previous has settled; the picture never
@@ -239,19 +246,11 @@ fun PlayerScreen(
         viewModel.ensurePlaying(playbackState.videoId)
     }
 
-    // A stream that dies mid-video gets two quiet tries at where it was before the failure is
-    // left on screen. Stream URLs expire and connections drop; asking the viewer to press Retry
-    // for that is exactly the "it keeps stopping" feeling. After a rejection the retry must
-    // fetch fresh signed URLs, not reuse the failed cached ones.
-    var autoRetries by remember { mutableIntStateOf(0) }
-    LaunchedEffect(playbackState.playerError) {
-        if (playbackState.playerError == null || autoRetries >= 2) return@LaunchedEffect
-        autoRetries++
-        delay(1_200)
-        viewModel.retryAfterPlayerError(playback.state.value.positionMs)
-    }
+    // The quiet retries are the controller's, not this screen's: they have to fire with the
+    // activity gone and with the mini-player showing, and their budget belongs to the video.
 
     val context = LocalContext.current
+    val cardStyle = remember(CardStyle.revision) { CardStyle.read(context) }
     val activity = remember {
         var current: Context? = context
         while (current is ContextWrapper) {
@@ -316,6 +315,7 @@ fun PlayerScreen(
     var controlsVisible by remember { mutableStateOf(false) }
     var speedHolding by remember { mutableStateOf(false) }
     var speedPanelOpen by remember { mutableStateOf(false) }
+    var speedAnchor by remember { mutableStateOf(Offset.Zero) }
     var fullscreen by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
@@ -421,16 +421,27 @@ fun PlayerScreen(
             if (loadState.loading) {
                 LoadingPreview(videoId = video.id, thumbnailUrl = video.thumbnailUrl)
             }
-            // Queueing and repair take a visible word, not just the waiting picture: a stuck
-            // stream with no sentence reads as a crash. The retry counter and the extractor's own
-            // repair lines are in the log; this is the short label under the picture.
-            val streamBroken = playbackState.playerError != null
-            val buffering = playbackState.isBuffering
-            val statusLine = when {
-                streamBroken -> "Stream broken — retrying"
-                buffering -> "Queueing…"
-                loadState.loading -> "Queueing…"
-                else -> null
+            // The pill states one fact: fetching streams, waiting for the first frame, rebuffering,
+            // stalled, or broken. Past the two quiet retries it becomes the way back, because a
+            // stall that ends in a word nobody can press reads as a frozen app.
+            val status = playerStatus(
+                loading = loadState.loading,
+                hasError = playbackState.playerError != null,
+                buffering = playbackState.isBuffering,
+                firstFrameReady = playbackState.firstFrameReady,
+                stalledForMs = playbackState.stalledForMs,
+            )
+            val tappable = playbackState.recoveryAttempts >= STALL_RETRY_LIMIT &&
+                (status == PlayerStatus.Stalled || status == PlayerStatus.Broken)
+            val statusLine = when (status) {
+                PlayerStatus.Broken ->
+                    if (tappable) "Stream broken — tap to retry" else "Stream broken — retrying"
+                PlayerStatus.Stalled ->
+                    if (tappable) "Stalled — tap to retry" else "Stalled — retrying"
+                PlayerStatus.Fetching -> "Fetching…"
+                PlayerStatus.WaitingForFirstFrame -> "Loading video…"
+                PlayerStatus.Buffering -> "Buffering…"
+                PlayerStatus.Hidden -> null
             }
             if (statusLine != null && loadState.error == null) {
                 Box(
@@ -439,15 +450,33 @@ fun PlayerScreen(
                         .padding(bottom = 20.dp)
                         .clip(RoundedCornerShape(50))
                         .background(Color(0xCC000000))
+                        .then(
+                            if (tappable) {
+                                Modifier.clickable {
+                                    playback.retryNow()
+                                }
+                            } else {
+                                Modifier
+                            },
+                        )
                         .padding(horizontal = 12.dp, vertical = 6.dp),
                     contentAlignment = Alignment.Center,
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(14.dp),
-                            color = Color.White,
-                            strokeWidth = 2.dp,
-                        )
+                        if (tappable) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp),
+                                tint = Color.White,
+                            )
+                        } else {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(14.dp),
+                                color = Color.White,
+                                strokeWidth = 2.dp,
+                            )
+                        }
                         Spacer(Modifier.width(8.dp))
                         Text(
                             text = statusLine,
@@ -486,7 +515,7 @@ fun PlayerScreen(
                 playback.togglePlayPause()
                 if (starting) controlsVisible = false
             },
-            onOpenSpeedPopup = { speedPanelOpen = true },
+            onOpenSpeedPopup = { anchor -> speedAnchor = anchor; speedPanelOpen = true },
             onSpeedAdjust = { speed, _ -> playback.setSpeed(speed) },
             onSpeedEnd = { hud = null },
             onSpeedHold = { speedHolding = it },
@@ -502,7 +531,7 @@ fun PlayerScreen(
             // steps aside instead of sitting on top of the number.
             showPlay = hud == null,
             playAt = tapAt,
-            qualityLabel = com.presaince.parallax.core.qualityLabel(qualityHeight),
+            qualityLabel = com.presaince.parallax.core.qualityLabel(qualityHeight, playbackState.videoHeight),
             selectedQuality = qualityHeight,
             onPickQuality = { height ->
                 context.getSharedPreferences("parallax", Context.MODE_PRIVATE)
@@ -521,6 +550,7 @@ fun PlayerScreen(
                 presets = playback.speedPresets(),
                 onSpeed = playback::setSpeed,
                 onDismiss = { speedPanelOpen = false },
+                anchor = speedAnchor,
             )
         }
     }
@@ -733,41 +763,35 @@ fun PlayerScreen(
         0f
     }
     val progressLine: @Composable () -> Unit = {
-        // The only permanent progress indicator. It lives on the bottom edge of the picture, so
-        // it is there with the controls hidden and in fullscreen, and the gesture pill is left to
-        // say where a scrub is going.
-        // Top half is the SponsorBlock markers only, bottom half is the playhead. Drawing both
-        // at full height bled the colours together; the split keeps each colour pure.
-        Column(
+        val duration = playbackState.durationMs
+        val segments = playbackState.segments
+        val primary = MaterialTheme.colorScheme.primary
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(6.dp)
                 .background(Color(0x44FFFFFF)),
         ) {
-            val duration = playbackState.durationMs
-            val segments = playbackState.segments
-            Box(modifier = Modifier.fillMaxWidth().height(3.dp)) {
-                androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
-                    if (duration > 0L) {
-                        for (segment in segments) {
-                            val start = (segment.startMs.toFloat() / duration).coerceIn(0f, 1f)
-                            val end = (segment.endMs.toFloat() / duration).coerceIn(0f, 1f)
-                            drawRect(
-                                color = segmentColor(segment.category),
-                                topLeft = androidx.compose.ui.geometry.Offset(start * size.width, 0f),
-                                size = androidx.compose.ui.geometry.Size(((end - start) * size.width), size.height),
-                            )
-                        }
+            androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+                if (duration > 0L) {
+                    // Two layers that never share pixels: sponsors on top half, playhead on
+                    // bottom half. Overlap is the 50/50 split by construction.
+                    val half = size.height / 2f
+                    for (segment in segments) {
+                        val start = (segment.startMs.toFloat() / duration).coerceIn(0f, 1f)
+                        val end = (segment.endMs.toFloat() / duration).coerceIn(0f, 1f)
+                        drawRect(
+                            color = segmentColor(segment.category),
+                            topLeft = androidx.compose.ui.geometry.Offset(start * size.width, 0f),
+                            size = androidx.compose.ui.geometry.Size((end - start) * size.width, half),
+                        )
                     }
+                    drawRect(
+                        color = primary,
+                        topLeft = androidx.compose.ui.geometry.Offset(0f, half),
+                        size = androidx.compose.ui.geometry.Size(progressFraction * size.width, half),
+                    )
                 }
-            }
-            Box(modifier = Modifier.fillMaxWidth().height(3.dp)) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth(progressFraction)
-                        .fillMaxHeight()
-                        .background(MaterialTheme.colorScheme.primary),
-                )
             }
         }
     }
@@ -992,18 +1016,28 @@ fun PlayerScreen(
                         .padding(horizontal = 16.dp)
                         .padding(top = 6.dp),
                 ) {
-                    Text(
-                        text = loadState.title,
-                        style = MaterialTheme.typography.titleMedium,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    if (cardStyle.title) {
+                        Text(
+                            text = loadState.title,
+                            style = MaterialTheme.typography.titleMedium,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                     // The channel is a door, not a caption: the name opens its page. The facts
                     // sit on the right, so the row stays one line under the title.
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
+                    if (cardStyle.channel || buildList {
+                            (loadState.views ?: video.viewCount)?.let { if (cardStyle.views) add(it) }
+                            (loadState.likes ?: video.likeCount)?.let { if (cardStyle.likes) add(it) }
+                            if (cardStyle.age) video.publishedAtMs?.let { add(it) }
+                            if (cardStyle.duration) add(video.durationSec)
+                            if (cardStyle.comments) video.commentCount?.let { add(it) }
+                            if (cardStyle.watches) watches[video.id]?.let { add(it) }
+                        }.isNotEmpty()) {
                         // The detail's uploader URL lands after the first load; when a listing
                         // carried none, a subscription of the same name is the door instead.
                         var subUrl by remember(video.channelName) { mutableStateOf<String?>(null) }
@@ -1018,33 +1052,42 @@ fun PlayerScreen(
                         }
                         val channelUrl = loadState.channelUrl ?: video.channelUrl ?: subUrl
                         val channelName = loadState.channelName.ifBlank { video.channelName }
-                        Text(
-                            text = channelName,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier
-                                .weight(1f)
-                                .then(
-                                    if (channelUrl.isNullOrBlank()) {
-                                        Modifier
-                                    } else {
-                                        Modifier.clickable {
-                                            onOpenChannel(channelUrl, channelName)
-                                        }
-                                    },
-                                )
-                                .padding(vertical = 4.dp),
-                        )
+                        if (cardStyle.channel) {
+                            Text(
+                                text = channelName,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .then(
+                                        if (channelUrl.isNullOrBlank()) {
+                                            Modifier
+                                        } else {
+                                            Modifier.clickable {
+                                                onOpenChannel(channelUrl, channelName)
+                                            }
+                                        },
+                                    )
+                                    .padding(vertical = 4.dp),
+                            )
+                        }
                         val facts = buildList {
-                            (loadState.views ?: video.viewCount)?.let {
-                                add("${compactCount(it)} views")
+                            if (cardStyle.views) {
+                                (loadState.views ?: video.viewCount)?.let {
+                                    add("${compactCount(it)} views")
+                                }
                             }
-                            (loadState.likes ?: video.likeCount)?.let {
-                                add("${compactCount(it)} likes")
+                            if (cardStyle.likes) {
+                                (loadState.likes ?: video.likeCount)?.let {
+                                    add("${compactCount(it)} likes")
+                                }
                             }
-                            video.publishedAtMs?.let { add(timeAgo(it)) }
+                            if (cardStyle.age) video.publishedAtMs?.let { add(timeAgo(it)) }
+                            if (cardStyle.duration) add(formatDuration(video.durationSec))
+                            if (cardStyle.comments) video.commentCount?.let { add("${compactCount(it)} comments") }
+                            if (cardStyle.watches) watches[video.id]?.takeIf { it > 1 }?.let { add("watched $it times") }
                         }.joinToString(" · ")
                         if (facts.isNotBlank()) {
                             Text(
@@ -1054,6 +1097,7 @@ fun PlayerScreen(
                                 maxLines = 1,
                             )
                         }
+                    }
                     }
                 }
             }
@@ -1140,9 +1184,7 @@ fun PlayerScreen(
                         expanded = chaptersExpanded,
                         // The chapter the playhead is inside. Before the first mark there is
                         // none, which is honest: an intro is not the first chapter yet.
-                        activeIndex = shownChapters.indexOfLast {
-                            it.atSec <= playbackState.positionMs / 1000
-                        },
+                        activeIndex = activeChapterIndex(shownChapters, playbackState.positionMs),
                         onToggle = { chaptersExpanded = !chaptersExpanded },
                         onSeek = { seconds -> playback.seekTo(seconds * 1000) },
                     )
@@ -1269,6 +1311,7 @@ fun PlayerScreen(
                         relatedToShow.forEach { next ->
                             com.presaince.parallax.ui.component.VideoRow(
                                 video = next,
+                                watches = watches[next.id],
                                 onClick = { onOpenVideo(next) },
                             )
                         }
@@ -1480,7 +1523,7 @@ private fun SponsorSegmentsBlock(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = "Sponsor segments (${segments.size})",
+                text = "SponsorBlock (${segments.size})",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.weight(1f),
@@ -1654,14 +1697,13 @@ private fun ChaptersBlock(
     onSeek: (Long) -> Unit,
 ) {
     val thumb = Thumbnails.forVideo(videoId, thumbnailUrl)
-    // Real storyboard stills, one per chapter, loaded only when the row is on screen. The strip
-    // is a LazyRow and the list is one Row per chapter, so Coil fetches on visibility.
-    fun frame(index: Int): String = when (index % 4) {
-        0 -> thumb
-        1 -> "https://i.ytimg.com/vi/$videoId/mq1.jpg"
-        2 -> "https://i.ytimg.com/vi/$videoId/mq2.jpg"
-        else -> "https://i.ytimg.com/vi/$videoId/mq3.jpg"
+    val listState = rememberLazyListState()
+    // Keep the active chapter in view. Skipped when it is -1 (before the first mark).
+    LaunchedEffect(activeIndex) {
+        if (activeIndex >= 0) listState.animateScrollToItem(activeIndex)
     }
+    // One canonical thumbnail for every chapter: same picture, no extra fetches.
+    fun frame(index: Int): String = thumb
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
         Row(
             modifier = Modifier
@@ -1684,6 +1726,7 @@ private fun ChaptersBlock(
         }
         if (expanded && horizontal) {
             LazyRow(
+                state = listState,
                 contentPadding = PaddingValues(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier.padding(top = 4.dp),
@@ -1910,7 +1953,14 @@ private fun HudPill(hud: Hud) {
                 )
             }
             level != null -> Box(Modifier.fillMaxSize(), Alignment.Center) {
-                LevelPill(level, hud.brightness)
+                LevelPill(level = level) {
+                    Icon(
+                        painter = painterResource(if (hud.brightness) R.drawable.ic_sun else R.drawable.ic_volume),
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
             }
             hud.leftEdge -> {
                 val y = (maxHeight * anchorY - 24.dp)
@@ -1991,38 +2041,6 @@ private fun ScrubPill(
     }
 }
 
-/** Volume and brightness: a vertical capsule whose fill is the level. No number, no word. */
-@Composable
-private fun LevelPill(level: Float, brightness: Boolean) {
-    val shown by animateFloatAsState(
-        targetValue = level.coerceIn(0f, 1f),
-        animationSpec = tween(90),
-        label = "level",
-    )
-    Box(
-        modifier = Modifier
-            .width(72.dp)
-            .height(58.dp)
-            .clip(RoundedCornerShape(20.dp))
-            .background(Color(0xE6101014)),
-        contentAlignment = Alignment.Center,
-    ) {
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .fillMaxHeight(shown)
-                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)),
-        )
-        Icon(
-            painter = painterResource(if (brightness) R.drawable.ic_sun else R.drawable.ic_volume),
-            contentDescription = null,
-            tint = Color.White,
-            modifier = Modifier.size(22.dp),
-        )
-    }
-}
-
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun ControlsOverlay(
@@ -2031,7 +2049,7 @@ private fun ControlsOverlay(
     fullscreen: Boolean,
     onBack: () -> Unit,
     onTogglePlay: () -> Unit,
-    onOpenSpeedPopup: () -> Unit,
+    onOpenSpeedPopup: (Offset) -> Unit,
     onSpeedAdjust: (Float, Float) -> Unit,
     onSpeedEnd: () -> Unit,
     onSpeedHold: (Boolean) -> Unit,
@@ -2046,8 +2064,10 @@ private fun ControlsOverlay(
     onPickQuality: (Int) -> Unit,
     speedPresets: List<Float>,
 ) {
+    var overlayCoords by remember { mutableStateOf<androidx.compose.ui.layout.LayoutCoordinates?>(null) }
+    var speedBoxCoords by remember { mutableStateOf<androidx.compose.ui.layout.LayoutCoordinates?>(null) }
     AnimatedVisibility(visible = visible, enter = fadeIn(), exit = fadeOut()) {
-        Box(modifier = Modifier.fillMaxSize()) {
+        Box(modifier = Modifier.fillMaxSize().onGloballyPositioned { overlayCoords = it }) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -2156,6 +2176,7 @@ private fun ControlsOverlay(
                     }
                     Box(
                         modifier = Modifier
+                            .onGloballyPositioned { speedBoxCoords = it }
                             .pointerInput(state.speed) {
                                 awaitEachGesture {
                                     val down = awaitFirstDown(requireUnconsumed = false)
@@ -2200,7 +2221,12 @@ private fun ControlsOverlay(
                                                 dial = null
                                                 onSpeedEnd()
                                             } else {
-                                                onOpenSpeedPopup()
+                                                val anchor = overlayCoords?.let { parent ->
+                                                    speedBoxCoords?.let { speed ->
+                                                        parent.localPositionOf(speed, Offset.Zero)
+                                                    }
+                                                } ?: Offset.Zero
+                                                onOpenSpeedPopup(anchor)
                                             }
                                             break
                                         }
@@ -2459,10 +2485,14 @@ private fun ShareSheet(
     }
 }
 
+/** Speed fill fraction: the shared LevelPill language, so speed reads like volume/brightness. */
+private fun speedFill(speed: Float): Float =
+    ((speed - 0.25f) / (5.0f - 0.25f)).coerceIn(0f, 1f)
+
 /**
- * Speed: a thin vertical panel that opens above the control you tapped. The track on the left is
- * the slider. Tapping a value picks it and closes at once; a drag previews a speed and only
- * commits when the finger lifts.
+ * Speed: a level-fill pill that opens just above the control you tapped, under the finger, so
+ * the slide starts where the hand already is. Only the current speed is shown; a drag previews
+ * a speed and only commits when the finger lifts.
  */
 @Composable
 private fun SpeedPanel(
@@ -2470,6 +2500,7 @@ private fun SpeedPanel(
     presets: List<Float>,
     onSpeed: (Float) -> Unit,
     onDismiss: () -> Unit,
+    anchor: Offset = Offset.Zero,
 ) {
     var preview by remember(speed) { mutableFloatStateOf(speed) }
     var dragBase by remember { mutableFloatStateOf(speed) }
@@ -2480,21 +2511,35 @@ private fun SpeedPanel(
         ticks.speedHome(fromTenths, toTenths)
     }
 
+    // Anchor is the speed button's top-left in the overlay's coordinates. The panel (84dp wide,
+    // 96dp tall) is centred on it and sits just above it, so it opens literally on the control
+    // the finger just tapped.
+    val density = androidx.compose.ui.platform.LocalDensity.current
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0x33000000))
             .clickable(onClick = onDismiss),
-        contentAlignment = Alignment.CenterStart,
     ) {
+        val panelW = 84.dp
+        val panelH = 96.dp
+        val offsetX = if (anchor != Offset.Zero) {
+            with(density) { anchor.x.toDp() } - panelW / 2
+        } else 12.dp
+        val offsetY = if (anchor != Offset.Zero) {
+            with(density) { anchor.y.toDp() } - panelH - 8.dp
+        } else 64.dp
+        val offset: androidx.compose.ui.unit.Dp = offsetX.coerceIn(8.dp, 320.dp)
+        val offsetYdp: androidx.compose.ui.unit.Dp = offsetY.coerceIn(16.dp, 800.dp)
         Surface(
-            // The same capsule shape as the other readouts, with the level as a rising fill
-            // rather than a thin track: one fill language across the whole player.
+            // Same capsule shape as the readouts, but the fill is the level: one language.
             shape = RoundedCornerShape(24.dp),
             color = MaterialTheme.colorScheme.surface,
             tonalElevation = 6.dp,
             modifier = Modifier
-                .padding(start = 12.dp)
+                // Centred on the speed button and just above it, so sliding continues without
+                // reaching across the screen.
+                .offset(x = offset, y = offsetYdp)
                 .wrapContentWidth()
                 // Swallow taps meant for the panel itself so the scrim does not close it.
                 .clickable(
@@ -2527,33 +2572,19 @@ private fun SpeedPanel(
                     )
                 },
         ) {
-            Column(
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
+            // Only the current speed, filled like volume/brightness. The preset numbers are
+            // gone; the fill is the reading.
+            LevelPill(
+                level = speedFill(preview),
+                width = 84.dp,
+                height = 96.dp,
+                fillColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
             ) {
                 Text(
-                    text = "%.1f".format(preview),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
+                    text = "%.1fx".format(preview),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = Color.White,
                 )
-                presets.sortedDescending().forEach { preset ->
-                    Text(
-                        text = "%.1f".format(preset),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (kotlin.math.abs(preview - preset) < 0.05f) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                        modifier = Modifier
-                            .clickable {
-                                // Pick it and get out of the way: a tap is a decision.
-                                onSpeed(preset)
-                                onDismiss()
-                            }
-                            .padding(vertical = 3.dp),
-                    )
-                }
             }
         }
     }
@@ -2562,28 +2593,20 @@ private fun SpeedPanel(
 /** The finger's place on the speed pill while it is being dragged, in the pill's own pixels. */
 private data class SpeedDial(val speed: Float, val fingerY: Float)
 
-/** The speed list during a drag: thin, just the numbers, fastest at the top. */
+/** The speed readout during a drag: only the current speed, filled like the other pills. */
 @Composable
 private fun SpeedLadder(presets: List<Float>, current: Float) {
-    val nearest = presets.minByOrNull { kotlin.math.abs(it - current) }
-    Column(
-        modifier = Modifier
-            .clip(RoundedCornerShape(6.dp))
-            .background(Color(0xD9000000))
-            .padding(horizontal = 6.dp, vertical = 4.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
+    LevelPill(
+        level = speedFill(current),
+        width = 72.dp,
+        height = 64.dp,
+        trackColor = Color(0xD9000000),
     ) {
-        presets.sortedDescending().forEach { speed ->
-            Text(
-                text = "%.1f".format(speed),
-                style = MaterialTheme.typography.labelSmall,
-                color = if (speed == nearest) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    Color.White.copy(alpha = 0.75f)
-                },
-            )
-        }
+        Text(
+            text = "%.1fx".format(current),
+            style = MaterialTheme.typography.labelLarge,
+            color = Color.White,
+        )
     }
 }
 

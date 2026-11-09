@@ -23,6 +23,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
@@ -36,10 +37,12 @@ import com.presaince.parallax.core.timeAgo
 import com.presaince.parallax.data.model.VideoSummary
 import com.presaince.parallax.data.source.VideoSource
 import com.presaince.parallax.data.db.ParallaxDb
+import com.presaince.parallax.ui.component.CardStyle
 import com.presaince.parallax.ui.component.NoteCountBadge
 import com.presaince.parallax.ui.component.ScrollToTopButton
 import com.presaince.parallax.ui.component.VideoRow
 import com.presaince.parallax.ui.component.noteCounts
+import com.presaince.parallax.ui.component.watchCounts
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -58,6 +61,10 @@ fun ChannelScreen(
     )
     val state by viewModel.state.collectAsStateWithLifecycle()
     val notes = noteCounts(db)
+    val watches = watchCounts(db)
+    val cardRevision = CardStyle.revision
+    val cardContext = LocalContext.current
+    val cardStyle = remember(cardRevision) { CardStyle.read(cardContext) }
     val hideLive = LocalContext.current
         .getSharedPreferences("parallax", android.content.Context.MODE_PRIVATE)
         .getBoolean("hide_live", false)
@@ -102,8 +109,9 @@ fun ChannelScreen(
                     items(visible, key = { it.id }) { video ->
                         VideoRow(
                             video = video,
+                            watches = watches[video.id],
                             onClick = { onOpenVideo(video) },
-                            badge = notes[video.id]?.takeIf { it > 0 }?.let { n ->
+                            badge = notes[video.id]?.takeIf { it > 0 }?.takeIf { cardStyle.notes }?.let { n ->
                                 { NoteCountBadge(count = n) }
                             },
                         )

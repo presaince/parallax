@@ -33,6 +33,7 @@ import com.presaince.parallax.data.db.ParallaxDb
 import com.presaince.parallax.data.model.VideoSummary
 import com.presaince.parallax.ui.component.ScrollToTopButton
 import com.presaince.parallax.ui.component.VideoRow
+import com.presaince.parallax.ui.component.watchCounts
 import com.presaince.parallax.ui.theme.parallaxFilterChipColors
 
 /**
@@ -51,6 +52,7 @@ fun CollectionsSection(
     )
     val state by viewModel.state.collectAsStateWithLifecycle()
     val items = state.lists[state.selected].orEmpty()
+    val watches = watchCounts(db)
 
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
@@ -95,7 +97,11 @@ fun CollectionsSection(
                         modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
                     ) {
                         items(items, key = { it.id }) { video ->
-                            VideoRow(video = video, onClick = { onOpenVideo(video) })
+                            VideoRow(
+                                video = video,
+                                watches = watches[video.id],
+                                onClick = { onOpenVideo(video) },
+                            )
                         }
                     }
                     ScrollToTopButton(

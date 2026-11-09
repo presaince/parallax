@@ -68,9 +68,11 @@ import com.presaince.parallax.data.discover.DiscoverEngine
 import com.presaince.parallax.data.discover.Recipe
 import com.presaince.parallax.data.discover.RecipeRepository
 import com.presaince.parallax.data.model.VideoSummary
+import com.presaince.parallax.ui.component.CardStyle
 import com.presaince.parallax.ui.component.SineRiver
 import com.presaince.parallax.ui.component.ScrollToTopButton
 import com.presaince.parallax.ui.component.VideoRow
+import com.presaince.parallax.ui.component.watchCounts
 import com.presaince.parallax.ui.theme.faded
 import com.presaince.parallax.ui.theme.parallaxFilterChipColors
 import kotlin.math.PI
@@ -85,6 +87,7 @@ import kotlin.math.sin
 fun DiscoverScreen(
     recipes: RecipeRepository,
     engine: DiscoverEngine,
+    db: com.presaince.parallax.data.db.ParallaxDb,
     onOpenVideo: (VideoSummary) -> Unit,
 ) {
     val viewModel: DiscoverViewModel = viewModel(
@@ -93,6 +96,10 @@ fun DiscoverScreen(
         },
     )
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val watches = watchCounts(db)
+    val cardRevision = CardStyle.revision
+    val cardContext = androidx.compose.ui.platform.LocalContext.current
+    val cardStyle = remember(cardRevision) { CardStyle.read(cardContext) }
     val context = androidx.compose.ui.platform.LocalContext.current
     val prefs = remember {
         context.getSharedPreferences("parallax", android.content.Context.MODE_PRIVATE)
@@ -178,7 +185,13 @@ fun DiscoverScreen(
                         VideoRow(
                             video = step.video,
                             watched = null,
-                            meta = step.path.joinToString("\n"),
+                            watches = watches[step.video.id],
+                            meta = step.path.joinToString("\n") +
+                                if (cardStyle.watches) {
+                                    watches[step.video.id]?.takeIf { it > 1 }?.let { "\nwatched $it times" }.orEmpty()
+                                } else {
+                                    ""
+                                },
                             badge = { ScoreBadge(step.score) },
                             onClick = { onOpenVideo(step.video) },
                         )
@@ -240,7 +253,7 @@ private fun RecipeWhy(
     ) {
         Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp)) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 6.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 6.dp).clickable { open = !open },
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
@@ -257,7 +270,7 @@ private fun RecipeWhy(
                     },
                     contentDescription = if (open) "Hide the tuning" else "Show the tuning",
                     tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(20.dp).clickable { open = !open },
+                    modifier = Modifier.size(20.dp),
                 )
             }
             Text(

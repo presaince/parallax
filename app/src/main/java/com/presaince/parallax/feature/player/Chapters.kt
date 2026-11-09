@@ -7,6 +7,10 @@ package com.presaince.parallax.feature.player
 /** A timestamped line from a description: "0:00 Intro", "1:23:45 The deep end". */
 data class Chapter(val atSec: Long, val title: String)
 
+/** The chapter the playhead is inside, or -1 before the first mark. */
+fun activeChapterIndex(chapters: List<Chapter>, positionMs: Long): Int =
+    chapters.indexOfLast { it.atSec <= positionMs / 1000 }
+
 /**
  * YouTube's convention is a line starting with a timestamp. Three or more lines, starting at zero,
  * are chapters; anything less is a person writing times in a paragraph.

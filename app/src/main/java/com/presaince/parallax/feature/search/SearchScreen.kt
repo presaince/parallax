@@ -60,10 +60,12 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.presaince.parallax.data.db.ParallaxDb
 import com.presaince.parallax.data.model.VideoSummary
 import com.presaince.parallax.data.source.VideoSource
+import com.presaince.parallax.ui.component.CardStyle
 import com.presaince.parallax.ui.component.NoteCountBadge
 import com.presaince.parallax.ui.component.ScrollToTopButton
 import com.presaince.parallax.ui.component.VideoRow
 import com.presaince.parallax.ui.component.noteCounts
+import com.presaince.parallax.ui.component.watchCounts
 
 enum class SearchSort { NONE, DATE, VIEWS, DURATION }
 
@@ -81,6 +83,10 @@ fun SearchScreen(
     )
     val state by viewModel.state.collectAsStateWithLifecycle()
     val notes = noteCounts(db)
+    val watches = watchCounts(db)
+    val cardRevision = CardStyle.revision
+    val cardContext = LocalContext.current
+    val cardStyle = remember(cardRevision) { CardStyle.read(cardContext) }
     val focus = remember { FocusRequester() }
     val hideLive = LocalContext.current
         .getSharedPreferences("parallax", android.content.Context.MODE_PRIVATE)
@@ -233,8 +239,9 @@ fun SearchScreen(
                             items(visible, key = { it.id }) { video ->
                                 VideoRow(
                                     video = video,
+                                    watches = watches[video.id],
                                     onClick = { onOpenVideo(video) },
-                                    badge = notes[video.id]?.takeIf { it > 0 }?.let { n ->
+                                    badge = notes[video.id]?.takeIf { it > 0 }?.takeIf { cardStyle.notes }?.let { n ->
                                         { NoteCountBadge(count = n) }
                                     },
                                 )

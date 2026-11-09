@@ -20,14 +20,14 @@ class SettingsSearchTest {
 
     @Test
     fun `finds a row by the words a person types`() {
-        assertTrue("Skip SponsorBlock segments" in titles("ads"))
+        assertTrue("Skip SponsorBlock" in titles("ads"))
         assertTrue("Import subscriptions" in titles("takeout"))
         assertTrue("Model endpoint (AI)" in titles("api key"))
     }
 
     @Test
     fun `one letter out still finds the row`() {
-        assertTrue("Skip SponsorBlock segments" in titles("sponsr"))
+        assertTrue("Skip SponsorBlock" in titles("sponsr"))
         assertTrue("Theme" in titles("apearance"))
         assertTrue("Speed presets" in titles("speeds"))
     }

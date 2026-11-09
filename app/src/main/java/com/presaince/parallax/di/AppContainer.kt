@@ -30,6 +30,10 @@ import com.presaince.parallax.data.source.OkHttpDownloader
 import com.presaince.parallax.data.source.VideoSource
 import com.presaince.parallax.data.sponsorblock.SponsorBlock
 import com.presaince.parallax.playback.PlaybackController
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
@@ -43,6 +47,18 @@ class AppContainer(context: Context) {
     private val http: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
+        .build()
+
+    /**
+     * The player's client. It shares [http]'s pool, DNS cache and threads, because a play should
+     * not pay for a new handshake, but not its patience: the extractor fetches whole pages and can
+     * afford to wait thirty seconds, while a stream that stopped delivering bytes has to be dropped
+     * in seconds or the wait is the bug. Measured on the 2026-11-09 report: 30567 ms to the first
+     * frame, which is the shared 30 s read timeout plus the retry that then succeeded silently.
+     */
+    private val playerHttp: OkHttpClient = http.newBuilder()
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(8, TimeUnit.SECONDS)
         .build()
 
     private val prefs = appContext.getSharedPreferences("parallax", Context.MODE_PRIVATE)
@@ -137,6 +153,28 @@ class AppContainer(context: Context) {
             prefs = prefs,
             db = db,
             log = log,
+            // Not [http]: streaming wants a short fuse, the extractor wants a long one.
+            http = playerHttp,
+            // Invalidate first: a retry that reuses the cached StreamInfo hands back the same
+            // rejected URL and fails for the same reason.
+            refreshStreams = { videoId ->
+                runCatching { source.invalidateStreams(videoId) }
+                source.streams(videoId)
+            },
         )
+    }
+
+    private val prefetchScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    /**
+     * Warms the shared StreamInfo fetch at tap time, so navigation and composition overlap the
+     * request instead of waiting for them. Single-flight, so the coming PlayerViewModel load
+     * joins the same job. Prefetching the whole screen would fan out per card and throttle the
+     * network for the one video anyone actually taps.
+     */
+    fun prefetchStreams(videoId: String) {
+        prefetchScope.launch {
+            runCatching { source.streams(videoId) }
+        }
     }
 }

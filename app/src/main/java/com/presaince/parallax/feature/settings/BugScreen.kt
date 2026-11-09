@@ -127,13 +127,15 @@ fun BugScreen(log: AppLog) {
             Switch(checked = includeLogs, onCheckedChange = { includeLogs = it })
         }
 
-        // One action, one state. After the server has the report the button is gone and the page
-        // says so; a second tap cannot send the same note twice.
+        // One action, one state. After the server has the report the form resets on its own;
+        // writing the next note starts clean with no extra tap.
         val done = upload as? BugUploadState.Done
         if (done != null) {
-            // One clear state, one clear way back: the filed name stays, the note starts empty,
-            // and the Send button returns the moment the reset is tapped. A small text link next
-            // to "Sent" read as a second, competing button.
+            LaunchedEffect(done) {
+                delay(2000)
+                BugUpload.dismiss()
+                note = ""
+            }
             Column(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
                 Text(
                     text = "Sent",
@@ -141,19 +143,10 @@ fun BugScreen(log: AppLog) {
                     color = MaterialTheme.colorScheme.primary,
                 )
                 Text(
-                    text = "Filed as ${done.name}. Writing the next note resets the sender.",
+                    text = "Filed as ${done.name}.",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                OutlinedButton(
-                    onClick = {
-                        BugUpload.dismiss()
-                        note = ""
-                    },
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                ) {
-                    Text("Send another")
-                }
             }
         } else {
             Column(modifier = Modifier.fillMaxWidth()) {

@@ -15,7 +15,8 @@ import java.time.LocalDateTime
  * Theme and accent as live state. Changing either must not recreate the activity: that would throw
  * away the screen you changed it from, which is exactly where you want to see the result.
  */
-class ThemeController(private val context: Context) {
+class ThemeController(context: Context) {
+    private val context = context.applicationContext
 
     var mode: ThemeMode by mutableStateOf(readThemeMode(context))
         private set
@@ -27,13 +28,26 @@ class ThemeController(private val context: Context) {
     var solidSurfaces: Boolean by mutableStateOf(readSolidSurfaces(context))
         private set
 
-    /** Glass only: ten levels, 1 clearest to 10 nearly solid. */
-    var glassLevel: Int by mutableStateOf(readGlassLevel(context))
+    /** Glass only: continuous 0..1 fill, 0 clearest to 1 nearly solid. Default 0.42. */
+    var glassLevel: Float by mutableStateOf(readGlassLevel(context))
+        private set
+
+    /** How hard the theme works for readable text: Off, AA or AAA. Default AA. */
+    var contrast: ContrastPolicy by mutableStateOf(readContrast(context))
         private set
 
     /** Glass only: which way the transparency leans — the last ordinary theme that was chosen. */
     var glassBase: ThemeMode by mutableStateOf(readGlassBase(context))
         private set
+
+    /**
+     * The dial's ceiling for the current accent, mode and policy. Cached because the drag asks on
+     * every move, and the search behind it is far too expensive for a per-frame question.
+     *
+     * Declared below [glassBase] on purpose: this initialiser reads [dark], and Kotlin runs property
+     * initialisers top to bottom, so above it the delegate is still null.
+     */
+    private var levelCap: Float = maxGlassLevel(accent, dark, solidSurfaces, contrast)
 
     /** A new accent on a rhythm the reader picked: daily, hourly, or on every open. */
     var shuffle: ShuffleCadence by mutableStateOf(readShuffleCadence(context))
@@ -42,16 +56,14 @@ class ThemeController(private val context: Context) {
     /** Kept for older call sites: any cadence but off is "shuffling". */
     val accentDaily: Boolean get() = shuffle != ShuffleCadence.OFF
 
-    init {
-        // The roll happens once, on the first read of the period. A process that lives through
-        // midnight keeps yesterday's colour until it is next opened, which is fine: nobody is
-        // sitting in the app waiting for a colour change at 00:00.
-        when (shuffle) {
-            ShuffleCadence.OFF -> Unit
-            // "On open" has no key to compare against, so this process always rolls once.
-            ShuffleCadence.ON_OPEN -> rollAccent(force = true)
-            else -> rollAccent(force = false)
-        }
+    /**
+     * Called each time the app returns to the foreground. The first call comes from the theme
+     * lifecycle wiring on cold start, later calls from each resume, so midnight and hour
+     * boundaries crossed while away are caught here rather than at the next process start.
+     */
+    fun onForeground() {
+        if (!shouldRollOnForeground(shuffle, readAccentDay(context), periodKey())) return
+        rollAccent()
     }
 
     val dark: Boolean get() = isDarkTheme(mode, context, glassDark)
@@ -68,6 +80,7 @@ class ThemeController(private val context: Context) {
         }
         mode = next
         writeThemeMode(context, next)
+        clampGlassLevel()
     }
 
     fun chooseAccent(next: Accent) {
@@ -75,16 +88,40 @@ class ThemeController(private val context: Context) {
         writeAccent(context, next)
         // Picking a colour by hand is a decision; the shuffle starts its period from here.
         if (shuffle != ShuffleCadence.OFF) writeAccentDay(context, periodKey())
+        // A different hue can carry a different amount of glass before text stops reading.
+        clampGlassLevel()
     }
 
     fun chooseSolidSurfaces(solid: Boolean) {
         solidSurfaces = solid
         writeSolidSurfaces(context, solid)
+        clampGlassLevel()
     }
 
-    fun chooseGlassLevel(level: Int) {
-        glassLevel = level.coerceIn(1, 10)
-        writeGlassLevel(context, glassLevel)
+    fun chooseGlassLevel(level: Float, persist: Boolean = true) {
+        glassLevel = level.coerceIn(0f, levelCap)
+        // The drag writes state every move but only touches prefs on release, so the
+        // finger gets a live fill without a disk round trip per pixel.
+        if (persist) writeGlassLevel(context, glassLevel)
+    }
+
+    /**
+     * The transparent dial stops where text stops reading. The cap belongs to the accent and the
+     * ratio, so it moves when either does — which is why the stored level is clamped rather than
+     * the drawing being quietly adjusted: a dial that shows 1.0 while painting 0.5 is a lie.
+     */
+    fun chooseContrast(next: ContrastPolicy) {
+        contrast = next
+        writeContrast(context, next)
+        clampGlassLevel()
+    }
+
+    private fun clampGlassLevel() {
+        levelCap = maxGlassLevel(accent, dark, solidSurfaces, contrast)
+        if (glassLevel > levelCap) {
+            glassLevel = levelCap
+            writeGlassLevel(context, glassLevel)
+        }
     }
 
     fun chooseShuffle(cadence: ShuffleCadence) {
@@ -99,21 +136,38 @@ class ThemeController(private val context: Context) {
         chooseShuffle(if (daily) ShuffleCadence.DAILY else ShuffleCadence.OFF)
     }
 
-    private fun periodKey(): String = when (shuffle) {
-        ShuffleCadence.OFF -> ""
-        ShuffleCadence.DAILY -> LocalDate.now().toString()
-        ShuffleCadence.HOURLY -> LocalDateTime.now()
-            .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd-HH"))
-        ShuffleCadence.ON_OPEN -> "open-${System.currentTimeMillis()}"
-    }
+    private fun periodKey(): String =
+        periodKeyFor(shuffle, LocalDate.now(), LocalDateTime.now())
 
-    private fun rollAccent(force: Boolean) {
-        if (shuffle == ShuffleCadence.OFF) return
+    private fun rollAccent() {
         val key = periodKey()
-        if (!force && readAccentDay(context) == key) return
         val next = Accents.all.filter { it.name != accent.name }.random()
         accent = next
         writeAccent(context, next)
         writeAccentDay(context, key)
+        clampGlassLevel()
     }
+}
+
+/** The stored key for a cadence at a moment: the day for daily, the hour for hourly. */
+fun periodKeyFor(cadence: ShuffleCadence, date: LocalDate, dateTime: LocalDateTime): String =
+    when (cadence) {
+        ShuffleCadence.OFF -> ""
+        ShuffleCadence.DAILY -> date.toString()
+        ShuffleCadence.HOURLY -> dateTime.format(
+            java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd-HH"),
+        )
+        // Focus has no period; every foreground is the event, not the clock.
+        ShuffleCadence.ON_OPEN -> ""
+    }
+
+/** Whether a foreground should move the accent for the picked cadence. */
+fun shouldRollOnForeground(
+    cadence: ShuffleCadence,
+    storedKey: String?,
+    periodKey: String,
+): Boolean = when (cadence) {
+    ShuffleCadence.OFF -> false
+    ShuffleCadence.ON_OPEN -> true
+    ShuffleCadence.DAILY, ShuffleCadence.HOURLY -> storedKey != periodKey
 }

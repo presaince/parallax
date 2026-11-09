@@ -37,6 +37,7 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import com.presaince.parallax.R
+import com.presaince.parallax.ui.theme.accentTextColour
 
 /** One bottom destination. Kept dumb so navigation stays in `ui/nav`. */
 data class TabItem(val label: String, val icon: ImageVector)
@@ -134,8 +135,8 @@ fun ParallaxScaffold(
                             icon = { Icon(item.icon, contentDescription = item.label) },
                             label = { Text(item.label) },
                             colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = MaterialTheme.colorScheme.primary,
-                                selectedTextColor = MaterialTheme.colorScheme.primary,
+                                selectedIconColor = accentTextColour(),
+                                selectedTextColor = accentTextColour(),
                                 indicatorColor = MaterialTheme.colorScheme.primary
                                     .copy(alpha = 0.16f),
                                 unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,

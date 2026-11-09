@@ -92,29 +92,14 @@ class PlayerViewModel(
         }
     }
 
-    /** Loads the same video again at a given position, for when the quality changes mid-watch. */
+    /**
+     * Loads the same video again at a given position, for when the quality changes mid-watch.
+     */
     fun reloadAt(positionMs: Long) {
         if (inFlight) return
         inFlight = true
         viewModelScope.launch {
             try {
-                loadOnce(positionMs)
-            } finally {
-                inFlight = false
-            }
-        }
-    }
-
-    /**
-     * Retry after the player rejected the signed URL (403/429). A reload without invalidating
-     * reuses the same URL from cache and fails again, so the retry must fetch fresh streams.
-     */
-    fun retryAfterPlayerError(positionMs: Long) {
-        if (inFlight) return
-        inFlight = true
-        viewModelScope.launch {
-            try {
-                runCatching { source.invalidateStreams(summary.id) }
                 loadOnce(positionMs)
             } finally {
                 inFlight = false

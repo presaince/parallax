@@ -56,6 +56,37 @@ what this covers. Past two tries the failure stays on screen with Retry.
 
 **Enforced by** `PlaybackController.kt` (`playerError`), `PlayerScreen.kt`.
 
+**Rule.** A stream that goes quiet without raising an error is timed, and it counts as a failure
+for the same two retries.
+
+**Edge.** `PlaybackController` measures buffering in its 250 ms tick and publishes `stalledForMs`;
+at 15 s it logs one line with the network label, and at 20 s the stall spends one of the two quiet
+tries. The stopwatch runs only while the player is trying to play, so pausing a slow load never
+ends in a retry that starts the video on its own. The player's own client gives a stalled socket
+8 s to answer, against the extractor's 30 s, because a wait that long reads as a hang. The pill
+under the picture states exactly one fact — fetching, loading the video, buffering, stalled or
+broken — and past the two quiet retries it is pressable rather than a word with nothing behind it.
+
+Both retries, and the budget behind them, belong to the controller rather than the screen: they
+fire with the activity gone or the mini-player showing, and a new video gets a fresh two while the
+same video keeps what it has spent. A tap on the pill resets the budget on purpose.
+
+**Enforced by** `PlaybackController.kt` (`stalledForMs`, `shouldRecover`, `STALL_LOG_MS`),
+`feature/player/PlayerStatus.kt`, `PlayerScreen.kt`, `di/AppContainer.kt` (`playerHttp`).
+
+**Rule.** Played bytes stay on disk and are read before the network. The cache is capped by a
+user setting (2 GB by default, LRU), so seeking back into what you have watched, or reopening a
+video, starts from the disk. A cache that is cleared, full or corrupt costs a re-download, never
+the picture.
+
+**Edge.** The last fifteen seconds live in memory, behind the playhead, starting at the previous
+keyframe. ExoPlayer's own default is to keep nothing there, which made even a two-second seek a
+read; the disk cache is for the minutes, this is for the seconds. The tail spends the same byte
+budget as the forward buffer, so it is fixed rather than growing with the cache setting.
+
+**Enforced by** `PlaybackController.kt` (`mediaCacheKey`, `streamCache`, `BACK_BUFFER_MS`,
+`FLAG_IGNORE_CACHE_ON_ERROR`), Settings → Playback → Stream cache.
+
 ---
 
 ## Player gestures
@@ -94,7 +125,9 @@ and closes with no release animation, or snaps back.
 
 **Edge.** While the dial is held or the panel is open, the picture gesture is disabled, so a drag
 cannot also be a brightness swipe. An interrupted gesture clears the hold in `finally`. The panel's
-fill is measured against the panel, not the screen.
+fill is measured against the panel, not the screen. The dial and the panel show only the current
+speed, filled like the volume/brightness pill; the panel opens just above the control, under the
+finger. Auto quality reads as "Auto (1080p)" once ExoPlayer reports the resolved height.
 
 **Enforced by** `PlayerScreen.kt` (`SpeedPanel`, gesture gate).
 
@@ -412,7 +445,8 @@ control. `Surfaces` is one block cut across: Glass on top, Solid underneath. Sol
 the aurora turned down and the cards nearly closed, not a second copy of Dark or Light. Glass has
 to be visibly glass: its cards sit at 0.42 (dark) / 0.66 (light) alpha over an aurora at full
 strength, and Solid is 0.88 / 0.94 over a quiet one, so the two settings look different on a real
-page rather than only in a preview. Tapping the half in use flips to the other; tapping the other
+page rather than only in a preview. The Glass tile's fill is continuous like the volume/brightness
+pill and opens at 42%. Tapping the half in use flips to the other; tapping the other
 half chooses it. Eighteen accents start at 20°, a deep
 orange, so the wheel reads warm to cool and the first swatch is the colour a reader expects.
 Prefs keep the 200° brand cyan slot. One line of chips — Shuffle, Daily, Hourly, Openly — where

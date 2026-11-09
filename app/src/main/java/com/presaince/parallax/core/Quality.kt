@@ -41,6 +41,12 @@ fun firstLoadHeight(storedHeight: Int): Int =
 
 private const val FIRST_LOAD_AUTO_HEIGHT = 720
 
-/** What to call a stored height. Unknown values keep their number rather than pretending. */
-fun qualityLabel(height: Int): String =
-    QUALITY_STOPS.firstOrNull { it.height == height }?.label ?: "${height}p"
+/**
+ * What to call a stored height. Auto (0) says what ExoPlayer resolved to, so "Auto (1080p)"
+ * answers "what quality is it using" without pretending Auto is one fixed height. Unknown
+ * values keep their number rather than pretending.
+ */
+fun qualityLabel(height: Int, resolvedHeight: Int = 0): String {
+    if (height == 0 && resolvedHeight > 0) return "Auto (${resolvedHeight}p)"
+    return QUALITY_STOPS.firstOrNull { it.height == height }?.label ?: "${height}p"
+}

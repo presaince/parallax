@@ -9,6 +9,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import android.content.Context
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import com.presaince.parallax.ui.component.LevelPill
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -79,6 +80,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -95,10 +97,15 @@ import com.presaince.parallax.data.source.flag
 import com.presaince.parallax.data.sponsorblock.SponsorCategories
 import com.presaince.parallax.playback.PlaybackController
 import com.presaince.parallax.ui.theme.Accents
+import com.presaince.parallax.ui.theme.ContrastPolicy
+import com.presaince.parallax.ui.theme.LocalAccentInk
+import com.presaince.parallax.ui.theme.LocalSurfaces
 import com.presaince.parallax.ui.theme.ThemeController
 import com.presaince.parallax.ui.theme.ThemeMode
+import com.presaince.parallax.ui.theme.contrastRatio
 import com.presaince.parallax.ui.theme.faded
 import com.presaince.parallax.ui.theme.parallaxFilterChipColors
+import com.presaince.parallax.ui.theme.worstContrast
 import com.presaince.parallax.ui.component.CardStyle
 import com.presaince.parallax.ui.component.CardLayout
 import kotlinx.coroutines.delay
@@ -205,6 +212,9 @@ private fun AppearanceSection(theme: ThemeController) {
             },
         )
 
+        Caption("Contrast")
+        ContrastCard(theme)
+
         Caption("Motion")
         var animations by remember {
             mutableStateOf(
@@ -265,6 +275,165 @@ private fun AppearanceSection(theme: ThemeController) {
     }
 }
 
+/**
+ * Contrast as a reading, not a promise. The numbers are measured on the resolved theme: the fill
+ * composited over the aurora, the accent text after its shade has been walked, and the label on an
+ * accent fill. Change the accent, the theme or the transparency dial and the numbers move with them.
+ *
+ * It is also the place the theme admits what it did: the ceiling on the transparency dial, and the
+ * one thing it never does — replace the accent the reader picked.
+ */
+@Composable
+private fun ContrastCard(theme: ThemeController) {
+    val scheme = MaterialTheme.colorScheme
+    val surfaces = LocalSurfaces.current.ifEmpty { listOf(scheme.surface) }
+    val rawInk = LocalAccentInk.current
+    val ink = if (rawInk == Color.Unspecified) scheme.primary else rawInk
+
+    val body = worstContrast(scheme.onSurface, surfaces)
+    val secondary = worstContrast(scheme.onSurfaceVariant, surfaces)
+    val accentText = worstContrast(ink, surfaces)
+    val onFill = contrastRatio(scheme.onPrimary, scheme.primary)
+    val worst = minOf(body, secondary, accentText, onFill)
+    val target = theme.contrast.ratio
+    val holding = worst >= target
+
+    val shape = RoundedCornerShape(20.dp)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 4.dp)
+            .clip(shape)
+            .border(1.dp, MaterialTheme.colorScheme.surfaceVariant, shape)
+            .background(MaterialTheme.colorScheme.surfaceVariant.faded(0.35f))
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f).padding(end = 10.dp)) {
+                Text(
+                    text = "Text contrast",
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                Text(
+                    text = "Measured on what is behind the text, glass included.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Text(
+                text = "%.1f:1".format(worst),
+                style = MaterialTheme.typography.headlineSmall,
+                color = if (holding) {
+                    MaterialTheme.colorScheme.onSurface
+                } else {
+                    MaterialTheme.colorScheme.error
+                },
+            )
+        }
+
+        ContrastRow("Body text", body, target)
+        ContrastRow("Secondary text", secondary, target)
+        ContrastRow("Accent labels", accentText, target)
+        ContrastRow("On accent fill", onFill, target)
+
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            ContrastPolicy.all.forEach { policy ->
+                PickChip(
+                    label = policy.label,
+                    selected = theme.contrast == policy,
+                    onClick = { theme.chooseContrast(policy) },
+                )
+            }
+        }
+
+        val cap = remember(theme.accent, theme.dark, theme.solidSurfaces, theme.contrast) {
+            com.presaince.parallax.ui.theme.maxGlassLevel(
+                theme.accent,
+                theme.dark,
+                theme.solidSurfaces,
+                theme.contrast,
+            )
+        }
+        val aurora = remember(theme.accent, theme.dark, theme.solidSurfaces, theme.contrast) {
+            com.presaince.parallax.ui.theme.auroraScale(
+                theme.accent,
+                theme.dark,
+                theme.solidSurfaces,
+                theme.contrast,
+            )
+        }
+        val capped = theme.mode == ThemeMode.GLASS && cap < 0.999f &&
+            theme.glassLevel >= cap - 0.001f
+        val dimmed = theme.mode == ThemeMode.GLASS && aurora < 0.999f
+        val glass = theme.mode == ThemeMode.GLASS
+        val did = buildList {
+            if (glass && dimmed) {
+                add("the aurora runs at ${(aurora * 100).roundToInt()}% so text straight on the page passes")
+            }
+            if (glass && capped) {
+                add("the transparency dial stops at ${(cap * 100).roundToInt()}%")
+            }
+        }
+        Text(
+            text = when {
+                !theme.contrast.enforced ->
+                    "Off keeps every colour exactly as chosen. Some pairs sit below the floor, " +
+                        "which is the point of the setting."
+                did.isNotEmpty() ->
+                    "Your accent stays as picked. Accent text takes a shade of the same hue, " +
+                        "and " + did.joinToString(", and ") + "."
+                else ->
+                    "Your accent stays as picked. Accent text takes a shade of the same hue " +
+                        "until the pair clears ${theme.contrast.target}."
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 10.dp),
+        )
+    }
+}
+
+/** One measured pair: the label, the number, and whether it clears the chosen floor. */
+@Composable
+private fun ContrastRow(label: String, ratio: Float, target: Float) {
+    val holding = ratio >= target
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .padding(end = 8.dp)
+                .size(6.dp)
+                .clip(CircleShape)
+                .background(
+                    if (holding) {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    } else {
+                        MaterialTheme.colorScheme.error
+                    },
+                ),
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = "%.1f:1".format(ratio),
+            style = MaterialTheme.typography.labelMedium,
+            color = if (holding) {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            } else {
+                MaterialTheme.colorScheme.error
+            },
+        )
+    }
+}
+
 /** The accent master and its three rhythms, on one line. */
 @Composable
 private fun ShuffleRow(theme: ThemeController) {
@@ -320,8 +489,10 @@ private fun PickChip(
     muted: Boolean = false,
     onClick: () -> Unit,
 ) {
+    val ink = LocalAccentInk.current
+    val accentText = if (ink == Color.Unspecified) MaterialTheme.colorScheme.primary else ink
     val tint = when {
-        selected -> MaterialTheme.colorScheme.primary
+        selected -> accentText
         muted -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
@@ -576,6 +747,10 @@ private fun FactButtons(style: CardStyle, onChange: (CardStyle) -> Unit) {
         Fact("Views", style.views) { onChange(style.copy(views = it)) },
         Fact("Likes", style.likes) { onChange(style.copy(likes = it)) },
         Fact("Duration", style.duration) { onChange(style.copy(duration = it)) },
+        Fact("Watch count", style.watches) { onChange(style.copy(watches = it)) },
+        Fact("Comments", style.comments) { onChange(style.copy(comments = it)) },
+        Fact("Progress", style.progress) { onChange(style.copy(progress = it)) },
+        Fact("Notes", style.notes) { onChange(style.copy(notes = it)) },
     )
     Column(
         modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
@@ -658,6 +833,8 @@ private fun PreviewCard(style: CardStyle) {
         if (style.age) add("3h ago")
         if (style.views) add("128K views")
         if (style.likes) add("4.2K likes")
+        if (style.watches) add("watched 3 times")
+        if (style.comments) add("42 comments")
     }.joinToString(" · ")
     Surface(
         color = MaterialTheme.colorScheme.surface,
@@ -739,6 +916,38 @@ private fun PreviewThumb(style: CardStyle, modifier: Modifier = Modifier) {
                 )
             }
         }
+        if (style.notes) {
+            Surface(
+                color = Color(0xCC000000),
+                shape = RoundedCornerShape(50),
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(6.dp),
+            ) {
+                Text(
+                    text = "3",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White,
+                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                )
+            }
+        }
+        if (style.progress) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .fillMaxWidth()
+                    .padding(bottom = 0.dp),
+            ) {
+                // The progress line: a third across, on a translucent track, over the picture.
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.35f)
+                        .height(3.dp)
+                        .background(MaterialTheme.colorScheme.primary),
+                )
+            }
+        }
     }
 }
 
@@ -771,16 +980,16 @@ private fun PreviewWords(
 
 /**
  * The Glass theme's own button: just Glass, no Solid word. The whole tile is the fill, in the
- * volume/brightness language: the tile's color rises from the bottom with the level, 1 to 10,
+ * volume/brightness language: the tile's color rises from the bottom with the level, 0..1,
  * with the glass icon riding on it like the other theme tiles. It slides up and down anywhere on
  * the tile. Tapping turns Glass on from another theme at the remembered level; off is picking
- * another theme.
+ * another theme. Default 0.42.
  */
 @Composable
 private fun androidx.compose.foundation.layout.RowScope.GlassTile(theme: ThemeController) {
     val active = theme.mode == ThemeMode.GLASS
     val shape = RoundedCornerShape(20.dp)
-    val levelFraction = (theme.glassLevel.coerceIn(1, 10) - 1) / 9f
+    val level = theme.glassLevel.coerceIn(0f, 1f)
     var tileHeightPx by remember { mutableFloatStateOf(0f) }
     // The whole tile is the slider: no inner capsule, no number. The fill's height is the
     // reading, and dragging anywhere on the tile sets it. The gesture is keyless on purpose:
@@ -804,15 +1013,20 @@ private fun androidx.compose.foundation.layout.RowScope.GlassTile(theme: ThemeCo
             .pointerInput(Unit) {
                 detectVerticalDragGestures(
                     onDragStart = { },
-                    onVerticalDrag = { change, _ ->
+                    onVerticalDrag = { change, dragAmount ->
                         change.consume()
                         if (tileHeightPx > 1f) {
-                            val t = 1f - ((change.position.y / tileHeightPx).coerceIn(0f, 1f))
-                            val steps = (t * 9f).roundToInt().coerceIn(0, 9)
-                            val level = steps + 1
-                            if (level != theme.glassLevel) theme.chooseGlassLevel(level)
+                            // Accumulate like the volume/brightness pills: the level moves
+                            // with the drag, not to the finger's absolute position.
+                            val delta = -dragAmount / tileHeightPx
+                            theme.chooseGlassLevel(
+                                (theme.glassLevel + delta).coerceIn(0f, 1f),
+                                persist = false,
+                            )
                         }
                     },
+                    onDragEnd = { theme.chooseGlassLevel(theme.glassLevel) },
+                    onDragCancel = { theme.chooseGlassLevel(theme.glassLevel) },
                 )
             }
             .clickable {
@@ -821,36 +1035,38 @@ private fun androidx.compose.foundation.layout.RowScope.GlassTile(theme: ThemeCo
             },
         contentAlignment = Alignment.Center,
     ) {
-        // The entire tile fills with the theme color up to the level, like the display slider's
-        // fill rising behind its number: the top stays the track, the bottom is the value.
-        // Solid like the volume/brightness pill fill, not a fading gradient.
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .fillMaxWidth()
-                .fillMaxHeight(levelFraction.coerceIn(0.12f, 1f))
-                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)),
-        )
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(
-                painter = painterResource(R.drawable.ic_glass),
-                contentDescription = "Glass theme",
-                tint = if (active) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-            )
-            Spacer(Modifier.height(6.dp))
-            Text(
-                text = "Glass",
-                style = MaterialTheme.typography.labelMedium,
-                color = if (active) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-            )
+        // Same fill as the volume/brightness pills: LevelPill owns the fill, the tile is its
+        // frame. The icon and word ride centred on the fill rather than a custom bar.
+        // No fill when Glass is not selected; the gap to the border appears when it is.
+        LevelPill(
+            level = if (active) level else 0f,
+            width = 72.dp,
+            height = 58.dp,
+            fillColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+            trackColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+            modifier = if (active) Modifier.padding(4.dp) else Modifier,
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_glass),
+                    contentDescription = "Glass theme",
+                    tint = if (active) {
+                        tileInk()
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = "Glass",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (active) {
+                        tileInk()
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+            }
         }
     }
 }
@@ -883,7 +1099,7 @@ private fun SurfaceHalf(
             text = label,
             style = MaterialTheme.typography.labelMedium,
             color = when {
-                active && selected -> MaterialTheme.colorScheme.primary
+                active && selected -> tileInk()
                 active -> MaterialTheme.colorScheme.onSurfaceVariant
                 selected -> MaterialTheme.colorScheme.onSurface
                 else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
@@ -892,6 +1108,10 @@ private fun SurfaceHalf(
         )
     }
 }
+
+/** Accent text for a selected tile: the picked hue, walked until it reads on this surface. */
+@Composable
+private fun tileInk(): Color = com.presaince.parallax.ui.theme.accentTextColour()
 
 @Composable
 private fun ThemePicker(theme: ThemeController) {
@@ -949,7 +1169,7 @@ private fun ThemePicker(theme: ThemeController) {
                         ThemeMode.GLASS -> "Glass theme"
                     },
                     tint = if (selected) {
-                        MaterialTheme.colorScheme.primary
+                        tileInk()
                     } else {
                         MaterialTheme.colorScheme.onSurfaceVariant
                     },
@@ -964,7 +1184,7 @@ private fun ThemePicker(theme: ThemeController) {
                     },
                     style = MaterialTheme.typography.labelMedium,
                     color = if (selected) {
-                        MaterialTheme.colorScheme.primary
+                        tileInk()
                     } else {
                         MaterialTheme.colorScheme.onSurfaceVariant
                     },
@@ -1067,6 +1287,7 @@ private fun PlaybackSection(playback: PlaybackController) {
                 .getInt("seek_base_seconds", 5),
         )
     }
+    var watchThreshold by remember { mutableStateOf(playback.watchThreshold()) }
 
     Page {
         Caption("Gestures")
@@ -1184,6 +1405,61 @@ private fun PlaybackSection(playback: PlaybackController) {
             }
         }
 
+        // When a play becomes a "watch" in history. 30 seconds is the industry default
+        // (YouTube counts a view at 30s, or on completion for shorter videos); the chips
+        // below let it be shortened, lengthened, or expressed as a share of the video.
+        Caption("Count a watch after")
+        Text(
+            text = "How much of a video has to play before it is counted in history. " +
+                "30 seconds is the usual default; shorter values count quick opens too.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            listOf(
+                "30s" to "30s",
+                "60s" to "1 min",
+                "300s" to "5 min",
+                "600s" to "10 min",
+            ).forEach { (token, label) ->
+                FilterChip(
+                    selected = watchThreshold == token,
+                    onClick = {
+                        watchThreshold = token
+                        playback.setWatchThreshold(token)
+                    },
+                    label = { Text(label, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()) },
+                    colors = parallaxFilterChipColors(),
+                    modifier = Modifier.width(80.dp),
+                )
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            listOf(
+                "10%" to "10%",
+                "25%" to "25%",
+                "50%" to "50%",
+                "90%" to "90%",
+            ).forEach { (token, label) ->
+                FilterChip(
+                    selected = watchThreshold == token,
+                    onClick = {
+                        watchThreshold = token
+                        playback.setWatchThreshold(token)
+                    },
+                    label = { Text(label, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()) },
+                    colors = parallaxFilterChipColors(),
+                    modifier = Modifier.width(80.dp),
+                )
+            }
+        }
+
         // "Price is right" speed editor: pick the numbers the slider offers.
         Caption("Video quality")
         Text(
@@ -1267,6 +1543,38 @@ private fun PlaybackSection(playback: PlaybackController) {
                             }
                         }
                         .padding(horizontal = 6.dp, vertical = 4.dp),
+                )
+            }
+        }
+
+        Caption("Stream cache")
+        Text(
+            text = "The bytes you have just watched are kept on disk, so reopening a video " +
+                "starts at once while fresh data loads. Off keeps nothing. Changing this takes " +
+                "effect the next time the app starts.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        var cacheMb by remember { mutableStateOf(playback.streamCacheMb()) }
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            listOf(
+                1024 to "1GB",
+                2048 to "2GB",
+                4096 to "4GB",
+                0 to "Off",
+            ).forEach { (mb, label) ->
+                FilterChip(
+                    selected = cacheMb == mb,
+                    onClick = {
+                        cacheMb = mb
+                        playback.setStreamCacheMb(mb)
+                    },
+                    label = { Text(label, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()) },
+                    colors = parallaxFilterChipColors(),
+                    modifier = Modifier.width(80.dp),
                 )
             }
         }
@@ -1395,7 +1703,7 @@ private fun SponsorSection(playback: PlaybackController) {
 
     Page {
         SwitchRow(
-            title = "Skip SponsorBlock segments",
+            title = "Skip SponsorBlock",
             summary = "Segments come from the public SponsorBlock API. On by default.",
             checked = playbackState.sponsorSkip,
             onCheckedChange = playback::setSponsorSkip,
@@ -1734,10 +2042,11 @@ private fun DiagnosticsSection(
 
 @Composable
 private fun Caption(text: String) {
+    val ink = LocalAccentInk.current
     Text(
         text = text,
         style = MaterialTheme.typography.titleSmall,
-        color = MaterialTheme.colorScheme.primary,
+        color = if (ink == Color.Unspecified) MaterialTheme.colorScheme.primary else ink,
         modifier = Modifier.padding(top = 16.dp, bottom = 6.dp),
     )
 }
@@ -1843,7 +2152,7 @@ private fun RegionSection(onRegionChange: (List<String>) -> Unit) {
                 "${chosen.size} selected"
             },
             style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.primary,
+            color = tileInk(),
             modifier = Modifier.padding(bottom = 6.dp),
         )
         // Three cards across: a flag stretched full-width reads as a flag stretched, and the
@@ -1973,7 +2282,7 @@ private fun GestureTutorial() {
                 else -> "Step ${step + 1} of ${instructions.size} · ${instructions[step]}"
             },
             style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.primary,
+            color = tileInk(),
             modifier = Modifier.padding(bottom = 6.dp),
         )
         // Small on purpose: a tutorial that fills the width is a screen, not a card. The four

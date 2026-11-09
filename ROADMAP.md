@@ -112,6 +112,58 @@ Phases 1, 2, 3 and 6 are built and installed; the owner's check is what decides 
 - **About**: Version and Check for updates share a line with the button on the right edge, and
   "Made by Presaince" closes the page, centred.
 
+## Queue time, 2026-11-09
+
+- **The cause was the shared OkHttp client, not the extractor.** One client with a 30 s read
+  timeout served the extractor and the player alike, so a googlevideo edge that stopped sending
+  held the first frame for the whole timeout; ExoPlayer's own retry then succeeded silently, which
+  is why no error ever reached the screen. The 11:45 report logs `ready in 30567ms` against
+  2149 ms for the first video of the same session. The player now has `playerHttp`: the same pool
+  and DNS cache, 8 s connect and read.
+- **Silence is timed.** `PlaybackController.tick()` measures buffering (`stalledForMs`), logs one
+  line at 15 s with the network label, and `play()`/`stop()` reset the stopwatch so a retry re-arms.
+- **The pill states one fact.** `playerStatus()` replaces the four booleans folded into
+  "Queueing…": Fetching, Loading video, Buffering, Stalled, Broken. A stall arms the same two quiet
+  retries an error does, and past them the pill is pressable instead of a dead word.
+- Verified by the suite (11 new tests across `PlayerStatusTest` and `PlaybackStallTest`, 0 failures)
+  and a clean install. The 30 s figure is read off the owner's log; no hand check has been done yet.
+
+## Cache and retries, 2026-11-09 (second)
+
+- **The disk cache was already there; the size was not.** Media3 `SimpleCache` keyed video + itag
+  had been written with a 100 MB default, which is about three minutes of 720p. Default is now
+  2 GB with Off / 1GB / 2GB / 4GB, so "seek back a few minutes" is a cache hit and a two-hour
+  podcast at 720p fits whole. It is an LRU, so the ceiling is the ceiling; the system clearing
+  `cacheDir` is the one thing that empties it.
+- **The memory buffer came down to 60 s.** At 1080p and above the old 90 s held hundreds of MB of
+  a byte the disk now has; 30 s ahead is what keeps a jittery connection fed.
+- **A broken cache costs a download, not the picture.** `FLAG_IGNORE_CACHE_ON_ERROR`, because a
+  span can vanish under a playing stream when Android clears the cache directory.
+- **The quiet retries moved into `PlaybackController`.** They were a `LaunchedEffect`, so a stall
+  on the mini-player or with the activity gone was never retried, and the budget reset on every
+  screen visit. Now: a `refreshStreams` lambda wired in `AppContainer`, a pure `shouldRecover`
+  rule, two tries per video, and a retry that never starts a video the viewer paused. The pill's
+  tap is `retryNow()` and resets the budget on purpose.
+- **The cache index is timed, not guessed.** One log line (`media cache N keys, XMB, indexed in
+  Yms`) on first use answers whether a 2 GB folder is a 30 ms or a 1 s scan; the construction
+  stays lazy until a log says otherwise.
+- **Seeking back two seconds was two seconds of loading.** ExoPlayer's `DEFAULT_BACK_BUFFER_DURATION_MS`
+  is 0: nothing behind the playhead is retained, so every backward seek left the buffer and paid a
+  read. With the cache off (the stored `stream_cache_mb` was 0 on the owner's phone) that read was
+  the network. The player now keeps a 15 s tail from the previous keyframe, and the time targets
+  outrank the byte heuristic, which had been clipping the 30 s forward buffer at 1080p and above.
+- **Off moved out of the first chip** in the cache row, where a thumb reaching for the setting
+  could switch off the thing that makes seeking cheap.
+- Verified by `:app:assembleDebug` and `:app:testDebugUnitTest` (5 new tests in
+  `PlaybackRecoveryTest`), 0 failures. No hand check yet: the seek-back and reopen paths are the
+  owner's to judge.
+
+## Asked, not done (second FTP batch, 2026-11-09)
+
+- **A pasted or clipboard YouTube link should open the video** instead of being searched as words.
+- **Comments expand on a row tap only.** The chevron closes them; tapping a reply must not collapse
+  the thread.
+
 ## Asked, not done (2026-11-07)
 
 What has been asked for and is still outstanding, so it cannot be quietly dropped:
@@ -312,7 +364,10 @@ feed state. Each is listed in ARCHITECTURE "Known gaps".
 
 ## Queued
 
+- `ui/nav/ParallaxNav.kt` - `prefetchStreams` fires on every Player route entry, including re-entering the video that is already loaded and about to be reused, so a warm restart pays one extractor fetch for nothing. Cost: a needless request on a shared client; found 2026-11-09 while moving the retries.
+- `data/library/ContentRepository.kt` - `refreshFeed` spins `while (playbackBusy()) delay(400)` with no ceiling, so a buffering player can hold a refresh open indefinitely. Cost: a refresh that reads as a hang. Found 2026-11-09 while fixing the stall; not changed in that patch.
 - `data/source/SelfRepair.kt` — data-driven extractor (JSON path model) is not built; LLM repair covers search query and region only. Cost of leaving it: field renames still need a code change instead of a model publish.
+- `feature/**` — about thirty call sites still paint accent *text* with `colorScheme.primary` instead of `accentTextColour()`/`LocalAccentInk` (nav labels, chips and Settings are converted; feed, player, comments, library are not). Cost of leaving it: at AA and AAA those labels keep their raw accent, so a magenta or blue accent still sits near its own tinted surface. Found 2026-11-09 while adding the Contrast card.
 
 ## Milestones
 

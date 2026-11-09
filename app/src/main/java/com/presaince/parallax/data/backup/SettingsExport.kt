@@ -36,6 +36,7 @@ object SettingsExport {
                 JSONObject()
                     .put("sponsorSkip", prefs.getBoolean("sponsor_skip", true))
                     .put("speed", prefs.getFloat("playback_speed", 1f))
+                    .put("watchThreshold", prefs.getString("watch_threshold", "30s"))
                     .put(
                         "sponsorCategories",
                         JSONArray(categories?.sorted().orEmpty()),

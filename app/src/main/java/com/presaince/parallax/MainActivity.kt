@@ -18,14 +18,13 @@ import android.content.pm.ActivityInfo
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.SideEffect
-import androidx.compose.runtime.remember
 import androidx.core.view.WindowCompat
 import com.presaince.parallax.playback.PlaybackService
 import com.presaince.parallax.ui.nav.ParallaxNav
 import com.presaince.parallax.ui.theme.ParallaxTheme
-import com.presaince.parallax.ui.theme.ThemeController
 import com.presaince.parallax.ui.theme.isDarkTheme
 import com.presaince.parallax.ui.theme.readThemeMode
+import com.presaince.parallax.ui.theme.rememberThemeController
 
 class MainActivity : ComponentActivity() {
 
@@ -70,7 +69,7 @@ class MainActivity : ComponentActivity() {
         val container = (application as ParallaxApp).container
         handleIntent(intent)
         setContent {
-            val theme = remember { ThemeController(this) }
+            val theme = rememberThemeController()
             // The bar icons follow the app's theme, not the system's.
             SideEffect {
                 val controller = WindowCompat.getInsetsController(window, window.decorView)
@@ -83,6 +82,7 @@ class MainActivity : ComponentActivity() {
                 solidSurfaces = theme.solidSurfaces,
                 glassDark = theme.glassDark,
                 glassLevel = theme.glassLevel,
+                contrast = theme.contrast,
             ) {
                 ParallaxNav(container = container, theme = theme)
             }

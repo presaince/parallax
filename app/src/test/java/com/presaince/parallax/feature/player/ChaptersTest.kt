@@ -59,4 +59,23 @@ class ChaptersTest {
     fun `prose with a stray time is not a chapter`() {
         assertTrue(parseChapters("I watched at 10:30 and it was fine.").isEmpty())
     }
+
+    @Test
+    fun `active chapter is the last one the playhead has passed`() {
+        val chapters = listOf(
+            Chapter(0, "Intro"),
+            Chapter(83, "Middle"),
+            Chapter(3723, "Ending"),
+        )
+        assertEquals(0, activeChapterIndex(chapters, 0))
+        assertEquals(0, activeChapterIndex(chapters, 82_000))
+        assertEquals(1, activeChapterIndex(chapters, 83_000))
+        assertEquals(2, activeChapterIndex(chapters, 3_723_000))
+    }
+
+    @Test
+    fun `before the first chapter there is no active chapter`() {
+        val chapters = listOf(Chapter(10, "Later"))
+        assertEquals(-1, activeChapterIndex(chapters, 0))
+    }
 }

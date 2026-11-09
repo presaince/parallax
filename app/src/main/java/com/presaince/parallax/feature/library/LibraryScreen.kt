@@ -40,6 +40,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -62,11 +63,13 @@ import com.presaince.parallax.data.db.VideoEntity
 import com.presaince.parallax.data.library.ContentRepository
 import com.presaince.parallax.data.model.VideoSummary
 import com.presaince.parallax.feature.collections.CollectionsSection
+import com.presaince.parallax.ui.component.CardStyle
 import com.presaince.parallax.ui.component.ChannelAvatar
 import com.presaince.parallax.ui.component.NoteCountBadge
 import com.presaince.parallax.ui.component.ScrollToTopButton
 import com.presaince.parallax.ui.component.VideoRow
 import com.presaince.parallax.ui.component.noteCounts
+import com.presaince.parallax.ui.component.watchCounts
 import com.presaince.parallax.ui.theme.parallaxFilterChipColors
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -86,6 +89,10 @@ fun LibraryScreen(
     )
     val state by viewModel.state.collectAsStateWithLifecycle()
     val notes = noteCounts(db)
+    val watches = watchCounts(db)
+    val cardRevision = CardStyle.revision
+    val cardContext = LocalContext.current
+    val cardStyle = remember(cardRevision) { CardStyle.read(cardContext) }
 
     Column(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
@@ -185,6 +192,8 @@ fun LibraryScreen(
                 ChannelSections(
                     state = state,
                     notes = notes,
+                    watches = watches,
+                    cardStyle = cardStyle,
                     onOpenChannel = onOpenChannel,
                     onOpenVideo = onOpenVideo,
                 )
@@ -252,6 +261,8 @@ private fun ChannelGrid(
 private fun ChannelSections(
     state: LibraryUiState,
     notes: Map<String, Int>,
+    watches: Map<String, Int>,
+    cardStyle: CardStyle,
     onOpenChannel: (String, String) -> Unit,
     onOpenVideo: (VideoSummary) -> Unit,
 ) {
@@ -268,9 +279,15 @@ private fun ChannelSections(
                 VideoRow(
                     video = progress.toSummary(),
                     watched = state.watchedFraction(progress.videoId),
-                    meta = "${formatDuration(progress.positionMs / 1000)} watched",
+                    watches = watches[progress.videoId],
+                    meta = "${formatDuration(progress.positionMs / 1000)} watched" +
+                        if (cardStyle.watches) {
+                            watches[progress.videoId]?.takeIf { it > 1 }?.let { " · $it times" }.orEmpty()
+                        } else {
+                            ""
+                        },
                     onClick = { onOpenVideo(progress.toSummary()) },
-                    badge = notes[progress.videoId]?.takeIf { it > 0 }?.let { n ->
+                    badge = notes[progress.videoId]?.takeIf { it > 0 }?.takeIf { cardStyle.notes }?.let { n ->
                         { NoteCountBadge(count = n) }
                     },
                 )
@@ -291,8 +308,9 @@ private fun ChannelSections(
                 VideoRow(
                     video = video.toSummary(),
                     watched = state.watchedFraction(video.id),
+                    watches = watches[video.id],
                     onClick = { onOpenVideo(video.toSummary()) },
-                    badge = notes[video.id]?.takeIf { it > 0 }?.let { n ->
+                    badge = notes[video.id]?.takeIf { it > 0 }?.takeIf { cardStyle.notes }?.let { n ->
                         { NoteCountBadge(count = n) }
                     },
                 )

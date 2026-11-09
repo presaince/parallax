@@ -22,7 +22,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.presaince.parallax.core.AppLog
+import com.presaince.parallax.core.BugUpload
+import com.presaince.parallax.core.BugUploadState
 
 /**
  * The app's own log, on the device, for the times when something silently does not work. Kept 48
@@ -32,6 +35,8 @@ import com.presaince.parallax.core.AppLog
 fun LogsScreen(log: AppLog) {
     var refresh by remember { mutableIntStateOf(0) }
     val entries = remember(refresh) { log.recent() }
+    val upload by BugUpload.state.collectAsStateWithLifecycle()
+    val done = upload as? BugUploadState.Done
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
@@ -43,6 +48,21 @@ fun LogsScreen(log: AppLog) {
             )
             TextButton(onClick = { log.clear(); refresh++ }) { Text("Clear") }
             TextButton(onClick = { refresh++ }) { Text("Reload") }
+        }
+
+        if (done != null) {
+            Column(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+                Text(
+                    text = "Sent bug report",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Text(
+                    text = "Filed as ${done.name}. On FTP, not saved on device.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
         }
 
         if (entries.isEmpty()) {

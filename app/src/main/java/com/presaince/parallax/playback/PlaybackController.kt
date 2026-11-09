@@ -13,12 +13,18 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
-import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.DataSource
+import androidx.media3.datasource.cache.CacheDataSource
+import androidx.media3.datasource.cache.CacheKeyFactory
+import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
+import androidx.media3.datasource.cache.SimpleCache
+import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import com.presaince.parallax.core.AppLog
+import com.presaince.parallax.core.AppResult
 import com.presaince.parallax.data.db.HistoryEntity
 import com.presaince.parallax.data.db.ParallaxDb
 import com.presaince.parallax.data.db.ProgressEntity
@@ -37,6 +43,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import okhttp3.OkHttpClient
+import java.io.File
 
 data class PlaybackState(
     val isPlaying: Boolean = false,
@@ -44,6 +52,8 @@ data class PlaybackState(
     val positionMs: Long = 0,
     val durationMs: Long = 0,
     val speed: Float = 1f,
+    /** The height ExoPlayer resolved to, so Auto can say what it is actually using. */
+    val videoHeight: Int = 0,
     val sponsorSkip: Boolean = true,
     val sponsorCategories: Set<String> = SponsorCategories.default,
     val segments: List<Segment> = emptyList(),
@@ -55,10 +65,81 @@ data class PlaybackState(
     val playerError: String? = null,
     /** True once the current video has reached READY: the first-frame gate for lower-priority loads. */
     val firstFrameReady: Boolean = false,
+    /** How long the player has wanted bytes without an error. Zero when it is not waiting. */
+    val stalledForMs: Long = 0L,
+    /** Quiet recovery tries spent on this video, so the pill knows when to become the way back. */
+    val recoveryAttempts: Int = 0,
 )
+
+/**
+ * Elapsed stall time from a start stamp. Zero when nothing is being timed, and never negative:
+ * the wall clock can step backwards. Pure, so the detector has a test without a device.
+ */
+internal fun stalledForMs(sinceMs: Long, nowMs: Long): Long =
+    if (sinceMs <= 0L) 0L else (nowMs - sinceMs).coerceAtLeast(0L)
+
+/** When a wait is long enough to be called a stall. Above any rebuffer ExoPlayer recovers from alone. */
+const val STALL_LIMIT_MS = 20_000L
+
+/** Two quiet tries, the same budget a player error gets. Past them the pill is the way back. */
+const val STALL_RETRY_LIMIT = 2
+
+/**
+ * Whether the player should spend one of its quiet tries. A video is loaded, the budget is not
+ * spent, and either a stream raised an error or it has gone quiet for [STALL_LIMIT_MS]. Pure, so
+ * the retry rule has a test without a device. Pausing is not this function's business: the
+ * stopwatch only runs while the player is trying to play, so a paused player never reaches it.
+ */
+internal fun shouldRecover(
+    hasVideo: Boolean,
+    hasError: Boolean,
+    stalledForMs: Long,
+    attemptsUsed: Int,
+): Boolean =
+    hasVideo && attemptsUsed < STALL_RETRY_LIMIT && (hasError || stalledForMs >= STALL_LIMIT_MS)
 
 /** A sponsor seek during buffering discards what ExoPlayer buffered and restarts it. */
 internal fun shouldSkipSegment(playbackState: Int): Boolean = playbackState == Player.STATE_READY
+
+/**
+ * The player's data source sits on the shared OkHttp client, so a stream's connection is the
+ * pool the extractor and thumbnails already use instead of a new handshake per play.
+ */
+internal fun playerDataSourceFactory(client: OkHttpClient): DataSource.Factory =
+    OkHttpDataSource.Factory(client)
+
+/**
+ * The disk cache key for one stream file: the video plus its itag. Signed URLs change on every
+ * fetch but the file behind an itag does not, so this key survives a refetch while a video's
+ * videos and its audio (different itags) never collide. A URL with no itag falls back to its
+ * own hash — it simply never hits, which is safe.
+ */
+internal fun mediaCacheKey(videoId: String, url: String): String {
+    val itag = url.substringAfter("itag=", "").substringBefore("&").takeIf { it.isNotEmpty() }
+    return if (itag != null) "$videoId:$itag" else "$videoId:${url.hashCode()}"
+}
+
+/** The user's stream-cache ceiling, in bytes. Zero means the cache is off. */
+internal fun streamCacheLimitBytes(mb: Int): Long = mb.toLong() * 1024 * 1024
+
+/** The identity of a stream set, so a quality change is never mistaken for a warm restart. */
+internal fun streamsKey(streams: StreamSet): String =
+    streams.muxedUrl ?: "${streams.videoUrl}|${streams.audioUrl}"
+
+/**
+ * Whether [play] can skip the teardown: the same video, the same stream URLs, media still
+ * loaded, and no player error. Anything else takes the full prepare, so a quality pick or a
+ * fresh retry after a rejection still fetches and prepares its streams.
+ */
+internal fun canReuseLoadedMedia(
+    currentVideoId: String?,
+    videoId: String,
+    currentStreamsKey: String?,
+    streams: StreamSet,
+    hasMedia: Boolean,
+    hasPlayerError: Boolean,
+): Boolean =
+    currentVideoId == videoId && hasMedia && !hasPlayerError && currentStreamsKey == streamsKey(streams)
 
 /**
  * The one owner of the player. The service keeps it alive in the foreground; screens only read
@@ -71,13 +152,21 @@ class PlaybackController(
     private val prefs: SharedPreferences,
     private val db: ParallaxDb,
     private val log: AppLog,
+    private val http: OkHttpClient,
+    /**
+     * Fresh signed streams for a video whose current ones failed or went quiet. Injected rather
+     * than taking the whole source, so the recovery rule stays testable with a lambda and the
+     * controller keeps one door to the data layer.
+     */
+    private val refreshStreams: suspend (String) -> AppResult<StreamSet>,
 ) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     val player: ExoPlayer = ExoPlayer.Builder(appContext)
-        // Smaller start buffer: the defaults ask for 2.5s before the first frame, which is most
-        // of the 6s Queueing wait when the pick is high-bitrate and the feed is fetching.
+        // A fat buffer behind the playhead: seeking back 30s must play immediately, not re-queue.
+        // The disk cache holds the rest; the memory stops at 60s because at 1080p and above every
+        // second of it is a copy of a byte the cache already has.
         .setLoadControl(
             DefaultLoadControl.Builder()
                 .setBufferDurationsMs(
@@ -86,19 +175,71 @@ class PlaybackController(
                     BUFFER_FOR_PLAYBACK_MS,
                     BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS,
                 )
+                // ExoPlayer retains nothing behind the playhead by default, so seeking back two
+                // seconds left the buffer and became a network read. A short tail starting at
+                // the keyframe before the target makes that a memory read again.
+                .setBackBuffer(BACK_BUFFER_MS, true)
+                // The byte heuristic (about 141 MB for split video and audio) would otherwise
+                // clip the 30 s forward target at 1080p and above; the time targets above are
+                // the ones that matter here.
+                .setPrioritizeTimeOverSizeThresholds(true)
                 .build(),
         )
         .build()
 
-    /** One factory for every play, instead of a fresh data source per video. */
-    private val mediaFactory = ProgressiveMediaSource.Factory(DefaultDataSource.Factory(appContext))
+    /**
+     * Stream bytes on disk, capped by the user's setting. Everything the player buffers while
+     * playing passes through this cache, so reopening a video starts from the bytes already
+     * fetched instead of asking the network for them again. Read once at first use: changing
+     * the setting takes effect the next time the app starts.
+     */
+    private val streamCache: SimpleCache by lazy {
+        // Indexing the folder is the only part of a large cache that costs anything, and it
+        // happens once. Timed so a two-gigabyte cache can be judged by the log, not guessed at.
+        val startedAt = System.currentTimeMillis()
+        val cache = SimpleCache(
+            File(appContext.cacheDir, "media-cache"),
+            LeastRecentlyUsedCacheEvictor(streamCacheLimitBytes(streamCacheMb())),
+        )
+        log.info(
+            "player",
+            "media cache ${cache.keys.size} keys, ${cache.cacheSpace / (1024 * 1024)}MB, " +
+                "indexed in ${System.currentTimeMillis() - startedAt}ms",
+        )
+        cache
+    }
+
+    /**
+     * One factory per play, bound to the video so the cache key can be video plus itag. Every
+     * play builds its media sources from this, muxed and split alike, so both go through the
+     * shared pool and the disk cache.
+     */
+    private fun mediaFactoryFor(videoId: String): ProgressiveMediaSource.Factory {
+        val upstream = playerDataSourceFactory(http)
+        val dataSourceFactory: DataSource.Factory =
+            if (streamCacheMb() == 0) {
+                upstream
+            } else {
+                CacheDataSource.Factory()
+                    .setCache(streamCache)
+                    .setUpstreamDataSourceFactory(upstream)
+                    // A cache the system cleared, or a span gone bad, must cost a re-download
+                    // and never the picture. Without this the cache's own write is a failure
+                    // the viewer sees as a broken stream.
+                    .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+                    .setCacheKeyFactory(
+                        CacheKeyFactory { spec ->
+                            mediaCacheKey(videoId, spec.uri.toString())
+                        },
+                    )
+            }
+        return ProgressiveMediaSource.Factory(dataSourceFactory)
+    }
 
     private val _state = MutableStateFlow(
         PlaybackState(
             sponsorSkip = prefs.getBoolean(KEY_SPONSOR_SKIP, true),
-            sponsorCategories = prefs.getStringSet(KEY_SPONSOR_CATEGORIES, null)
-                ?.toSet()
-                ?: SponsorCategories.default,
+            sponsorCategories = readSponsorCategories(),
         ),
     )
     val state: StateFlow<PlaybackState> = _state.asStateFlow()
@@ -121,6 +262,7 @@ class PlaybackController(
     private var normalSpeed: Float = prefs.getFloat(KEY_SPEED, 1f)
     private var lastSkipEndMs = -1L
     private var currentVideoId: String? = null
+    private var currentStreamsKey: String? = null
     private var currentTitle: String = ""
     private var currentChannel: String = ""
     private var currentThumb: String? = null
@@ -129,13 +271,34 @@ class PlaybackController(
     private var ticksSinceSave = 0
     /** When [play] was called, so buffering time can be logged alongside fetch time. */
     private var playStartedAtMs = 0L
+    /** Actual playback time accumulated while the player is really playing, for the history gate. */
+    private var watchedMs = 0L
+    /** User-chosen token ("30s", "60s", "25%", "100%", ...) for when a play counts as a watch. */
+    private var watchThresholdToken: String =
+        prefs.getString(KEY_WATCH_THRESHOLD, "30s") ?: "30s"
     /** True once READY for the current play has been logged. */
     private var readyLogged = false
+    /** True once history has been recorded for the current play. */
+    private var historyLogged = false
     /** True between the deliberate stop/clear and the prepare at the start of [play]. */
     private var preparing = false
+    /** When this buffering spell began, or 0 while the player is not waiting for bytes. */
+    private var stallSinceMs = 0L
+    /** One log line per stall, not four a second. */
+    private var stallLogged = false
+    /** The quiet try in flight, so two ticks cannot both start one. */
+    private var recoveryJob: Job? = null
+    /** Quiet tries spent on the current video. Reset only when a different video plays. */
+    private var recoveryAttempts = 0
 
     init {
         player.addListener(object : Player.Listener {
+            override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
+                _state.update {
+                    it.copy(videoHeight = videoSize.height.coerceAtLeast(0))
+                }
+            }
+
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 _state.update { it.copy(isPlaying = isPlaying) }
                 // Pausing is the moment a viewer leaves: save the position then, not five seconds
@@ -150,6 +313,14 @@ class PlaybackController(
                         isBuffering = playbackState == Player.STATE_BUFFERING,
                     )
                 }
+                if (playbackState == Player.STATE_READY) {
+                    _state.update {
+                        it.copy(
+                            videoHeight = (player.videoFormat?.height ?: it.videoHeight)
+                                .coerceAtLeast(0),
+                        )
+                    }
+                }
                 if (playbackState == Player.STATE_READY && currentVideoId != null && !readyLogged) {
                     readyLogged = true
                     _state.update { it.copy(firstFrameReady = true) }
@@ -163,8 +334,11 @@ class PlaybackController(
                 val resume = pendingResumeMs
                 if (playbackState == Player.STATE_READY && resume != null) {
                     pendingResumeMs = null
-                    player.seekTo(resume.coerceIn(0, player.duration.coerceAtLeast(0)))
-                    log.info("player", "resumed at ${resume}ms")
+                    // Clipped seek already applied: only the fallback case (still at zero) seeks.
+                    if (player.currentPosition < resume / 2) {
+                        player.seekTo(resume.coerceIn(0, player.duration.coerceAtLeast(0)))
+                        log.info("player", "resumed at ${resume}ms")
+                    }
                 }
                 // Sponsor data is a separate request; starting it only now leaves the
                 // connections and the bandwidth to the first frame.
@@ -212,35 +386,63 @@ class PlaybackController(
         startService()
         playStartedAtMs = System.currentTimeMillis()
         readyLogged = false
+        historyLogged = false
+        // A different video starts with a clean recovery budget. The same video keeps what it
+        // has spent, so the play() called by a retry cannot refill its own allowance.
+        if (videoId != currentVideoId) recoveryAttempts = 0
         val host = streams.muxedUrl?.let { hostOf(it) }
             ?: listOfNotNull(streams.videoUrl, streams.audioUrl).joinToString(",") { hostOf(it) }
-        log.info("player", "play $videoId (${if (streams.muxedUrl != null) "muxed" else "split"} host=$host)")
+        log.info("player", "play $videoId (${if (streams.muxedUrl != null) "muxed" else "split"} host=$host net=${networkLabel()})")
+
+        if (
+            canReuseLoadedMedia(
+                currentVideoId,
+                videoId,
+                currentStreamsKey,
+                streams,
+                player.playbackState != Player.STATE_IDLE,
+                player.playerError != null,
+            )
+        ) {
+            // Same video, same streams, already loaded: seek and play on the live timeline
+            // instead of tearing the player down and buffering from zero.
+            val startMs = resumeAtMs?.takeIf { it > 5_000 } ?: 0L
+            player.seekTo(startMs)
+            player.playWhenReady = true
+            player.setPlaybackSpeed(normalSpeed)
+            stallSinceMs = 0L
+            stallLogged = false
+            log.info("player", "warm restart $videoId at ${startMs}ms")
+            _state.update {
+                it.copy(
+                    positionMs = startMs,
+                    speed = normalSpeed,
+                    videoId = videoId,
+                    videoTitle = title,
+                    stalledForMs = 0,
+                    recoveryAttempts = recoveryAttempts,
+                )
+            }
+            return
+        }
 
         currentVideoId = videoId
+        currentStreamsKey = streamsKey(streams)
         currentTitle = title
         currentChannel = channel
         currentThumb = thumbUrl
         ticksSinceSave = 0
-
-        scope.launch {
-            runCatching {
-                db.history().add(
-                    HistoryEntity(
-                        videoId = videoId,
-                        title = title,
-                        channelName = channel,
-                        watchedAt = System.currentTimeMillis(),
-                        thumbUrl = thumbUrl,
-                    ),
-                )
-            }
-        }
+        watchedMs = 0L
 
         // stop() and clearMediaItems() both report IDLE. That is us doing it, not a stream that
         // died, so the warning below is suppressed until the new media is prepared.
         preparing = true
         player.stop()
         player.clearMediaItems()
+
+        // Start at the resume position so the first buffering is at the right place. A seek
+        // after READY would buffer at zero first and seek again.
+        val startMs = resumeAtMs?.takeIf { it > 5_000 } ?: 0L
 
         // Metadata is not decoration: the media notification and the lock screen are built from it.
         // The artwork URI is fetched by media3's bitmap loader, so the shade shows the thumbnail.
@@ -254,14 +456,17 @@ class PlaybackController(
             .setArtworkUri(artwork)
             .build()
 
+        val mediaFactory = mediaFactoryFor(videoId)
         val muxed = streams.muxedUrl
         if (muxed != null) {
-            player.setMediaItem(
-                MediaItem.Builder()
-                    .setUri(muxed)
-                    .setMediaId(videoId)
-                    .setMediaMetadata(metadata)
-                    .build(),
+            player.setMediaSource(
+                mediaFactory.createMediaSource(
+                    MediaItem.Builder()
+                        .setUri(muxed)
+                        .setMediaId(videoId)
+                        .setMediaMetadata(metadata)
+                        .build(),
+                ),
             )
         } else {
             val videoItem = MediaItem.Builder()
@@ -286,24 +491,36 @@ class PlaybackController(
         pendingSegmentsFetch = true
 
         // Play when ready, before prepare, so the first frame starts as soon as it can.
+        // Seek before prepare: the player queues it and buffers once at the resume position.
+        // Kept as a fallback: if the queued seek was dropped and we are still at zero on
+        // READY, seek then.
+        if (startMs > 0L) {
+            player.seekTo(startMs)
+            pendingResumeMs = startMs
+            log.info("player", "starting at ${startMs}ms")
+        } else {
+            pendingResumeMs = null
+        }
+        // A new attempt starts with a clean stopwatch, so the retry rule can arm again.
+        stallSinceMs = 0L
+        stallLogged = false
         player.playWhenReady = true
         player.setPlaybackSpeed(normalSpeed)
         player.prepare()
         preparing = false
-        // A seek before the timeline exists clamps to zero, which is exactly how a resume turns
-        // into "start from the beginning". Hold it until the player is ready.
-        pendingResumeMs = resumeAtMs?.takeIf { it > 5_000 }
         _state.update {
             it.copy(
-                positionMs = 0,
+                positionMs = startMs,
                 durationMs = 0,
                 speed = normalSpeed,
                 videoId = videoId,
                 videoTitle = title,
                 playerError = null,
                 firstFrameReady = false,
+                stalledForMs = 0,
                 segments = emptyList(),
                 lastSkip = null,
+                recoveryAttempts = recoveryAttempts,
             )
         }
     }
@@ -313,12 +530,19 @@ class PlaybackController(
         log.info("player", "stop $currentVideoId at ${player.currentPosition}ms")
         // Clear the id first: the IDLE that stop() reports is this call, not a stream failure.
         currentVideoId = null
+        currentStreamsKey = null
+        historyLogged = false
+        watchedMs = 0L
         preparing = true
         player.stop()
         player.clearMediaItems()
         preparing = false
         segments = emptyList()
         segmentsJob?.cancel()
+        recoveryJob?.cancel()
+        recoveryAttempts = 0
+        stallSinceMs = 0L
+        stallLogged = false
         _state.update {
             it.copy(
                 isPlaying = false,
@@ -328,8 +552,10 @@ class PlaybackController(
                 videoTitle = "",
                 playerError = null,
                 firstFrameReady = false,
+                stalledForMs = 0,
                 segments = emptyList(),
                 lastSkip = null,
+                recoveryAttempts = 0,
             )
         }
     }
@@ -432,14 +658,20 @@ class PlaybackController(
     fun setSponsorCategory(category: String, enabled: Boolean) {
         val current = _state.value.sponsorCategories.toMutableSet()
         if (enabled) current.add(category) else current.remove(category)
-        prefs.edit().putStringSet(KEY_SPONSOR_CATEGORIES, current).apply()
-        _state.update { it.copy(sponsorCategories = current) }
+        // An empty set is meaningless ("skip nothing" is the master toggle's job), and the
+        // filter with one would hide every marker while the skip toggle still says on.
+        val resolved = current.ifEmpty { SponsorCategories.default.toMutableSet() }
+        prefs.edit().putStringSet(KEY_SPONSOR_CATEGORIES, resolved).apply()
+        _state.update { it.copy(sponsorCategories = resolved) }
         applyCategoryFilter()
     }
 
     private fun applyCategoryFilter() {
-        val enabled = _state.value.sponsorCategories
+        val enabled = _state.value.sponsorCategories.ifEmpty { SponsorCategories.default }
         segments = rawSegments.filter { it.category in enabled }
+        if (rawSegments.isNotEmpty() && segments.isEmpty()) {
+            log.info("player", "sponsor categories filtered out all ${rawSegments.size} segments")
+        }
         _state.update { it.copy(segments = segments) }
     }
 
@@ -447,10 +679,89 @@ class PlaybackController(
         _state.update { it.copy(lastSkip = null) }
     }
 
+    /**
+     * The tap on a pill that has spent its quiet tries. Resets the budget because the viewer
+     * asked, not because the player guessed, then takes the same path a quiet try takes.
+     */
+    fun retryNow() {
+        recoveryAttempts = 0
+        _state.update { it.copy(recoveryAttempts = 0) }
+        recover(afterError = player.playerError != null)
+    }
+
+    /**
+     * One quiet try: fresh signed streams, then the same video back at the place it stopped.
+     * The budget is spent before the request so two ticks cannot both start one, and it is not
+     * refilled by the [play] this very retry calls — that would make the allowance infinite.
+     */
+    private fun recover(afterError: Boolean) {
+        val videoId = currentVideoId ?: return
+        val position = player.currentPosition
+        val resumePlayback = player.playWhenReady
+        recoveryAttempts++
+        stallSinceMs = 0L
+        stallLogged = false
+        _state.update { it.copy(recoveryAttempts = recoveryAttempts, stalledForMs = 0) }
+        log.warn(
+            "player",
+            "${if (afterError) "error" else "stall"} recovery $recoveryAttempts/$STALL_RETRY_LIMIT " +
+                "for $videoId at ${position}ms net=${networkLabel()}",
+        )
+        recoveryJob = scope.launch {
+            // The failed read gets a beat to close instead of racing the new one, which is why
+            // a rejected URL does not come back as two errors in the log.
+            delay(RECOVERY_DELAY_MS)
+            when (val fresh = refreshStreams(videoId)) {
+                is AppResult.Ok -> {
+                    play(videoId, currentTitle, currentChannel, currentThumb, fresh.value, position)
+                    // Paused while the retry was in flight: a retry must not start the video.
+                    if (!resumePlayback) player.pause()
+                }
+                is AppResult.Err -> {
+                    log.error("player", "recovery streams failed for $videoId: ${fresh.message}")
+                }
+            }
+        }
+    }
+
     private fun tick() {
         val current = _state.value
         val position = player.currentPosition.coerceAtLeast(0L)
         val duration = player.duration.coerceAtLeast(0L)
+        val nowMs = System.currentTimeMillis()
+
+        // A stream that never delivers bytes raises no error: ExoPlayer sits in STATE_BUFFERING
+        // and every recovery path is keyed on an error that never arrives. Measured here because
+        // this loop already samples the player four times a second. A paused player is waiting
+        // for nobody, so its clock is stopped — otherwise pausing a slow load would end in a
+        // retry that started the video again on its own.
+        if (player.playbackState == Player.STATE_BUFFERING && player.playWhenReady) {
+            if (stallSinceMs == 0L) stallSinceMs = nowMs
+        } else {
+            stallSinceMs = 0L
+            stallLogged = false
+        }
+        val stalled = stalledForMs(stallSinceMs, nowMs)
+        if (stalled >= STALL_LOG_MS && !stallLogged && currentVideoId != null && !preparing) {
+            stallLogged = true
+            log.warn(
+                "player",
+                "stalled ${stalled}ms on $currentVideoId at ${player.currentPosition}ms " +
+                    "net=${networkLabel()}",
+            )
+        }
+        if (stalled != current.stalledForMs) {
+            _state.update { it.copy(stalledForMs = stalled) }
+        }
+
+        // Recovery is owned here, not by the screen: a stall on the mini-player or with the
+        // activity gone still gets its two tries, and the budget is per video, not per visit.
+        if (
+            recoveryJob?.isActive != true &&
+            shouldRecover(currentVideoId != null, current.playerError != null, stalled, recoveryAttempts)
+        ) {
+            recover(afterError = current.playerError != null)
+        }
 
         // No seek while buffering: a seek discards buffered data and restarts buffering, so a
         // segment at 0 would add a second buffer cycle to the first frame.
@@ -469,6 +780,34 @@ class PlaybackController(
         if (position != current.positionMs || duration != current.durationMs) {
             _state.update {
                 it.copy(positionMs = position, durationMs = duration)
+            }
+        }
+
+        // History counts intent, not a tap: five seconds of actual playback, once per play.
+        // Accumulated only while the player is really playing (READY, not buffering), so time
+        // spent waiting for the video to cache never counts towards the five seconds.
+        if (player.isPlaying && player.playbackState == Player.STATE_READY && currentVideoId != null) {
+            watchedMs += TICK_MS
+        }
+        val videoId = currentVideoId
+        val watchThreshold = watchThresholdMs(watchThresholdToken, duration)
+        if (!historyLogged && player.isPlaying && videoId != null && watchedMs >= watchThreshold) {
+            historyLogged = true
+            val title = currentTitle
+            val channel = currentChannel
+            val thumb = currentThumb
+            scope.launch(Dispatchers.IO) {
+                runCatching {
+                    db.history().add(
+                        HistoryEntity(
+                            videoId = videoId,
+                            title = title,
+                            channelName = channel,
+                            watchedAt = System.currentTimeMillis(),
+                            thumbUrl = thumb,
+                        ),
+                    )
+                }
             }
         }
 
@@ -525,22 +864,93 @@ class PlaybackController(
         prefs.edit().putString(KEY_SPEED_PRESETS, clean.joinToString(",")).apply()
     }
 
+    /** The current "count a watch after" token, e.g. "30s", "25%", "100%". */
+    fun watchThreshold(): String = watchThresholdToken
+
+    /** Change when a play counts as a watch. Takes effect on the next play. */
+    fun setWatchThreshold(token: String) {
+        watchThresholdToken = token
+        prefs.edit().putString(KEY_WATCH_THRESHOLD, token).apply()
+        log.info("player", "watch threshold $token")
+    }
+
+    /** The stream cache ceiling in megabytes. Zero is off. Takes effect on the next app start. */
+    fun streamCacheMb(): Int = prefs.getInt(KEY_STREAM_CACHE_MB, DEFAULT_STREAM_CACHE_MB)
+
+    fun setStreamCacheMb(mb: Int) {
+        prefs.edit().putInt(KEY_STREAM_CACHE_MB, mb).apply()
+        log.info("player", "stream cache ${mb}MB")
+    }
+
     private fun hostOf(url: String): String =
         runCatching { java.net.URI(url).host }.getOrNull() ?: "unknown"
 
+    /** Categories to skip. An empty stored set means "no choice made", not "skip nothing". */
+    private fun readSponsorCategories(): Set<String> {
+        val stored = prefs.getStringSet(KEY_SPONSOR_CATEGORIES, null)?.toSet()
+        val resolved = stored?.takeIf { it.isNotEmpty() } ?: SponsorCategories.default
+        if (resolved !== stored) {
+            prefs.edit().putStringSet(KEY_SPONSOR_CATEGORIES, resolved).apply()
+            log.info("player", "sponsor categories reset to default (was empty)")
+        }
+        return resolved
+    }
+
+    /** The pipe READY depends on, so logs can tell wifi from LTE without a guess. */
+    private fun networkLabel(): String = runCatching {
+        val cm = appContext.getSystemService(android.net.ConnectivityManager::class.java) ?: return "unknown"
+        val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return "none"
+        when {
+            caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) -> "wifi"
+            caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR) -> "lte"
+            caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET) -> "eth"
+            else -> "other"
+        }
+    }.getOrDefault("unknown")
+
     companion object {
         const val TICK_MS = 250L
-        /** Balanced first frame. A tiny start regressed to a 27s READY in testing, so the
-         *  1200/2500 values from the last known fast open are the default. Min stays at or
-         *  above the after-rebuffer threshold; ExoPlayer refuses the app otherwise. */
-        const val MIN_BUFFER_MS = 3_000
-        const val MAX_BUFFER_MS = 8_000
-        const val BUFFER_FOR_PLAYBACK_MS = 1_200
-        const val BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS = 2_500
+        /** 30s ahead keeps a jittery connection fed; the disk cache covers the rest. */
+        const val MIN_BUFFER_MS = 30_000
+        const val MAX_BUFFER_MS = 60_000
+        /**
+         * The tail kept behind the playhead. ExoPlayer's own default is zero, which is why a
+         * backward seek always left the buffer. It shares the byte budget with the forward
+         * buffer, so it stays half of the minimum rather than growing with it.
+         */
+        const val BACK_BUFFER_MS = 15_000
+        const val BUFFER_FOR_PLAYBACK_MS = 1_000
+        const val BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS = 3_000
         const val SAVE_EVERY_TICKS = 20
+        /** When a wait becomes a stall worth naming. Past it, and at [STALL_LIMIT_MS], it retries. */
+        const val STALL_LOG_MS = 15_000L
+        /** The beat a failed read gets before the recovery request goes out. */
+        const val RECOVERY_DELAY_MS = 1_200L
+
         const val KEY_SPONSOR_SKIP = "sponsor_skip"
         const val KEY_SPONSOR_CATEGORIES = "sponsor_categories"
         const val KEY_SPEED_PRESETS = "speed_presets"
+        const val KEY_WATCH_THRESHOLD = "watch_threshold"
+        const val KEY_STREAM_CACHE_MB = "stream_cache_mb"
+        /** Two gigabytes holds a two-hour podcast at 720p, or the last forty minutes of 1080p. */
+        const val DEFAULT_STREAM_CACHE_MB = 2048
+
+        /**
+         * Turns a "watch threshold" token into milliseconds, given the video's duration.
+         * "30s" -> 30000 ms; "25%" -> a quarter of the duration; "100%" -> the whole video.
+         * Unknown or missing durations fall back to 30 seconds.
+         */
+        fun watchThresholdMs(token: String, durationMs: Long): Long {
+            val t = token.trim()
+            return if (t.endsWith("%")) {
+                val pct = t.removeSuffix("%").trim().toIntOrNull() ?: 30
+                if (durationMs <= 0L) 30_000L
+                else (durationMs * pct.coerceIn(1, 100) / 100).coerceAtLeast(1_000L)
+            } else {
+                val seconds = t.removeSuffix("s").trim().toLongOrNull() ?: 30L
+                (seconds.coerceAtLeast(1L) * 1_000L)
+            }
+        }
         val DEFAULT_PRESETS = listOf(0.8f, 1.0f, 1.2f, 1.5f, 2.0f)
         const val KEY_SPEED = "playback_speed"
         const val MIN_SPEED = 0.25f

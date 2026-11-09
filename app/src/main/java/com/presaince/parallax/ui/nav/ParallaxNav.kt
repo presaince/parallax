@@ -129,14 +129,36 @@ fun ParallaxNav(container: AppContainer, theme: ThemeController) {
         }
     }
 
-    val push: (Route) -> Unit = { route -> stack = stack + route }
+    val push: (Route) -> Unit = { route ->
+        if (route is Route.Player) container.prefetchStreams(route.video.id)
+        stack = stack + route
+    }
     val pop: () -> Unit = { if (stack.size > 1) stack = stack.dropLast(1) }
 
     // The video that is playing, as its full player. The mini card and the notification both use it.
     fun openPlayingVideo() {
         val playing = container.playback.state.value
         val id = playing.videoId ?: return
-        if (stack.none { it is Route.Player }) {
+        val existing = stack.lastOrNull { it is Route.Player } as? Route.Player
+        if (existing != null && existing.video.id == id) {
+            // Player is in the stack but not on top: bring it forward so a swipe up
+            // from the mini card works from any screen.
+            stack = stack.filterNot { it === existing } + existing
+        } else if (existing != null) {
+            // A different video is in the stack: open the playing one on top.
+            push(
+                Route.Player(
+                    VideoSummary(
+                        id = id,
+                        url = "https://www.youtube.com/watch?v=$id",
+                        title = playing.videoTitle,
+                        channelName = "",
+                        durationSec = 0,
+                        thumbnailUrl = null,
+                    ),
+                ),
+            )
+        } else {
             push(
                 Route.Player(
                     VideoSummary(
@@ -276,6 +298,7 @@ fun ParallaxNav(container: AppContainer, theme: ThemeController) {
                         Route.Discover -> DiscoverScreen(
                             recipes = container.recipes,
                             engine = container.discover,
+                            db = container.db,
                             onOpenVideo = { push(Route.Player(it)) },
                         )
                         else -> Unit

@@ -79,6 +79,11 @@ and channel pages go straight to `VideoSource`, because they are about the netwo
 **Comments** are paged by continuation token (`Page.getId()`), cached for an hour in
 `comment_cache`, and the total is stored on the video row.
 
+**Playback bytes** are written through a Media3 `SimpleCache` (2 GB default, LRU, user setting)
+keyed by video id + itag, so a seek back inside what you have watched, or reopening a video,
+reads the disk before it touches the network. Only the key is stable across fetches; the signed
+URL never is.
+
 **Resync** is opt-in: a transcript is fetched, cue hashes computed, and a model is asked to align a
 comment's timestamp. Results are cached per video + comment + cue hash.
 
@@ -157,7 +162,20 @@ No feature package imports another feature package; navigation is the go-between
 - **Extractor breaks** — logged with the class and message; the UI shows a readable failure. The
   opt-in canary test is the early warning.
 - **Channel gone or empty** — logged per channel; the refresh continues and reports `n of m failed`.
-- **Player error** — surfaced in the player with retry; the session keeps its state.
+- **Player error** — surfaced in the player with retry; the session keeps its state. The retry is
+  the controller's: it fetches fresh streams and resumes at the last position.
+- **A stream that stops delivering bytes** — the player has its own OkHttp client (`playerHttp`):
+  same pool and DNS cache as the extractor, 8 s connect and read instead of the extractor's 30 s,
+  because a silent socket held for half a minute is what "huge queue time" was. A wait past 20 s is
+  published as a stall and spends one of the same two retries an error gets. Both retries live in
+  `PlaybackController`, so they fire with the screen gone, and the budget belongs to the video, not
+  to a visit.
+- **Cache trouble** — `FLAG_IGNORE_CACHE_ON_ERROR` keeps a cleared, full or corrupt media cache a
+  re-download rather than a dead stream.
+- **Seeking back** — a 15 s tail is retained behind the playhead from the previous keyframe
+  (`setBackBuffer`), because ExoPlayer's default of zero makes every backward seek a read. Time
+  targets outrank the byte heuristic (`setPrioritizeTimeOverSizeThresholds`), otherwise the 30 s
+  forward target is clipped at 1080p and above.
 - **Bug upload failure** — sealed state machine with a reason; 429 sets a cooldown.
 - **Model failure (resync)** — falls back to "no alignment" for that batch; timestamps stay raw.
 
@@ -231,7 +249,9 @@ each release; the client only offers the server build when it is newer.
   filters. The cause is in the error message instead of a generic empty page.
 - Room is v11 with the schema exported and committed. Before release: real migrations and drop the
   destructive fallback; migration tests need instrumentation.
-- No git repository.
+- No git remote; the repository is local only.
 - The direct build's signing step is manual and unverified by a clean install.
-- `PlayerScreen.kt` is 1,918 lines with no tests; `PlaybackController` and every ViewModel besides
-  the feed state are untested. The player regressions in the UI passes all live in that file.
+- `PlayerScreen.kt` is 1,918 lines with no tests. `PlaybackController`'s pure rules are tested
+  (`PlaybackGateTest`, `PlaybackStallTest`, `PlaybackRecoveryTest`); the class itself and every
+  ViewModel besides the feed state are not. The player regressions in the UI passes all live in
+  that file.

@@ -32,6 +32,10 @@ data class CardStyle(
     val views: Boolean = true,
     val likes: Boolean = true,
     val duration: Boolean = true,
+    val watches: Boolean = true,
+    val comments: Boolean = true,
+    val progress: Boolean = true,
+    val notes: Boolean = true,
 ) {
     companion object {
         private const val PREFS = "parallax"
@@ -51,6 +55,10 @@ data class CardStyle(
             "card_views",
             "card_likes",
             "card_duration",
+            "card_watches",
+            "card_comments",
+            "card_progress",
+            "card_notes",
         )
 
         fun read(context: Context): CardStyle {
@@ -65,6 +73,10 @@ data class CardStyle(
                 views = prefs.getBoolean("card_views", true),
                 likes = prefs.getBoolean("card_likes", true),
                 duration = prefs.getBoolean("card_duration", true),
+                watches = prefs.getBoolean("card_watches", true),
+                comments = prefs.getBoolean("card_comments", true),
+                progress = prefs.getBoolean("card_progress", true),
+                notes = prefs.getBoolean("card_notes", true),
             )
         }
 
@@ -78,6 +90,10 @@ data class CardStyle(
                 .putBoolean("card_views", style.views)
                 .putBoolean("card_likes", style.likes)
                 .putBoolean("card_duration", style.duration)
+                .putBoolean("card_watches", style.watches)
+                .putBoolean("card_comments", style.comments)
+                .putBoolean("card_progress", style.progress)
+                .putBoolean("card_notes", style.notes)
                 .apply()
             revision += 1
         }

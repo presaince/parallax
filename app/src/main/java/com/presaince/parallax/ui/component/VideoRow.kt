@@ -41,6 +41,7 @@ fun VideoRow(
     modifier: Modifier = Modifier,
     meta: String? = null,
     watched: Float? = null,
+    watches: Int? = null,
     trailing: (@Composable () -> Unit)? = null,
     badge: (@Composable () -> Unit)? = null,
 ) {
@@ -49,11 +50,12 @@ fun VideoRow(
     // navigation the list stays composed while that screen is open.
     val revision = CardStyle.revision
     val style = remember(revision) { CardStyle.read(context) }
-    val line = meta ?: metaFor(video, style)
+    val line = meta ?: metaFor(video, watches, style)
     // With every word switched off, a minimal row is a thumbnail and a rectangle of empty space.
     // Give the picture the whole row; the feed turns that row into a two-column grid.
     val pictureOnly = style.layout == CardLayout.MINIMAL &&
-        !style.title && !style.channel && !style.age && !style.views && !style.likes
+        !style.title && !style.channel && !style.age && !style.views && !style.likes &&
+        !style.watches && !style.comments
 
     when (style.layout) {
         // No border on the card: the progress line under the thumbnail already says how far
@@ -71,7 +73,7 @@ fun VideoRow(
                 Thumbnail(
                     url = Thumbnails.forVideo(video.id, video.thumbnailUrl),
                     durationSec = if (style.duration) video.durationSec else 0,
-                    progress = watched,
+                    progress = if (style.progress) watched else null,
                     state = video.streamState,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -104,7 +106,7 @@ fun VideoRow(
                 Thumbnail(
                     url = Thumbnails.forVideo(video.id, video.thumbnailUrl),
                     durationSec = if (style.duration) video.durationSec else 0,
-                    progress = watched,
+                    progress = if (style.progress) watched else null,
                     state = video.streamState,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -137,7 +139,7 @@ fun VideoRow(
                 Thumbnail(
                     url = Thumbnails.forVideo(video.id, video.thumbnailUrl),
                     durationSec = if (style.duration) video.durationSec else 0,
-                    progress = watched,
+                    progress = if (style.progress) watched else null,
                     state = video.streamState,
                     // A minimal row is a small picture: the length belongs in its corner, not
                     // floating a thumb-width inside it.
@@ -181,12 +183,13 @@ fun VideoTile(
         Thumbnail(
             url = Thumbnails.forVideo(video.id, video.thumbnailUrl),
             durationSec = if (style.duration) video.durationSec else 0,
-            progress = watched,
+            progress = if (style.progress) watched else null,
             state = video.streamState,
             modifier = Modifier.fillMaxWidth(),
         )
         if (badge != null) {
-            Box(modifier = Modifier.align(Alignment.TopEnd).padding(6.dp)) { badge() }
+            val topPad = if (video.streamState != com.presaince.parallax.data.model.StreamState.NORMAL) 30.dp else 6.dp
+            Box(modifier = Modifier.align(Alignment.TopEnd).padding(top = topPad, end = 6.dp)) { badge() }
         }
     }
 }
@@ -221,11 +224,13 @@ private fun CardWords(
     }
 }
 
-private fun metaFor(video: VideoSummary, style: CardStyle): String = buildList {
+private fun metaFor(video: VideoSummary, watches: Int?, style: CardStyle): String = buildList {
     if (style.channel && video.channelName.isNotBlank()) add(video.channelName)
     if (style.age) video.publishedAtMs?.let { add(timeAgo(it)) }
     if (style.views) video.viewCount?.let { add("${compactCount(it)} views") }
     if (style.likes) video.likeCount?.let { add("${compactCount(it)} likes") }
+    if (style.watches && watches != null && watches > 1) add("watched $watches times")
+    if (style.comments) video.commentCount?.let { add("${compactCount(it)} comments") }
 }.joinToString(" · ")
 
 /** 1.2M rather than 1200000: a list row has no space to waste. */

@@ -121,7 +121,8 @@ fun FeedScreen(
     val cardStyle = remember(cardRevision) { CardStyle.read(context) }
     val pictureOnly = cardStyle.layout == CardLayout.MINIMAL &&
         !cardStyle.title && !cardStyle.channel && !cardStyle.age &&
-        !cardStyle.views && !cardStyle.likes
+        !cardStyle.views && !cardStyle.likes &&
+        !cardStyle.watches && !cardStyle.comments
 
     if (history) {
         HistoryList(
@@ -212,10 +213,12 @@ private fun FeedList(
     cardStyle: CardStyle,
 ) {
     fun noteBadge(videoId: String): (@Composable () -> Unit)? {
+        if (!cardStyle.notes) return null
         val n = state.noteCounts[videoId] ?: return null
         if (n <= 0) return null
         return { NoteCountBadge(count = n) }
     }
+    val watchCounts = state.history.associate { it.videoId to it.watches }
     val videos = state.videos
         .filter { video -> video.title.any { it.isLetterOrDigit() } }
         .filter { video -> !hideLive || video.streamState == "NORMAL" }
@@ -345,6 +348,7 @@ private fun FeedList(
                             VideoRow(
                                 video = video.toSummary(),
                                 watched = state.watchedFraction(video.id),
+                                watches = watchCounts[video.id],
                                 onClick = { onOpenVideo(video.toSummary()) },
                                 badge = noteBadge(video.id),
                             )
@@ -379,6 +383,9 @@ private fun HistoryList(
     onClear: (FeedViewModel.ClearPeriod) -> Unit,
 ) {
     var pendingClear by remember { mutableStateOf<FeedViewModel.ClearPeriod?>(null) }
+    val cardRevision = CardStyle.revision
+    val cardContext = LocalContext.current
+    val cardStyle = remember(cardRevision) { CardStyle.read(cardContext) }
     val snackbar = remember { SnackbarHostState() }
     // One swipe, one undo: the row is gone at once, and the strip is the way back.
     LaunchedEffect(state.lastRemoved) {
@@ -506,10 +513,10 @@ private fun HistoryList(
                             meta = buildString {
                                 append(entry.channelName)
                                 append(" · watched ${timeAgo(entry.watchedAt)}")
-                                if (entry.watches > 1) append(" · ${entry.watches} times")
+                                if (cardStyle.watches && entry.watches > 1) append(" · ${entry.watches} times")
                             },
                             onClick = { onOpenVideo(summary) },
-                            badge = state.noteCounts[entry.videoId]?.takeIf { it > 0 }?.let { n ->
+                            badge = state.noteCounts[entry.videoId]?.takeIf { it > 0 }?.takeIf { cardStyle.notes }?.let { n ->
                                 { NoteCountBadge(count = n) }
                             },
                         )
