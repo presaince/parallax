@@ -232,7 +232,7 @@ fun DiscoverScreen(
                         )
                     } else {
                         Text(
-                            text = "Bored picks from your own library. Tap a mode:",
+                            text = "Bored picks from YouTube and from videos you already have. Tap a mode:",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(bottom = 8.dp),
@@ -366,11 +366,15 @@ private fun RecipeWhy(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             if (open) {
-                SwitchSetting(
-                    title = "Skip subscribed",
-                    checked = hideSubscribed,
-                    onChange = onHideSubscribed,
-                )
+                // Fresh is made of the channels you follow, so the switch would either do
+                // nothing or empty the page. It is absent rather than present and inert.
+                if (recipe.seed.kind != "uploads") {
+                    SwitchSetting(
+                        title = "Skip subscribed",
+                        checked = hideSubscribed,
+                        onChange = onHideSubscribed,
+                    )
+                }
 
                 val length = recipe.filters.minDurationSec
                 FlowRow(
@@ -512,8 +516,8 @@ private fun RecipeSheet(
         ) {
             Text(text = "Recipes", style = MaterialTheme.typography.titleLarge)
             Text(
-                text = "A recipe is a walk through related videos with a few opinions. " +
-                    "Tap one to use it.",
+                text = "A recipe is a search, the channels you follow, or one step out from " +
+                    "your library, with a few opinions. Tap one to use it.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),

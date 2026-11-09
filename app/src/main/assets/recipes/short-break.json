@@ -1,8 +1,11 @@
 {
   "version": 1,
   "name": "Short",
-  "from": { "kind": "related", "seed": "random", "count": 3 },
-  "filters": { "maxDurationSec": 600 },
+  "from": { "kind": "search", "query": "short film", "count": 30 },
+  "filters": {
+    "maxDurationSec": 600,
+    "excludeKeywords": ["live"]
+  },
   "score": { "views": 1.0, "recency": 0.5 },
-  "walk": { "hops": 3, "branch": 4, "wildcard": 0.2 }
+  "walk": { "wildcard": 0.2 }
 }

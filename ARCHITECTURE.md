@@ -101,11 +101,17 @@ what came of it.
   It translates `LinkageError` and extractor exceptions into messages, never leaks extractor types.
 - `data/source/ContentRegion` — the country the extractor presents; stored as an ISO code, applied
   when the source is built.
+- `data/source/ChannelFeed` — the free per-channel upload feed (`feeds/videos.xml`), keyless and
+  quoteless, cached for thirty minutes. It returns the latest fifteen with no duration; a caller
+  that filters on length treats that as unknown.
 - `playback/PlaybackController` — speed, quality ceiling, audio track preference (ORIGINAL, then
   locale, then bitrate), PiP flag, notification restart flag, resume-after-dictation. It is the only
   object that knows the player exists.
-- `data/discover/DiscoverEngine` — `picks()` walks one level of related videos from seeds in the
-  library, scores, and returns a path; the recipe is the entire state.
+- `data/discover/DiscoverEngine` — `picks()` returns one page from one of three sources: one
+  search for the recipe's query, the latest uploads from followed channels (through `ChannelFeed`,
+  the extractor as fallback), or one level of related videos from seeds in the library. It scores,
+  returns a path, and falls back to the stored library when the network source fails; the recipe is
+  the entire state.
 - `data/resync/ResyncEngine` — 15-second tail after a comment's cue; one model call per batch.
 - `ui/theme/Theme.kt` — schemes, the glass aurora, `ThemeBackdrop` (the opaque floor under a pushed
   screen), and the mode resolver. Glass inherits the last ordinary theme.

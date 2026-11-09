@@ -331,10 +331,15 @@ re-read its own record, so the pull therefore changes mode before it fetches.
 
 **Rule.** Recipes, not a recommendation feed. A pick shows the path that produced it.
 
-**Edge.** A recipe chip is an action, not a filter: it never stays highlighted after the walk. One
-level of related videos from seeds in the library; a wildcard setting shuffles the
-pool; tuning is session-only and resets on restart. The built-in recipes are Deep, Long, Short and
-Fresh, named short so their chips stay on one line. "Why these?" is a card: the explanation only
+**Edge.** A recipe chip is an action, not a filter: it never stays highlighted after the walk. A
+recipe draws exactly one page, from one of three sources: one search for its curated query, the
+latest uploads from the channels already followed (the free per-channel feed, extractor only for a
+handle the feed cannot name), or one level of related videos from seeds in the library. A wildcard
+setting shuffles the pool; tuning is session-only and resets on restart. When a search or every
+channel feed fails, the page falls back to the videos already stored on the phone, matched on the
+query's words where there are any. The built-in recipes are Deep, Long, Short and
+Fresh, named short so their chips stay on one line; Long, Short and Deep are search recipes and
+Fresh reads the channel feeds. "Why these?" is a card: the explanation only
 appears when it is open, the sliders are at-least-length, at-most-age and surprise, and their
 captions follow the thumb while the fetch waits for the finger to lift. The fold arrow sits at the
 bottom under a divider, not beside the title. There is no "back to the recipe" button: restarting
@@ -348,14 +353,16 @@ built-in by source. The chips follow the stored table, so a restore made in Sett
 without reopening the app.
 
 **Edge.** Before the first walk the screen explains itself: the river, one line saying that Bored
-picks from the reader's own library, and each mode with its `describe` sentence, tappable. A row of
-four names nobody has met yet is not a choice, so the empty screen is the explanation rather than an
-invitation to guess.
+picks from YouTube and from videos already on the phone, and each mode with its `describe` sentence,
+tappable. A row of four names nobody has met yet is not a choice, so the empty screen is the
+explanation rather than an invitation to guess.
 
 **Enforced by** `feature/discover/DiscoverScreen.kt`, `data/discover/RecipeRepository.kt`.
 
 **Rule.** A subscribed channel is the feed's business. Bored skips subscribed channels by default;
-the switch inside "Why these?" holds it, and it applies to the next walk.
+the switch inside "Why these?" holds it, and it applies to the next walk. Fresh is the exception,
+because its page is made of those channels: the switch is absent there rather than present and
+inert.
 
 **Enforced by** `data/discover/DiscoverEngine.kt` (`subscribedChannels`), `feature/discover/DiscoverScreen.kt`.
 

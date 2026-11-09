@@ -1,11 +1,11 @@
 {
   "version": 1,
   "name": "Deep",
-  "from": { "kind": "related", "seed": "history", "count": 2 },
+  "from": { "kind": "search", "query": "documentary", "count": 30 },
   "filters": {
     "minDurationSec": 1800,
     "excludeKeywords": ["shorts", "#shorts", "live"]
   },
   "score": { "views": 0.6, "recency": 0.2 },
-  "walk": { "hops": 4, "branch": 5, "wildcard": 0.3 }
+  "walk": { "wildcard": 0.3 }
 }

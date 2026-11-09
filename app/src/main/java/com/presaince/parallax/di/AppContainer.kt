@@ -23,6 +23,7 @@ import com.presaince.parallax.data.resync.ResyncStore
 import com.presaince.parallax.data.secure.SecurePrefs
 import com.presaince.parallax.data.source.NewPipeSource
 import com.presaince.parallax.data.source.LlmRepairPlanner
+import com.presaince.parallax.data.source.RssChannelFeed
 import com.presaince.parallax.data.source.initContentCountry
 import com.presaince.parallax.data.source.resolvedRegions
 import com.presaince.parallax.data.source.writeContentRegions
@@ -136,6 +137,9 @@ class AppContainer(context: Context) {
             source,
             db,
             hideSubscribed = { prefs.getBoolean("bored_hide_subscribed", true) },
+            // Free, keyless, no quota: the fresh page reads the channel feeds directly, and the
+            // extractor is only the fallback for a handle URL the feed cannot name.
+            channelFeed = RssChannelFeed(http, log),
         )
     }
 

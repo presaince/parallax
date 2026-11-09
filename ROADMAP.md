@@ -8,6 +8,36 @@ place. The shell and the second UI pass landed 2026-11-05 (bottom navigation, th
 inline comments, mini-player, pull-to-refresh); the device check for that pass is still pending.
 No git repo — Bodi tests a build for a few days first.
 
+## Bored sources, 2026-11-09 (eighth)
+
+Bored was capped at one `related()` call per seed, about twelve candidates each, so the pool was
+the same videos in a different order. Three sources now feed it, and the built-ins use the two new
+ones:
+
+- **`from.kind: "search"` is real.** A search recipe carries a `query`; `picks()` makes one
+  `search()` call, filters and scores the page, and never touches the related graph. Long, Short
+  and Deep are now curated queries ("podcast", "short film", "documentary") plus the filters they
+  already had. `walk.hops` and `walk.branch` are rejected for search and uploads, because one page
+  has nothing to hop; `walk` itself is optional and only `wildcard` remains for them.
+- **`from.kind: "uploads"` is Fresh.** `ChannelFeed` reads YouTube's free per-channel XML feed
+  (`feeds/videos.xml?channel_id=…`, latest fifteen, no key, no quota) for up to `count` followed
+  channels in parallel, cached for thirty minutes. A `/channel/UC…` URL is read directly; a handle
+  or `/c/` name still goes through `channelUploads`. Fresh ignores the skip-subscribed switch by
+  design, and that switch is hidden on its panel instead of being a control that does nothing.
+- **The library is the offline page.** A failed search is matched against stored titles and
+  channel names on the query's words; failed channel feeds fall back to the stored feed. The empty
+  state still names which cause applied.
+- **Not built: the official Data API and AI prompt-to-recipe.** Google's `search.list` is 100
+  quota units per call (about one call a day on the free bucket) and needs a BYOK key plus an audit
+  for more, which breaks the no-key stance for a page the extractor already serves. An LLM would
+  only translate a sentence into the `query` this format now accepts; there is no Bored AI mode to
+  put it behind, so the recipe JSON is the interface for now.
+- Verified: `:app:compileDebugKotlin`; `RecipeTest`, `DiscoverEngineTest` and the new
+  `ChannelFeedTest` green (search does not call related, failed search uses the library, uploads
+  reads the feed under skip-subscribed, handle falls back to the extractor, offline uses the
+  stored feed, XML fields and entities pinned). **Not checked on the Pixel** — the search queries'
+  hit rate, the RSS path and the empty-state wording are the owner's to judge.
+
 ## Screenshots and copy, 2026-11-09 (seventh)
 
 - **Five captures replace the three.** `parallax1..5.webp` in the portfolio, and
@@ -31,6 +61,9 @@ No git repo — Bodi tests a build for a few days first.
 - Verified: `npm run build` in the portfolio (check-assets: 53 screenshots present), and a Playwright
   pass over both pages measuring the decoded images: five per page, every one 1080×2400 at ratio
   0.450, no broken image, one `h1`, captions matching the copy. Not deployed.
+- Installed over the existing debug build on the Pixel 7 (`install -r`, data kept, 23:40). The new
+  welcome picture only shows through Settings → Run setup again, because the wizard is gated on
+  `firstInstallTime == lastUpdateTime`. Hand check pending.
 
 ## Settings and System accent, 2026-11-09
 
@@ -646,6 +679,8 @@ feed state. Each is listed in ARCHITECTURE "Known gaps".
 - `ui/nav/ParallaxNav.kt` - `prefetchStreams` fires on every Player route entry, including re-entering the video that is already loaded and about to be reused, so a warm restart pays one extractor fetch for nothing. Cost: a needless request on a shared client; found 2026-11-09 while moving the retries.
 - `data/library/ContentRepository.kt` - `refreshFeed` spins `while (playbackBusy()) delay(400)` with no ceiling, so a buffering player can hold a refresh open indefinitely. Cost: a refresh that reads as a hang. Found 2026-11-09 while fixing the stall; not changed in that patch.
 - `data/source/SelfRepair.kt` — data-driven extractor (JSON path model) is not built; LLM repair covers search query and region only. Cost of leaving it: field renames still need a code change instead of a model publish.
+- `data/library/ContentRepository.kt` — the feed refresh still opens a videos tab per subscription, although `ChannelFeed` now reads the same latest uploads for free from RSS. Cost: a refresh pays an extractor page per channel when a keyless feed would do; RSS has no duration, and the feed cards show one, which is the reason it was not swapped blind. Found 2026-11-09 while adding the uploads source.
+- `data/discover/DiscoverEngine.kt` — a search recipe reads one page. `VideoSource.search` has no continuation, so `count` above the first page changes nothing and there is no "more" on Bored. Cost: the pool is one page per tap; the fix is a search-page token on the source, not a bigger count. Found 2026-11-09.
 - `feature/**` - about thirty call sites still paint accent *text* with `colorScheme.primary` instead of `accentTextColour()`/`LocalAccentInk` (nav labels, chips and Settings are converted; feed, player, comments, library are not). Cost of leaving it: at AA and AAA those labels keep their raw accent, so a magenta or blue accent still sits near its own tinted surface. Found 2026-11-09 while adding the Contrast card.
 - `app/build.gradle.kts` - `assembleRelease` fails `validateSigningRelease` with "Keystore file not
   set" even when `keystore.properties` is present and `signingConfigs.release.storeFile` resolves to

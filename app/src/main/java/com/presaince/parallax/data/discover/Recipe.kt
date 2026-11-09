@@ -32,11 +32,18 @@ data class Recipe(
 enum class RecipeSource { BUILTIN, USER }
 
 data class Seed(
-    /** Only "related" exists; the format keeps room for "search" without a migration. */
+    /**
+     * related — one level out from the reader's own videos.
+     * search  — one YouTube search; the query is the recipe's opinion.
+     * uploads — the latest videos from the channels the reader follows.
+     */
     val kind: String = "related",
-    /** topChannels | history | random */
-    val seed: String,
+    /** topChannels | history | random. Related only; blank for the other kinds. */
+    val seed: String = "",
+    /** Related: seeds to open. Search: results to consider. Uploads: channels to read. */
     val count: Int,
+    /** Search only. The curated words that replace a walk. */
+    val query: String = "",
 )
 
 data class Filters(
@@ -74,10 +81,15 @@ data class Score(
     val recency: Double = 0.3,
 )
 
+/**
+ * [hops] and [branch] describe a related walk. Search and upload recipes have one page, so they
+ * round-trip only [wildcard], which every kind reads. The block itself is optional: a recipe with
+ * no walk is a deterministic page.
+ */
 data class Walk(
-    val hops: Int,
-    val branch: Int,
-    val wildcard: Double,
+    val hops: Int = 1,
+    val branch: Int = 1,
+    val wildcard: Double = 0.0,
 )
 
 sealed interface RecipeResult {
@@ -93,7 +105,7 @@ object RecipeParser {
 
     private val SEED_KEYS =
         setOf("version", "name", "description", "from", "filters", "score", "walk")
-    private val FROM_KEYS = setOf("kind", "seed", "count")
+    private val FROM_KEYS = setOf("kind", "seed", "count", "query")
     private val FILTER_KEYS = setOf(
         "minDurationSec",
         "maxDurationSec",
@@ -104,6 +116,11 @@ object RecipeParser {
     )
     private val SCORE_KEYS = setOf("views", "recency")
     private val WALK_KEYS = setOf("hops", "branch", "wildcard")
+
+    /** Where a page of candidates comes from. Each kind reads its own slice of `from`. */
+    private val KINDS = setOf("related", "search", "uploads")
+    private val SEEDS = setOf("topChannels", "history", "random")
+    private const val QUERY_MAX = 200
 
     fun parse(json: String, source: RecipeSource = RecipeSource.BUILTIN): RecipeResult {
         val root = runCatching { JSONObject(json) }.getOrElse {
@@ -129,14 +146,38 @@ object RecipeParser {
         } else {
             unknownKeys(from, FROM_KEYS, "from")?.let(problems::add)
             val kind = from.optString("kind", "related")
-            if (kind != "related") problems += "from.kind: only \"related\" is supported"
-            val seedValue = from.optString("seed")
-            if (seedValue !in setOf("topChannels", "history", "random")) {
-                problems += "from.seed: topChannels, history or random"
+            if (kind !in KINDS) problems += "from.kind: related, search or uploads"
+            val seedValue = from.optString("seed").trim()
+            val query = from.optString("query").trim()
+            when (kind) {
+                "related" -> {
+                    if (seedValue !in SEEDS) {
+                        problems += "from.seed: topChannels, history or random"
+                    }
+                    if (query.isNotEmpty()) problems += "from.query: only with kind \"search\""
+                }
+                "search" -> {
+                    if (query.isEmpty()) problems += "from.query: required for a search"
+                    if (query.length > QUERY_MAX) {
+                        problems += "from.query: at most $QUERY_MAX characters"
+                    }
+                    if (seedValue.isNotEmpty()) problems += "from.seed: only with kind \"related\""
+                }
+                "uploads" -> {
+                    if (seedValue.isNotEmpty()) problems += "from.seed: only with kind \"related\""
+                    if (query.isNotEmpty()) problems += "from.query: only with kind \"search\""
+                }
             }
+            // A search page is larger than a related fan-out; uploads are channels, not videos.
+            val most = if (kind == "search") 50 else 20
             val count = from.optInt("count", -1)
-            if (count !in 1..20) problems += "from.count: 1 to 20"
-            Seed(kind = kind, seed = seedValue, count = count.coerceIn(1, 20))
+            if (count !in 1..most) problems += "from.count: 1 to $most"
+            Seed(
+                kind = kind,
+                seed = seedValue.takeIf { kind == "related" }.orEmpty(),
+                count = count.coerceIn(1, most),
+                query = query.takeIf { kind == "search" }.orEmpty(),
+            )
         }
 
         val filtersJson = root.optJSONObject("filters")
@@ -169,13 +210,18 @@ object RecipeParser {
 
         val walkJson = root.optJSONObject("walk")
         val walk = if (walkJson == null) {
-            problems += "walk: required"
-            null
+            Walk()
         } else {
             unknownKeys(walkJson, WALK_KEYS, "walk")?.let(problems::add)
+            // Hops and branch only describe a related fan-out; a search or an upload feed has one
+            // page. Accepting them there would ship a knob that changes nothing.
+            if (from?.optString("kind", "related") != "related") {
+                if (walkJson.has("hops")) problems += "walk.hops: only with kind \"related\""
+                if (walkJson.has("branch")) problems += "walk.branch: only with kind \"related\""
+            }
             Walk(
-                hops = intIn(walkJson, "hops", 1, 6, problems) ?: 3,
-                branch = intIn(walkJson, "branch", 1, 10, problems) ?: 5,
+                hops = intIn(walkJson, "hops", 1, 6, problems) ?: 1,
+                branch = intIn(walkJson, "branch", 1, 10, problems) ?: 1,
                 wildcard = doubleIn(walkJson, "wildcard", 0.0, 1.0, problems) ?: 0.0,
             )
         }
@@ -288,15 +334,20 @@ object RecipeParser {
  */
 fun describe(recipe: Recipe): String = recipe.description.ifBlank {
     buildString {
-        append(
-            when (recipe.seed.seed) {
-                "history" -> "Related to ${recipe.seed.count} videos you watched"
-                "topChannels" -> "Related to ${recipe.seed.count} of your top channels"
-                "random" -> "Related to ${recipe.seed.count} random videos in your library"
-                else -> "Related to your library"
-            },
-        )
+        when (recipe.seed.kind) {
+            "search" -> append("Search: \"${recipe.seed.query}\"")
+            "uploads" -> append("New uploads from ${recipe.seed.count} channels you follow")
+            else -> append(
+                when (recipe.seed.seed) {
+                    "history" -> "Related to ${recipe.seed.count} videos you watched"
+                    "topChannels" -> "Related to ${recipe.seed.count} of your top channels"
+                    "random" -> "Related to ${recipe.seed.count} random videos in your library"
+                    else -> "Related to your library"
+                },
+            )
+        }
         recipe.filters.minDurationSec?.let { append(" · at least ${it / 60} min") }
+        recipe.filters.maxDurationSec?.let { append(" · under ${it / 60} min") }
         recipe.filters.maxAgeDays?.let { append(" · newer than $it days") }
         if ("shorts" in recipe.filters.excludeKeywords) append(" · no Shorts")
         if ("live" in recipe.filters.excludeKeywords) append(" · no live")

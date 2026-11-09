@@ -82,7 +82,93 @@ class RecipeTest {
     @Test
     fun `rejects unknown vocabulary`() {
         assertTrue(problems(valid.replace("\"topChannels\"", "\"trending\"")).isNotEmpty())
-        assertTrue(problems(valid.replace("\"related\"", "\"search\"")).isNotEmpty())
+        assertTrue(problems(valid.replace("\"related\"", "\"videos\"")).isNotEmpty())
+    }
+
+    @Test
+    fun `parses a search recipe without a walk`() {
+        val json = """
+            {
+              "version": 1,
+              "name": "Talks",
+              "from": { "kind": "search", "query": "podcast", "count": 30 },
+              "filters": { "minDurationSec": 600 },
+              "score": { "views": 1.0, "recency": 0.3 }
+            }
+        """.trimIndent()
+
+        val recipe = (RecipeParser.parse(json) as RecipeResult.Ok).recipe
+
+        assertEquals("search", recipe.seed.kind)
+        assertEquals("podcast", recipe.seed.query)
+        assertEquals(30, recipe.seed.count)
+        assertEquals("", recipe.seed.seed)
+        assertEquals(0.0, recipe.walk.wildcard, 0.0001)
+    }
+
+    @Test
+    fun `a search needs a query and no seed`() {
+        val search = """
+            { "version": 1, "name": "S",
+              "from": { "kind": "search", "count": 10 },
+              "filters": {}, "score": {} }
+        """.trimIndent()
+        assertTrue(problems(search).any { it.startsWith("from.query: required") })
+
+        val withSeed = search.replace(
+            "\"count\": 10",
+            "\"count\": 10, \"query\": \"talks\", \"seed\": \"history\"",
+        )
+        assertTrue(problems(withSeed).any { it.startsWith("from.seed: only") })
+    }
+
+    @Test
+    fun `hops and branch belong to a related walk only`() {
+        val search = """
+            { "version": 1, "name": "S",
+              "from": { "kind": "search", "query": "talks", "count": 10 },
+              "filters": {}, "score": {}, "walk": { "hops": 3, "branch": 4, "wildcard": 0.2 } }
+        """.trimIndent()
+
+        assertTrue(problems(search).any { it.startsWith("walk.hops") })
+        assertTrue(problems(search).any { it.startsWith("walk.branch") })
+    }
+
+    @Test
+    fun `parses an uploads recipe`() {
+        val json = """
+            { "version": 1, "name": "Fresh",
+              "from": { "kind": "uploads", "count": 20 },
+              "filters": { "maxAgeDays": 7 }, "score": {}, "walk": { "wildcard": 0.1 } }
+        """.trimIndent()
+
+        val recipe = (RecipeParser.parse(json) as RecipeResult.Ok).recipe
+
+        assertEquals("uploads", recipe.seed.kind)
+        assertEquals(20, recipe.seed.count)
+        assertEquals("", recipe.seed.query)
+        assertEquals("", recipe.seed.seed)
+    }
+
+    @Test
+    fun `describe names the search and the upload page`() {
+        val search = Recipe(
+            name = "S",
+            seed = Seed(kind = "search", count = 10, query = "podcast"),
+            filters = Filters(minDurationSec = 600),
+            score = Score(),
+            walk = Walk(),
+        )
+        assertEquals("Search: \"podcast\" · at least 10 min", describe(search))
+
+        val uploads = Recipe(
+            name = "F",
+            seed = Seed(kind = "uploads", count = 20),
+            filters = Filters(maxAgeDays = 7),
+            score = Score(),
+            walk = Walk(),
+        )
+        assertEquals("New uploads from 20 channels you follow · newer than 7 days", describe(uploads))
     }
 
     @Test

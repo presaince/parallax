@@ -15,6 +15,7 @@ import com.presaince.parallax.data.model.StreamSet
 import com.presaince.parallax.data.model.SubtitleTrack
 import com.presaince.parallax.data.model.VideoDetail
 import com.presaince.parallax.data.model.VideoSummary
+import com.presaince.parallax.data.source.ChannelFeed
 import com.presaince.parallax.data.source.VideoSource
 import kotlin.random.Random
 import kotlinx.coroutines.test.runTest
@@ -39,13 +40,35 @@ class DiscoverEngineTest {
         walk = Walk(hops = 1, branch = 5, wildcard = 0.0),
     )
 
-    private fun summary(id: String, title: String = id, durationSec: Long = 600) = VideoSummary(
+    private fun searchRecipe(query: String = "podcast") = Recipe(
+        name = "Search",
+        seed = Seed(kind = "search", count = 10, query = query),
+        filters = Filters(),
+        score = Score(views = 1.0, recency = 1.0),
+        walk = Walk(),
+    )
+
+    private fun uploadsRecipe() = Recipe(
+        name = "Fresh",
+        seed = Seed(kind = "uploads", count = 5),
+        filters = Filters(maxAgeDays = 7),
+        score = Score(views = 1.0, recency = 1.0),
+        walk = Walk(),
+    )
+
+    private fun summary(
+        id: String,
+        title: String = id,
+        durationSec: Long = 600,
+        channelUrl: String? = null,
+    ) = VideoSummary(
         id = id,
         url = "https://www.youtube.com/watch?v=$id",
         title = title,
         channelName = "channel",
         durationSec = durationSec,
         thumbnailUrl = null,
+        channelUrl = channelUrl,
         publishedAtMs = System.currentTimeMillis(),
         viewCount = 1_000,
     )
@@ -139,17 +162,120 @@ class DiscoverEngineTest {
         assertTrue((result as AppResult.Err).message.contains("No related videos"))
     }
 
+    @Test
+    fun `a search recipe makes one search and no related calls`() = runTest {
+        val source = FakeSource(
+            related = mapOf("a" to listOf(summary("never"))),
+            searchItems = listOf(summary("a"), summary("b")),
+        )
+        val engine = DiscoverEngine(
+            source = source,
+            store = FakeStore(videos = emptyList()),
+            random = Random(1),
+        )
+
+        val result = engine.picks(searchRecipe("podcast"), limit = 5)
+
+        assertTrue(result is AppResult.Ok)
+        assertEquals(listOf("a", "b"), (result as AppResult.Ok).value.map { it.video.id })
+        assertEquals(1, source.searches)
+        assertEquals(0, source.relatedCalls)
+        assertEquals("Search: \"podcast\"", result.value.first().path.single())
+    }
+
+    @Test
+    fun `a failed search falls back to the library`() = runTest {
+        val engine = DiscoverEngine(
+            source = FakeSource(searchFails = true),
+            store = FakeStore(
+                videos = listOf(
+                    videoEntity("podcast-talk", title = "A podcast about maps"),
+                    videoEntity("unrelated", title = "A cat"),
+                ),
+            ),
+            random = Random(1),
+        )
+
+        val result = engine.picks(searchRecipe("podcast"), limit = 5)
+
+        assertTrue(result is AppResult.Ok)
+        val picks = (result as AppResult.Ok).value
+        assertEquals(listOf("podcast-talk"), picks.map { it.video.id })
+        assertEquals("From your library", picks.first().path.single())
+    }
+
+    @Test
+    fun `an uploads recipe reads the feed even when subscribed channels are skipped`() = runTest {
+        val channel = "https://www.youtube.com/channel/UC1234567890123456789012"
+        val engine = DiscoverEngine(
+            source = FakeSource(),
+            store = FakeStore(
+                videos = emptyList(),
+                subscriptions = listOf(SubscriptionEntity(url = channel, name = "C", addedAt = 1)),
+            ),
+            random = Random(1),
+            hideSubscribed = { true },
+            channelFeed = FakeFeed(mapOf(channel to listOf(summary("new", channelUrl = channel)))),
+        )
+
+        val result = engine.picks(uploadsRecipe(), limit = 5)
+
+        assertTrue(result is AppResult.Ok)
+        assertEquals(listOf("new"), (result as AppResult.Ok).value.map { it.video.id })
+    }
+
+    @Test
+    fun `an uploads recipe falls back to the extractor for a handle`() = runTest {
+        val channel = "https://www.youtube.com/@someone"
+        val engine = DiscoverEngine(
+            source = FakeSource(
+                uploads = mapOf(channel to listOf(summary("uploaded", channelUrl = channel))),
+            ),
+            store = FakeStore(
+                videos = emptyList(),
+                subscriptions = listOf(SubscriptionEntity(url = channel, name = "S", addedAt = 1)),
+            ),
+            random = Random(1),
+            channelFeed = FakeFeed(emptyMap()),
+        )
+
+        val result = engine.picks(uploadsRecipe(), limit = 5)
+
+        assertTrue(result is AppResult.Ok)
+        assertEquals(listOf("uploaded"), (result as AppResult.Ok).value.map { it.video.id })
+    }
+
+    @Test
+    fun `an offline uploads recipe uses the stored feed`() = runTest {
+        val channel = "https://www.youtube.com/@someone"
+        val engine = DiscoverEngine(
+            source = FakeSource(),
+            store = FakeStore(
+                videos = listOf(videoEntity("stored")),
+                subscriptions = listOf(SubscriptionEntity(url = channel, name = "S", addedAt = 1)),
+            ),
+            random = Random(1),
+            channelFeed = FakeFeed(emptyMap()),
+        )
+
+        val result = engine.picks(uploadsRecipe(), limit = 5)
+
+        assertTrue(result is AppResult.Ok)
+        assertEquals(listOf("stored"), (result as AppResult.Ok).value.map { it.video.id })
+    }
+
     private class FakeStore(
         private val videos: List<VideoEntity>,
         private val historyIds: List<String> = emptyList(),
         private val progress: List<String> = emptyList(),
+        private val subscriptions: List<SubscriptionEntity> = emptyList(),
     ) : DiscoverStore {
         override suspend fun recentHistory(limit: Int): List<HistoryEntity> =
             historyIds.map { HistoryEntity(videoId = it, title = it, channelName = "c", openedAt = 1) }
 
         override suspend fun progressIds(): List<String> = progress
 
-        override suspend fun subscriptions(): List<SubscriptionEntity> = emptyList()
+        override suspend fun subscriptions(): List<SubscriptionEntity> = subscriptions
 
         override suspend fun findVideo(id: String): VideoEntity? = videos.firstOrNull { it.id == id }
 
@@ -157,12 +283,23 @@ class DiscoverEngineTest {
     }
 
     private class FakeSource(
-        private val related: Map<String, List<VideoSummary>>,
+        private val related: Map<String, List<VideoSummary>> = emptyMap(),
+        private val searchItems: List<VideoSummary> = emptyList(),
+        private val searchFails: Boolean = false,
+        private val uploads: Map<String, List<VideoSummary>> = emptyMap(),
     ) : VideoSource {
         override val id = "fake"
+        var searches = 0
+        var relatedCalls = 0
 
-        override suspend fun search(query: String): AppResult<Page<VideoSummary>> =
-            AppResult.Ok(Page(items = emptyList()))
+        override suspend fun search(query: String): AppResult<Page<VideoSummary>> {
+            searches++
+            return if (searchFails) {
+                AppResult.Err("offline")
+            } else {
+                AppResult.Ok(Page(items = searchItems))
+            }
+        }
 
         override suspend fun video(id: String): AppResult<VideoDetail> = AppResult.Err("no")
 
@@ -171,16 +308,27 @@ class DiscoverEngineTest {
         override suspend fun comments(id: String, page: String?): AppResult<Page<Comment>> =
             AppResult.Err("no")
 
-        override suspend fun related(id: String): AppResult<List<VideoSummary>> =
-            AppResult.Ok(related[id].orEmpty())
+        override suspend fun related(id: String): AppResult<List<VideoSummary>> {
+            relatedCalls++
+            return AppResult.Ok(related[id].orEmpty())
+        }
 
         override suspend fun channelUploads(
             channelUrl: String,
             page: String?,
-        ): AppResult<Page<VideoSummary>> = AppResult.Err("no")
+        ): AppResult<Page<VideoSummary>> = uploads[channelUrl]
+            ?.let { AppResult.Ok(Page(items = it)) }
+            ?: AppResult.Err("no")
 
         override suspend fun channelInfo(channelUrl: String): AppResult<Channel> = AppResult.Err("no")
 
         override suspend fun subtitles(id: String): AppResult<SubtitleTrack> = AppResult.Err("no")
+    }
+
+    private class FakeFeed(
+        private val byUrl: Map<String, List<VideoSummary>>,
+    ) : ChannelFeed {
+        override suspend fun latest(channelUrl: String, limit: Int): AppResult<List<VideoSummary>> =
+            byUrl[channelUrl]?.let { AppResult.Ok(it.take(limit)) } ?: AppResult.Err("no feed")
     }
 }

@@ -10,11 +10,15 @@ import com.presaince.parallax.data.db.ParallaxDb
 import com.presaince.parallax.data.db.SubscriptionEntity
 import com.presaince.parallax.data.db.VideoEntity
 import com.presaince.parallax.data.model.VideoSummary
+import com.presaince.parallax.data.source.ChannelFeed
 import com.presaince.parallax.data.source.VideoSource
 import kotlin.math.exp
 import kotlin.math.log10
 import kotlin.random.Random
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 
 /**
@@ -57,6 +61,8 @@ class DiscoverEngine(
     private val random: Random = Random.Default,
     /** Bored's own switch: subscribed channels belong to the feed, not to the walk. */
     private val hideSubscribed: () -> Boolean = { false },
+    /** The free per-channel feed; without it an uploads recipe asks the extractor instead. */
+    private val channelFeed: ChannelFeed? = null,
 ) {
 
     /** Test-friendly constructor: the Room adapter is the only production implementation. */
@@ -65,40 +71,38 @@ class DiscoverEngine(
         db: ParallaxDb,
         random: Random = Random.Default,
         hideSubscribed: () -> Boolean = { false },
-    ) : this(source, RoomDiscoverStore(db), random, hideSubscribed)
+        channelFeed: ChannelFeed? = null,
+    ) : this(source, RoomDiscoverStore(db), random, hideSubscribed, channelFeed)
+
+    /** A page of candidates and the sentence to show when it produced none. */
+    private class Pool(val nodes: List<Node>, val empty: String)
 
     /**
-     * One level, not a four-hop walk: the list is what people use, and a deep walk spent ten
-     * seconds computing steps nobody would reach. Seeds in, top picks out, refreshable.
+     * One page, not a four-hop walk: the list is what people use, and a deep walk spent ten
+     * seconds computing steps nobody would reach. The source depends on the recipe: one search,
+     * one round of channel feeds, or one level of related videos.
      */
     suspend fun picks(recipe: Recipe, limit: Int): AppResult<List<WalkStep>> =
         withContext(Dispatchers.IO) {
             attempt {
-                val seeds = seedVideos(recipe.seed)
-                check(seeds.isNotEmpty()) {
-                    "Nothing to walk from — refresh the feed or watch something"
-                }
-
-                val visited = seeds.map { it.id }.toMutableSet()
                 val seen = (
                     store.recentHistory(SEEN_LIMIT).map { it.videoId } +
                         store.progressIds()
                     ).toSet()
-                val subscribed = subscribedChannels()
-                val now = System.currentTimeMillis()
-                val candidates = mutableListOf<Node>()
-
-                for (node in seeds.take(recipe.walk.branch)) {
-                    val related = when (val result = source.related(node.id)) {
-                        is AppResult.Ok -> result.value
-                        is AppResult.Err -> emptyList()
-                    }
-                    related.take(RELATED_PER_NODE).forEach { video ->
-                        if (video.id !in visited) {
-                            candidates += Node(video, listOf(node.title, video.title))
-                        }
-                    }
+                // Fresh is explicitly "the channels you follow", so the skip-subscribed rule
+                // cannot apply to it; everywhere else that switch is the page's own opinion.
+                val subscribed = if (recipe.seed.kind == "uploads") {
+                    emptySet()
+                } else {
+                    subscribedChannels()
                 }
+                val now = System.currentTimeMillis()
+                val pool = when (recipe.seed.kind) {
+                    "search" -> searchCandidates(recipe.seed)
+                    "uploads" -> uploadCandidates(recipe.seed)
+                    else -> relatedCandidates(recipe)
+                }
+                val candidates = pool.nodes
 
                 val scored = candidates
                     .filter { it.video.id !in seen }
@@ -111,15 +115,16 @@ class DiscoverEngine(
 
                 // An empty pick set has three different causes and three different fixes. Naming
                 // which one applies is what makes the empty state diagnosable instead of silent:
-                // no related videos at all (extractor or network), everything seen (clear history
-                // or pick a tamer seed), or the recipe's own filters (loosen them).
+                // no candidates at all (source, network, or an empty library), everything seen
+                // (clear history or pick a tamer source), or the recipe's own filters (loosen
+                // them).
                 check(scored.isNotEmpty()) {
                     when {
-                        candidates.isEmpty() -> "No related videos found for ${seeds.size} seed(s)"
+                        candidates.isEmpty() -> pool.empty
                         candidates.all { it.video.id in seen } ->
-                            "Every related video was already seen (${candidates.size} found)"
+                            "Every candidate was already seen (${candidates.size} found)"
                         candidates.all { it.video.channelUrl?.lowercase() in subscribed } ->
-                            "Every related video is from a subscribed channel (${candidates.size} found)"
+                            "Every candidate is from a subscribed channel (${candidates.size} found)"
                         else -> "No video passed this recipe's filters (${candidates.size} found)"
                     }
                 }
@@ -136,7 +141,100 @@ class DiscoverEngine(
             }
         }
 
+    /** Related only: the seeds are the reader's own videos, and the candidates are one hop out. */
+    private suspend fun relatedCandidates(recipe: Recipe): Pool {
+        val seeds = seedVideos(recipe.seed)
+        check(seeds.isNotEmpty()) {
+            "Nothing to walk from — refresh the feed or watch something"
+        }
+        val visited = seeds.map { it.id }.toMutableSet()
+        val candidates = mutableListOf<Node>()
+        for (node in seeds.take(recipe.walk.branch)) {
+            val related = when (val result = source.related(node.id)) {
+                is AppResult.Ok -> result.value
+                is AppResult.Err -> emptyList()
+            }
+            related.take(RELATED_PER_NODE).forEach { video ->
+                if (video.id !in visited) {
+                    candidates += Node(video, listOf(node.title, video.title))
+                }
+            }
+        }
+        return Pool(candidates, "No related videos found for ${seeds.size} seed(s)")
+    }
+
+    /**
+     * One search for the recipe's own query. A failed search is not the end of the page: the
+     * library is already on disk, so the same words are matched against titles and channel names
+     * before the empty state is shown.
+     */
+    private suspend fun searchCandidates(seed: Seed): Pool {
+        val found = when (val result = source.search(seed.query)) {
+            is AppResult.Ok -> result.value.items
+            is AppResult.Err -> emptyList()
+        }
+        val remote = found.distinctBy { it.id }.take(seed.count)
+        if (remote.isNotEmpty()) {
+            return Pool(
+                remote.map { Node(it, listOf("Search: \"${seed.query}\"")) },
+                "No results for \"${seed.query}\"",
+            )
+        }
+        val words = seed.query.lowercase().split(Regex("\\s+")).filter { it.length > 2 }
+        val local = store.recentVideos(POOL)
+        val matched = local.filter { row ->
+            words.any {
+                row.title.contains(it, ignoreCase = true) ||
+                    row.channelName.contains(it, ignoreCase = true)
+            }
+        }.ifEmpty { local }
+        return Pool(
+            matched.take(seed.count * 2).map { Node(it.toSummary(), listOf("From your library")) },
+            "Nothing found for \"${seed.query}\" — the search failed and your library had no match",
+        )
+    }
+
+    /**
+     * The channels the reader follows, read from the free feed when one is available and from the
+     * extractor otherwise. If the network is gone entirely, the feed already in the database is
+     * the page.
+     */
+    private suspend fun uploadCandidates(seed: Seed): Pool {
+        val channels = store.subscriptions().shuffled(random).take(seed.count)
+        val fetched = if (channels.isEmpty()) {
+            emptyList()
+        } else {
+            coroutineScope {
+                channels.map { channel ->
+                    async {
+                        when (val fresh = channelFeed?.latest(channel.url, RSS_PER_CHANNEL)) {
+                            is AppResult.Ok -> fresh.value
+                            else -> when (val uploads = source.channelUploads(channel.url)) {
+                                is AppResult.Ok -> uploads.value.items.take(RSS_PER_CHANNEL)
+                                is AppResult.Err -> emptyList()
+                            }
+                        }
+                    }
+                }.awaitAll()
+            }
+        }
+        val remote = fetched.flatten().distinctBy { it.id }
+        if (remote.isNotEmpty()) {
+            return Pool(
+                remote.map { Node(it, listOf("New from ${it.channelName}")) },
+                "No uploads from the channels you follow",
+            )
+        }
+        val local = store.recentVideos(POOL).take(seed.count * RSS_PER_CHANNEL)
+        return Pool(
+            local.map { Node(it.toSummary(), listOf("From your library")) },
+            "No uploads from the channels you follow, and your library is empty",
+        )
+    }
+
     suspend fun walk(recipe: Recipe): AppResult<List<WalkStep>> = withContext(Dispatchers.IO) {
+        // A search or upload page has no related graph to hop; the one-page answer is the walk.
+        if (recipe.seed.kind != "related") return@withContext picks(recipe, 12)
         attempt {
             val seeds = seedVideos(recipe.seed)
             check(seeds.isNotEmpty()) { "Nothing to walk from — refresh the feed or watch something" }
@@ -245,6 +343,8 @@ class DiscoverEngine(
 
     private companion object {
         const val RELATED_PER_NODE = 12
+        /** The free channel feed publishes the latest fifteen, which is a page on its own. */
+        const val RSS_PER_CHANNEL = 15
         const val POOL = 200
         const val SEEN_LIMIT = 500
     }
