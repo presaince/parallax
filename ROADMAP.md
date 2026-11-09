@@ -154,6 +154,12 @@ Phases 1, 2, 3 and 6 are built and installed; the owner's check is what decides 
   outrank the byte heuristic, which had been clipping the 30 s forward buffer at 1080p and above.
 - **Off moved out of the first chip** in the cache row, where a thumb reaching for the setting
   could switch off the thing that makes seeking cheap.
+- **Not built, on purpose: the cache-first reopen.** A video watched two days ago still pays the
+  stream resolve (about a second) before the first frame, because the player needs a `StreamSet`
+  to build a media source even when every byte is already on disk. Making that instant needs a
+  persisted `videoId -> itag` descriptor, a synthetic cache URI, and an upstream that fails at the
+  first hole — three moving parts for one second. Revisit only if a hand check says the resolve is
+  what makes reopening feel slow; the fix would then belong to the resolve, not the player.
 - Verified by `:app:assembleDebug` and `:app:testDebugUnitTest` (5 new tests in
   `PlaybackRecoveryTest`), 0 failures. No hand check yet: the seek-back and reopen paths are the
   owner's to judge.

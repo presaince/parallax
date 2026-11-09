@@ -1550,8 +1550,9 @@ private fun PlaybackSection(playback: PlaybackController) {
         Caption("Stream cache")
         Text(
             text = "The bytes you have just watched are kept on disk, so reopening a video " +
-                "starts at once while fresh data loads. Off keeps nothing. Changing this takes " +
-                "effect the next time the app starts.",
+                "starts at once while fresh data loads. Off keeps nothing. Turning it on " +
+                "applies to the next video; changing the size applies the next time the app " +
+                "starts.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
