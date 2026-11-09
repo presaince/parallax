@@ -12,8 +12,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.lightColorScheme
+import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
@@ -65,10 +68,10 @@ data class Accent(
 
     /** What the swatch is called when a screen has to say it in words. */
     val label: String
-        get() = if (name == "cyan") {
-            "Presaince cyan"
-        } else {
-            accentHueNames[((darkHue / 20f).toInt() % accentHueNames.size).coerceAtLeast(0)]
+        get() = when (name) {
+            Accents.SYSTEM -> "System"
+            "cyan" -> "Presaince cyan"
+            else -> accentHueNames[((darkHue / 20f).toInt() % accentHueNames.size).coerceAtLeast(0)]
         }
 }
 
@@ -78,6 +81,9 @@ private val accentHueNames = listOf(
 )
 
 object Accents {
+    /** The stored name of the accent that follows the phone's own wallpaper colour. */
+    const val SYSTEM = "system"
+
     val cyan = Accent("cyan", darkHue = 196f, lightHue = 196f)
 
     /**
@@ -99,6 +105,36 @@ object Accents {
     }
 
     fun byName(name: String?): Accent = all.firstOrNull { it.name == name } ?: cyan
+
+    /**
+     * The phone's own colour. Only the hue is borrowed — saturation and lightness stay ours, so a
+     * washed-out wallpaper still gives an accent that reads, and the contrast floor that the whole
+     * theme is measured against holds for every hue the same way.
+     */
+    fun system(context: Context): Accent =
+        systemAccentOf(dynamicDarkColorScheme(context).primary)
+}
+
+/** HSV hue of a colour in degrees, 0..360. Pure, so the system accent is testable off the phone. */
+internal fun hueOf(color: Color): Float {
+    val max = maxOf(color.red, color.green, color.blue)
+    val min = minOf(color.red, color.green, color.blue)
+    val delta = max - min
+    // A grey or near-grey primary has no hue to borrow. The brand hue is the honest answer:
+    // inventing a colour from nothing would be a lie about what the phone chose.
+    if (delta <= 0.0001f) return Accents.cyan.darkHue
+    val raw = when (max) {
+        color.red -> ((color.green - color.blue) / delta) % 6f
+        color.green -> (color.blue - color.red) / delta + 2f
+        else -> (color.red - color.green) / delta + 4f
+    }
+    return (raw * 60f + 360f) % 360f
+}
+
+/** The accent built from a phone colour: the same wheel maths, one hue from the wallpaper. */
+internal fun systemAccentOf(primary: Color): Accent {
+    val hue = hueOf(primary)
+    return Accent(name = Accents.SYSTEM, darkHue = hue, lightHue = hue)
 }
 
 
@@ -118,10 +154,10 @@ enum class ShuffleCadence { OFF, DAILY, HOURLY, ON_OPEN }
 fun readThemeMode(context: Context): ThemeMode = runCatching {
     ThemeMode.valueOf(
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString(KEY_THEME, ThemeMode.DARK.name)
-            ?: ThemeMode.DARK.name,
+            .getString(KEY_THEME, ThemeMode.GLASS.name)
+            ?: ThemeMode.GLASS.name,
     )
-}.getOrDefault(ThemeMode.DARK)
+}.getOrDefault(ThemeMode.GLASS)
 
 fun writeThemeMode(context: Context, mode: ThemeMode) {
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -130,10 +166,13 @@ fun writeThemeMode(context: Context, mode: ThemeMode) {
         .apply()
 }
 
-fun readAccent(context: Context): Accent = Accents.byName(
-    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        .getString(KEY_ACCENT, Accents.cyan.name),
-)
+fun readAccent(context: Context): Accent {
+    val stored = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        .getString(KEY_ACCENT, Accents.cyan.name)
+    // "System" is a name, not a colour: the hue is read from the phone each time, so a new
+    // wallpaper palette is picked up on the next launch without re-choosing anything.
+    return if (stored == Accents.SYSTEM) Accents.system(context) else Accents.byName(stored)
+}
 
 fun writeAccent(context: Context, accent: Accent) {
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -186,10 +225,10 @@ fun writeGlassLevel(context: Context, level: Float) {
 fun readGlassBase(context: Context): ThemeMode = runCatching {
     ThemeMode.valueOf(
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString(KEY_GLASS_BASE, ThemeMode.DARK.name)
-            ?: ThemeMode.DARK.name,
+            .getString(KEY_GLASS_BASE, ThemeMode.SYSTEM.name)
+            ?: ThemeMode.SYSTEM.name,
     )
-}.getOrDefault(ThemeMode.DARK)
+}.getOrDefault(ThemeMode.SYSTEM)
 
 fun writeGlassBase(context: Context, mode: ThemeMode) {
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -198,8 +237,7 @@ fun writeGlassBase(context: Context, mode: ThemeMode) {
         .apply()
 }
 
-/** A new accent each day: remembered as a switch, and as the date it last moved. */
-fun readAccentDaily(context: Context): Boolean =
+/** A new accent each day: remembered as a switch, and as the date it last moved. */fun readAccentDaily(context: Context): Boolean =
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         .getBoolean(KEY_ACCENT_DAILY, false)
 
@@ -246,7 +284,11 @@ fun writeAccentDay(context: Context, day: String) {
         .apply()
 }
 
-/** True when the resolved theme is dark; the app is dark by default, as the brand sets it. */
+/**
+ * True when the resolved theme is dark. A fresh install is Glass on the phone's own light or
+ * dark: the first frame of the wizard already looks like the app, and no one is handed a theme
+ * they did not choose.
+ */
 fun isDarkTheme(
     mode: ThemeMode,
     context: Context,
@@ -507,6 +549,25 @@ internal fun glassTextSurfaces(
     glassVariantColours(accent, dark, solid, level, scale)
 
 /**
+ * The same list for any theme: opaque colours in Dark and Light, composited ones in Glass. Every
+ * caller that asks "does this text read" goes through here, so the answer cannot depend on which
+ * screen asked.
+ */
+internal fun textSurfaces(
+    glass: Boolean,
+    accent: Accent,
+    dark: Boolean,
+    solid: Boolean,
+    level: Float,
+    scale: Float = 1f,
+): List<Color> = if (glass) {
+    glassTextSurfaces(accent, dark, solid, level, scale)
+} else {
+    val base = if (dark) darkScheme(accent) else lightScheme(accent)
+    listOf(base.background, base.surfaceVariant, base.surface)
+}
+
+/**
  * The clearest dial position that still lets the derived text shades clear [policy]. Text contrast
  * rises as the fill thickens, so this is a search for the last passing level, not a formula.
  *
@@ -550,6 +611,53 @@ internal fun accentInk(
     primary
 }
 
+/**
+ * Whether this accent keeps every text pair above [policy] at the fill the reader is looking at.
+ * The shuffle asks this before it rolls: a colour that changes by itself must not be the one that
+ * breaks the floor the reader set, because the number they would need to check it is on a screen
+ * they are not standing on.
+ *
+ * Off means every accent holds, by definition.
+ */
+internal fun accentHolds(
+    accent: Accent,
+    policy: ContrastPolicy,
+    glass: Boolean,
+    dark: Boolean,
+    solid: Boolean,
+    level: Float,
+): Boolean {
+    if (!policy.enforced) return true
+    val base = if (dark) darkScheme(accent) else lightScheme(accent)
+    val scale = if (glass) auroraScale(accent, dark, solid, policy) else 1f
+    val surfaces = textSurfaces(glass, accent, dark, solid, level, scale)
+    val body = ensureContrast(base.onSurface, surfaces, policy.ratio)
+    val secondary = ensureContrast(base.onSurfaceVariant, surfaces, policy.ratio)
+    val ink = accentInk(base.primary, surfaces, policy)
+    return worstContrast(body, surfaces) >= policy.ratio &&
+        worstContrast(secondary, surfaces) >= policy.ratio &&
+        worstContrast(ink, surfaces) >= policy.ratio
+}
+
+
+/**
+ * One step up from the Material defaults. The app reads dense at 11–14 sp on a phone, and the
+ * smallest labels are the ones people actually squint at. The line heights move with the sizes so
+ * a paragraph does not tighten when the text grows.
+ */
+private val AppTypography = Typography().let { base ->
+    base.copy(
+        bodyLarge = base.bodyLarge.copy(fontSize = 17.sp, lineHeight = 25.sp),
+        bodyMedium = base.bodyMedium.copy(fontSize = 15.sp, lineHeight = 21.sp),
+        bodySmall = base.bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp),
+        labelLarge = base.labelLarge.copy(fontSize = 15.sp, lineHeight = 20.sp),
+        labelMedium = base.labelMedium.copy(fontSize = 13.sp, lineHeight = 18.sp),
+        labelSmall = base.labelSmall.copy(fontSize = 12.sp, lineHeight = 16.sp),
+        titleSmall = base.titleSmall.copy(fontSize = 15.sp, lineHeight = 20.sp),
+        titleMedium = base.titleMedium.copy(fontSize = 17.sp, lineHeight = 24.sp),
+        titleLarge = base.titleLarge.copy(fontSize = 23.sp, lineHeight = 30.sp),
+    )
+}
 
 @Composable
 fun ParallaxTheme(
@@ -585,11 +693,7 @@ fun ParallaxTheme(
     } else {
         1f
     }
-    val surfaces = if (glass) {
-        glassTextSurfaces(accent, dark, solidSurfaces, glassLevel, aurora)
-    } else {
-        listOf(baseScheme.background, baseScheme.surfaceVariant, baseScheme.surface)
-    }
+    val surfaces = textSurfaces(glass, accent, dark, solidSurfaces, glassLevel, aurora)
     val scheme = if (contrast.enforced) {
         baseScheme.copy(
             onSurfaceVariant = ensureContrast(baseScheme.onSurfaceVariant, surfaces, contrast.ratio),
@@ -601,6 +705,7 @@ fun ParallaxTheme(
 
     MaterialTheme(
         colorScheme = scheme,
+        typography = AppTypography,
     ) {
         // One stable Box around the app: only its background changes with the theme. Swapping the
         // structure (content vs Box(content)) would remount the whole navigation and lose the

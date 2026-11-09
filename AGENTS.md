@@ -78,6 +78,17 @@ runs on the JVM; anything touching `Context`, SharedPreferences or Room runs und
 - Notes are transcript-only. Speech is transcribed to text; no audio file is ever written, which
   is why there is no keep-audio toggle.
 
+## Release versioning
+
+- `versionCode` and `versionName` move together, always through
+  `node scripts/bump-version.mjs --apply` before a release build. It reads the live `version.json`
+  first, so a tree that was never bumped cannot reuse a code the server already serves.
+- `scripts/make-version-json.mjs` refuses to write a manifest for a code that is already published.
+  When it refuses, bump and rebuild; never edit `version.json` by hand.
+- The page serves a signed release, never the debug APK. The two are signed with different keys and
+  cannot install over each other, so a tester moving between them uninstalls once and loses the
+  local database.
+
 ## Layout
 
 The shell is `ParallaxScaffold`: top app bar with the screen title, a hamburger menu (Settings,
@@ -94,6 +105,26 @@ app/src/main/java/com/presaince/parallax/
   feature/     one package per screen
   ui/          theme, nav, component (scaffold, tabs)
 ```
+
+## Bug reports
+
+Reports are filed from the app to `other_apps/parallax_reports/` on the FTP host and are readable
+only over FTP. Never read a bundle whole: they are up to 40KB of HTTP chatter each.
+
+```
+node scripts/reports.mjs                    last 3 hours, one block per report
+node scripts/reports.mjs --hours=24          wider window
+node scripts/reports.mjs --open              what nobody has answered
+node scripts/reports.mjs --log=223004        that report's warn and error lines only
+node scripts/reports.mjs --set "223004=fixed in PlayerScreen.kt, 2026-11-09"
+```
+
+`docs/reports.md` is the record: one line per report, append-only, and a line that has a status is
+never rewritten. `ROADMAP.md` holds the grouped reading of the open ones. Credentials come from
+`~/.ftp/accounts.properties` and are never printed.
+
+The log itself follows one rule: an entry marks something that happened, not that something was
+attempted. `HttpTrace` is where the HTTP shape of that rule lives.
 
 ## Build
 

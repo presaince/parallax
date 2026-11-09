@@ -33,7 +33,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import com.presaince.parallax.R
@@ -93,24 +92,24 @@ fun ParallaxScaffold(
                     }
                 },
                 actions = {
-                    if (onSearch != null) {
-                        IconButton(onClick = onSearch) {
-                            Icon(Icons.Default.Search, contentDescription = "Search")
-                        }
-                    }
                     IconButton(onClick = onOpenBug) {
                         Icon(
                             painter = painterResource(R.drawable.ic_bug),
                             contentDescription = "Bug report",
                         )
                     }
-                    // The Pburger: the brand mark, and the way into Settings.
+                    if (onSearch != null) {
+                        IconButton(onClick = onSearch) {
+                            Icon(Icons.Default.Search, contentDescription = "Search")
+                        }
+                    }
+                    // The Pburger: the brand mark, and the way into Settings. Untinted, because the
+                    // ramp is the mark; a tint flattens it to one colour.
                     IconButton(onClick = onOpenSettings) {
                         Image(
                             painter = painterResource(R.drawable.ic_pburger),
                             contentDescription = "Settings",
                             modifier = Modifier.size(26.dp),
-                            colorFilter = ColorFilter.tint(MaterialTheme.colorScheme.primary),
                         )
                     }
                 },

@@ -23,6 +23,8 @@ data class Recipe(
     val filters: Filters,
     val score: Score,
     val walk: Walk,
+    /** One line in the reader's own words. Empty means "say it from the filters". */
+    val description: String = "",
     val source: RecipeSource = RecipeSource.BUILTIN,
     val json: String = "",
 )
@@ -89,7 +91,8 @@ sealed interface RecipeResult {
  */
 object RecipeParser {
 
-    private val SEED_KEYS = setOf("version", "name", "from", "filters", "score", "walk")
+    private val SEED_KEYS =
+        setOf("version", "name", "description", "from", "filters", "score", "walk")
     private val FROM_KEYS = setOf("kind", "seed", "count")
     private val FILTER_KEYS = setOf(
         "minDurationSec",
@@ -115,6 +118,9 @@ object RecipeParser {
         val name = root.optString("name").trim()
         if (name.isEmpty()) problems += "name: required"
         if (name.length > 80) problems += "name: at most 80 characters"
+
+        val description = root.optString("description").trim()
+        if (description.length > 120) problems += "description: at most 120 characters"
 
         val from = root.optJSONObject("from")
         val seed = if (from == null) {
@@ -189,6 +195,7 @@ object RecipeParser {
                 filters = requireNotNull(filters),
                 score = requireNotNull(score),
                 walk = requireNotNull(walk),
+                description = description,
                 source = source,
                 json = json,
             ),
@@ -271,5 +278,27 @@ object RecipeParser {
                 add(value)
             }
         }
+    }
+}
+
+/**
+ * What a recipe does, in one sentence, for the row that lists it. A recipe that wrote its own
+ * `description` speaks for itself; otherwise the sentence is assembled from the filters, so a
+ * one-line explanation can never drift from what the walk actually does.
+ */
+fun describe(recipe: Recipe): String = recipe.description.ifBlank {
+    buildString {
+        append(
+            when (recipe.seed.seed) {
+                "history" -> "Related to ${recipe.seed.count} videos you watched"
+                "topChannels" -> "Related to ${recipe.seed.count} of your top channels"
+                "random" -> "Related to ${recipe.seed.count} random videos in your library"
+                else -> "Related to your library"
+            },
+        )
+        recipe.filters.minDurationSec?.let { append(" · at least ${it / 60} min") }
+        recipe.filters.maxAgeDays?.let { append(" · newer than $it days") }
+        if ("shorts" in recipe.filters.excludeKeywords) append(" · no Shorts")
+        if ("live" in recipe.filters.excludeKeywords) append(" · no live")
     }
 }

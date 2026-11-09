@@ -4,6 +4,7 @@
  */
 package com.presaince.parallax.feature.settings
 
+import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -33,6 +34,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -58,7 +60,6 @@ import com.presaince.parallax.playback.PlaybackController
 import com.presaince.parallax.ui.theme.ThemeController
 import com.presaince.parallax.ui.theme.ThemeMode
 import com.presaince.parallax.ui.theme.faded
-import android.content.Context
 
 /**
  * The root of Settings: one search field, then a page per section. Nothing lives directly on this
@@ -70,6 +71,7 @@ fun SettingsScreen(
     resyncStore: ResyncStore,
     posting: PostingManager,
     theme: ThemeController,
+    onRunSetup: () -> Unit,
     onOpenSection: (SettingsSectionId) -> Unit,
 ) {
     val playbackState by playback.state.collectAsStateWithLifecycle()
@@ -84,9 +86,17 @@ fun SettingsScreen(
     val speeds = remember { playback.speedPresets() }
     val regionLabel = remember {
         val codes = com.presaince.parallax.data.source.readContentRegions(context)
-        val name = com.presaince.parallax.data.source.contentRegions
-            .firstOrNull { it.code == codes.first() }?.name ?: codes.first()
-        if (codes.size > 1) "$name +${codes.size - 1}" else name
+        if (com.presaince.parallax.data.source.SYSTEM_REGION in codes) {
+            val phone = com.presaince.parallax.data.source.resolvedRegions(context)
+                .firstOrNull().orEmpty()
+            val name = com.presaince.parallax.data.source.contentRegions
+                .firstOrNull { it.code == phone }?.name
+            if (name != null) "System · $name" else "System"
+        } else {
+            val name = com.presaince.parallax.data.source.contentRegions
+                .firstOrNull { it.code == codes.first() }?.name ?: codes.first()
+            if (codes.size > 1) "$name +${codes.size - 1}" else name
+        }
     }
 
     var query by remember { mutableStateOf("") }
@@ -115,7 +125,7 @@ fun SettingsScreen(
             postingState.configured -> "Google set up"
             else -> "Off"
         },
-        SettingsSectionId.DATA to "Import and export subscriptions",
+        SettingsSectionId.DATA to "Import and export",
         SettingsSectionId.DIAGNOSTICS to "Repair summary, logs, settings export",
         SettingsSectionId.ABOUT to "Version ${BuildConfig.VERSION_NAME}",
     )
@@ -175,6 +185,16 @@ fun SettingsScreen(
                             )
                         }
                         repeat(3 - chunk.size) { Spacer(Modifier.weight(1f)) }
+                    }
+                }
+                // The wizard runs once on a fresh install; this is the way back to it. At the
+                // bottom, because a second setup is a rare errand, not a section of the app.
+                item {
+                    OutlinedButton(
+                        onClick = onRunSetup,
+                        modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                    ) {
+                        Text("Run setup again")
                     }
                 }
             } else if (results.isEmpty()) {

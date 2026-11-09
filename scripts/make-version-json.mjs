@@ -11,6 +11,7 @@ import { createHash } from 'node:crypto'
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { publishedManifest } from './version-lib.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const args = process.argv.slice(2)
@@ -31,6 +32,16 @@ if (versionCode == null || !versionName) throw new Error('no versionCode/version
 const props = readFileSync(join(root, 'deploy-apk.properties'), 'utf-8')
 const publicBase = props.match(/^publicBase=(.*)$/m)?.[1]?.trim().replace(/\/?$/, '/') ?? ''
 if (!publicBase) throw new Error('no publicBase in deploy-apk.properties')
+
+// A code that is already live is a manifest nobody is offered. This is the last stop before the
+// upload: bump and rebuild, or the check in every installed app will keep saying "up to date".
+const published = await publishedManifest(publicBase)
+if (published && versionCode <= published.versionCode) {
+  throw new Error(
+    `versionCode ${versionCode} is already published (${published.versionName}); ` +
+      'run node scripts/bump-version.mjs --apply and rebuild',
+  )
+}
 
 const sha256 = createHash('sha256').update(readFileSync(apkPath)).digest('hex')
 const versionJson = JSON.stringify(

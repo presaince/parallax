@@ -27,7 +27,7 @@ val SettingsSectionId.title: String
     get() = when (this) {
         SettingsSectionId.APPEARANCE -> "Appearance"
         SettingsSectionId.PLAYBACK -> "Playback"
-        SettingsSectionId.FEEDBACK -> "Feedback"
+        SettingsSectionId.FEEDBACK -> "Haptics"
         SettingsSectionId.REGION -> "Content region"
         SettingsSectionId.SPONSOR -> "SponsorBlock"
         SettingsSectionId.ACCOUNTS -> "AI & accounts"
@@ -77,7 +77,8 @@ val settingsEntries: List<SettingsEntry> = listOf(
         "contrast", "readable", "readability", "blur", "flat", "performance"),
     entry("Text contrast", SettingsSectionId.APPEARANCE,
         "contrast", "readable", "readability", "legible", "wcag", "aa", "aaa", "ratio",
-        "hard to read", "faint", "dim", "accessibility", "a11y", "brightness", "low brightness"),
+        "hard to read", "faint", "dim", "accessibility", "a11y", "brightness", "low brightness",
+        "glass", "aurora", "shuffle colour"),
     entry("Preview", SettingsSectionId.APPEARANCE,
         "preview", "example", "sample", "demo", "look", "theme", "accent"),
     entry("Video cards", SettingsSectionId.APPEARANCE,
@@ -140,19 +141,15 @@ val settingsEntries: List<SettingsEntry> = listOf(
         "post", "posting", "comment", "comments", "reply", "replies", "account", "google",
         "oauth", "client id", "client secret", "sign in", "sign out", "login", "logout",
         "youtube data api", "credentials"),
-    entry("Import subscriptions", SettingsSectionId.DATA,
-        "import", "importing", "subscriptions", "subscription", "subs", "channels", "newpipe",
-        "libretube", "libre tube", "takeout", "google takeout", "csv", "json", "zip", "backup",
-        "restore", "migrate", "migration"),
-    entry("Export subscriptions", SettingsSectionId.DATA,
-        "export", "exporting", "subscriptions", "subscription", "subs", "channels", "backup",
-        "json", "file", "save", "share", "copy"),
-    entry("Export settings", SettingsSectionId.DATA,
-        "export", "settings", "preferences", "backup", "json", "file", "theme", "accent",
-        "sponsorblock", "search history"),
-    entry("Import a Bored recipe", SettingsSectionId.DATA,
-        "recipe", "recipes", "bored", "bored mode", "import", "json", "discover", "preset",
-        "custom"),
+    entry("Import backup", SettingsSectionId.DATA,
+        "import", "importing", "restore", "backup", "migrate", "migration", "subs",
+        "subscriptions", "subscription", "channels", "newpipe", "libretube", "libre tube",
+        "takeout", "google takeout", "csv", "json", "zip", "settings", "preferences", "recipe",
+        "recipes", "new phone", "move"),
+    entry("Export backup", SettingsSectionId.DATA,
+        "export", "exporting", "backup", "save", "share", "copy", "file", "subs",
+        "subscriptions", "subscription", "channels", "settings", "preferences", "recipe",
+        "recipes", "new phone", "move"),
     entry("Self repair", SettingsSectionId.DIAGNOSTICS,
         "repair", "self repair", "selfrepair", "canary", "extractor", "youtube", "repair log",
         "summary", "explain", "how does this work", "diagnostics", "hx"),
@@ -162,6 +159,9 @@ val settingsEntries: List<SettingsEntry> = listOf(
     entry("About Parallax", SettingsSectionId.ABOUT,
         "about", "version", "licence", "license", "gpl", "gplv3", "credits", "app", "source",
         "code", "github", "copyright", "build"),
+    entry("Run setup again", SettingsSectionId.ABOUT,
+        "setup", "wizard", "onboarding", "first run", "first launch", "start over", "beginning",
+        "theme", "accent", "region", "import"),
 )
 
 /** Lowercase, no quotes, dashes as spaces: the shape a query is compared in. */

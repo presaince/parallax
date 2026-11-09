@@ -28,7 +28,7 @@ private const val BAR_BAND_DP = 44f
  */
 fun Modifier.playbackGestures(
     enabled: Boolean,
-    onVerticalStart: (Zone) -> Unit,
+    onVerticalStart: (Zone, Offset) -> Unit,
     onVerticalDelta: (Zone, Float) -> Unit,
     onVerticalEnd: () -> Unit,
     onHorizontalStart: (Float) -> Unit,
@@ -57,7 +57,7 @@ fun Modifier.playbackGestures(
 }
 
 private suspend fun PointerInputScope.detectPlaybackGestures(
-    onVerticalStart: (Zone) -> Unit,
+    onVerticalStart: (Zone, Offset) -> Unit,
     onVerticalDelta: (Zone, Float) -> Unit,
     onVerticalEnd: () -> Unit,
     onHorizontalStart: (Float) -> Unit,
@@ -162,9 +162,19 @@ private suspend fun PointerInputScope.detectPlaybackGestures(
                     if (axis == Axis.Horizontal && !canSeek) axis = Axis.None
                     when (axis) {
                         Axis.Vertical -> {
-                            handsOff = zone != Zone.Centre &&
-                                totalY > 0f && downSpeed(change.uptimeMillis) > FLING_PX_PER_MS
-                            onVerticalStart(if (handsOff) Zone.Centre else zone)
+                            handsOff = flickBelongsToLadder(
+                                zone = zone,
+                                totalDy = totalY,
+                                pxPerMs = downSpeed(change.uptimeMillis),
+                                threshold = FLING_PX_PER_MS,
+                            )
+                            onVerticalStart(
+                                if (handsOff) Zone.Centre else zone,
+                                Offset(
+                                    down.position.x / width,
+                                    down.position.y / height,
+                                ),
+                            )
                         }
                         Axis.Horizontal -> onHorizontalStart(
                             (change.position.y / height).coerceIn(0f, 1f),
@@ -173,18 +183,38 @@ private suspend fun PointerInputScope.detectPlaybackGestures(
                     }
                 }
             } else {
-                // A side band stops owning the gesture the moment it turns into a downward flick.
-                if (axis == Axis.Vertical && !handsOff && zone != Zone.Centre &&
-                    totalY > slop && downSpeed(change.uptimeMillis) > FLING_PX_PER_MS
+                // A side band stops owning the gesture the moment it turns into a flick, either
+                // way: a fast swipe up is how you ask for fullscreen, and it must not leave the
+                // volume somewhere new on the way there.
+                if (axis == Axis.Vertical && !handsOff &&
+                    flickBelongsToLadder(
+                        zone = zone,
+                        totalDy = totalY,
+                        pxPerMs = downSpeed(change.uptimeMillis),
+                        threshold = FLING_PX_PER_MS,
+                    )
                 ) {
                     handsOff = true
-                    onVerticalStart(Zone.Centre)
+                    onVerticalStart(
+                        Zone.Centre,
+                        Offset(
+                            down.position.x / width,
+                            down.position.y / height,
+                        ),
+                    )
                 }
                 when (axis) {
-                    Axis.Vertical -> onVerticalDelta(
-                        if (handsOff) Zone.Centre else zone,
-                        -dy / height,
-                    )
+                    Axis.Vertical -> {
+                        // A side drag follows the finger across the middle, so volume and
+                        // brightness can be swapped without lifting. A drag that started in the
+                        // centre stays on the ladder; it does not turn into a level control.
+                        val active = when {
+                            handsOff || zone == Zone.Centre -> Zone.Centre
+                            change.position.x < width / 2f -> Zone.Left
+                            else -> Zone.Right
+                        }
+                        onVerticalDelta(active, -dy / height)
+                    }
                     Axis.Horizontal -> onHorizontalDelta(
                         dx / width,
                         (change.position.y / height).coerceIn(0f, 1f),

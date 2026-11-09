@@ -9,6 +9,7 @@ import com.presaince.parallax.data.db.ParallaxDb
 import com.presaince.parallax.data.db.RecipeEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 
 /**
@@ -21,6 +22,21 @@ class RecipeRepository(
 ) {
 
     fun observe(): Flow<List<RecipeEntity>> = db.recipes().observeAll()
+
+    /**
+     * The row as recipes, kept current. A backup restored from Settings can add a recipe while
+     * Bored is still composed behind it, so the chips follow the table rather than a first read.
+     * A row that no longer parses is left out; it has already been rejected once.
+     */
+    fun observeRecipes(): Flow<List<Recipe>> = db.recipes().observeAll().map { rows ->
+        rows.mapNotNull { row ->
+            val source = if (row.source == "user") RecipeSource.USER else RecipeSource.BUILTIN
+            when (val parsed = RecipeParser.parse(row.json, source)) {
+                is RecipeResult.Ok -> parsed.recipe
+                is RecipeResult.Err -> null
+            }
+        }
+    }
 
     suspend fun ensureBuiltIns(): List<String> = withContext(Dispatchers.IO) {
         val problems = mutableListOf<String>()
@@ -80,6 +96,19 @@ class RecipeRepository(
             }
             is RecipeResult.Err -> parsed
         }
+    }
+
+    /**
+     * A built-in is the app's, not the reader's. The query refuses it by source as well, so a
+     * mistaken name cannot remove a recipe the assets still ship.
+     */
+    suspend fun delete(name: String) = withContext(Dispatchers.IO) {
+        db.recipes().deleteUser(name)
+    }
+
+    /** The reader's own recipes as raw JSON, for a backup to carry. Built-ins are in the app. */
+    suspend fun userJsons(): List<String> = withContext(Dispatchers.IO) {
+        db.recipes().all().filter { it.source == "user" }.map { it.json }
     }
 
     private companion object {

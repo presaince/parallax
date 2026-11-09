@@ -118,7 +118,7 @@ class NewPipeSource(
 
     /** Re-initialises the extractor on the main region. The repair wrapper calls this once. */
     private suspend fun resetMainRegion() {
-        val code = appContext?.let { readContentRegions(it).firstOrNull() } ?: "US"
+        val code = appContext?.let { resolvedRegions(it).firstOrNull() }.orEmpty()
         regionLock.withLock { initContentCountry(http, code, log) }
     }
 
@@ -131,7 +131,7 @@ class NewPipeSource(
     override suspend fun search(query: String): AppResult<Page<VideoSummary>> =
         withContext(Dispatchers.IO) {
             ambiguousSeen = 0
-            val regions = appContext?.let { readContentRegions(it) } ?: listOf("US")
+            val regions = appContext?.let { resolvedRegions(it) } ?: listOf("")
             if (regions.size <= 1) {
                 val primary = withSourceRepair(log, "search", { resetMainRegion() }) { searchOnce(query) }
                 val primaryError = primary as? AppResult.Err

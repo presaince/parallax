@@ -29,10 +29,11 @@ FOREGROUND_SERVICE (media playback), REQUEST_INSTALL_PACKAGES (self-update insta
 app/src/main/java/com/presaince/parallax/
   core/        AppResult, AppLog, BugReport/BugShot/BugUpload, Html, Sort, Time
   data/        model, db, source, library, discover, resync, sponsorblock, importer,
-               exporter/backup, auth, secure, cache, update (self-update)
+               backup (settings schema, restore, one combined file, found files), auth, secure,
+               cache, update (self-update)
   playback/    PlaybackController (ExoPlayer + MediaSession + prefs), PlaybackService
   feature/     one package per screen: player, feed, search, library, collections, discover,
-               channel, comments, notes, posting, settings, resync, about
+               channel, comments, notes, posting, settings, resync, about, onboarding
   ui/          theme (schemes, glass), nav (ParallaxNav), component (scaffold, mini player,
                rows, flags, scroll-to-top)
   di/          AppContainer — the manual composition root
@@ -45,7 +46,8 @@ One Activity, one Compose tree, one playback session.
 
 - `MainActivity` creates the `ThemeController` and wraps `ParallaxNav` in `ParallaxTheme`.
 - `ParallaxApp` owns the `AppContainer`; the container is the only place singletons are built.
-- `ParallaxNav` holds the route stack and the tab pager. It is the whole navigation model.
+- `ParallaxNav` holds the route stack and the tab pager. It is the whole navigation model. On a
+  fresh install it renders `OnboardingScreen` instead of the scaffold, before any tab is composed.
 - `PlaybackController` owns the `ExoPlayer` and the media session. Every screen reads its
   `StateFlow<PlaybackState>`; nothing else touches the player.
 - `ContentRepository` is the only writer to the content tables in Room.
@@ -88,7 +90,10 @@ URL never is.
 comment's timestamp. Results are cached per video + comment + cue hash.
 
 **Bug reports** are built in memory (`BugReport.bundle`), redacted, optionally with a JPEG screenshot,
-and POSTed to the drop box.
+and POSTed to the drop box. A filed report appends one `bug:` line to the log, and the reports
+themselves are read back with `scripts/reports.mjs`, which prints the note and, on request, only the
+warn and error lines of one bundle. `docs/reports.md` is the append-only index of what was filed and
+what came of it.
 
 ## Module notes
 
@@ -185,15 +190,17 @@ No feature package imports another feature package; navigation is the go-between
   contract, discover scoring and engine, feed repository, update-manager predicates, bug-upload
   state mapping, thumbnail URLs.
 - Robolectric, SDK 35 (`src/test/resources/robolectric.properties`): `cleanHtml`, the settings
-  export, in-memory Room queries and Compose UI. Tests run against `TestApp`, not `ParallaxApp`,
-  because the real application schedules the feed worker and WorkManager is not initialised on the
-  JVM.
+  export and restore, in-memory Room queries and Compose UI. Tests run against `TestApp`, not
+  `ParallaxApp`, because the real application schedules the feed worker and WorkManager is not
+  initialised on the JVM.
 - `ExtractorCanaryTest` is opt-in (`-Dparallax.canary=true`) and hits the live extractor.
 - The suite is never attached to `assembleDebug`: a compile check stays a compile check.
-- 163 tests run, 2 skipped (the canary). Added 2026-11-08: `ContentRepositoryTest` (refresh
-  preserves learned counts), `DiscoverEngineTest` (seen filtering and named empty reasons),
-  `BugUploadTest` (429 cooldown, bad replies), importer skipped counts, `FeedUiStateTest`,
-  `SortRowTest` (the one Compose test, proving the Robolectric path).
+- The suite runs green; 263 tests at the time of writing, 2 skipped (the canary). Added 2026-11-09: `BackupReaderTest` (the file is read by
+  content, not by name), `SettingsImportTest` (round trip, unknown keys refused, AI gated on a
+  key), the rewritten `SettingsExportTest` (v2 shape, no secret) and recipe `describe` cases. Before
+  that: `ContentRepositoryTest` (refresh preserves learned counts), `DiscoverEngineTest` (seen
+  filtering and named empty reasons), `BugUploadTest` (429 cooldown, bad replies), importer skipped
+  counts, `FeedUiStateTest`, `SortRowTest` (the one Compose test, proving the Robolectric path).
 - Room schema v11 is exported and committed under `app/schemas/`. Migration tests still need
   instrumentation; the DAO queries are covered in memory.
 - Everything else is a hand check on the Pixel 7 (`28221FDH20001G`). A pass is only as wide as the
@@ -208,9 +215,12 @@ adb install -r app\build\outputs\apk\debug\app-debug.apk
 ```
 
 Release (direct build): `assembleRelease` is unsigned when neither `PARALLAX_*` env vars nor an
-untracked `app/keystore.properties` provide a key. With either present the signing config is
-applied; the manual `apksigner` path remains the Oko-compatible fallback. The APK is copied to
-`app-release.apk` and uploaded with:
+untracked `app/keystore.properties` provide a key. The key lives in one place outside both app
+trees: `C:\Users\Bodi\.config\opencode\keys\presaince-release.keystore`, the same certificate the
+Oko release uses. `app/keystore.properties` is untracked and points `PARALLAX_KEYSTORE` at its
+absolute path; this tree keeps no copy of the key itself. A release built on another machine needs
+that keystore and properties supplied. The manual `apksigner` path remains the Oko-compatible
+fallback. The APK is copied to `app-release.apk` and uploaded with:
 
 ```
 node C:\Users\Bodi\.config\opencode\scripts\deploy\deploy.mjs -C D:\Desktop\parallax --config=deploy-apk.properties
@@ -219,11 +229,36 @@ node C:\Users\Bodi\.config\opencode\scripts\deploy\deploy.mjs -C D:\Desktop\para
 That uploads to `/other_apps/parallax/`, where `upload.php` also lives. The portfolio links to that
 URL and ships no binaries.
 
+The folder also serves the download page: `web/index.html` and `web/img/*.webp` are uploaded beside
+the APK by the config's `extra=` lines. It is one static HTML file with its own CSS, no build step,
+wearing the app's own Glass theme — the same near-black base and three accent-adjacent aurora glows
+as `glassBlobs`, fixed behind the page, with translucent cards over them — and it reads
+`version.json` at load, so the version, notes and hash cannot go stale. The copy is shared with
+the portfolio's `parallaxCopy.ts` and kept identical by hand, heading for heading; the only lines
+that differ are download-page-specific — the Builds list with the sha256, the footer link, and the
+absence of a back button. The captures are copies of the portfolio's `parallax*.webp`, because the
+download folder must not depend on another deploy's paths.
+
+A copy-only change ships without a signed release on disk:
+
+```
+node C:\Users\Bodi\.config\opencode\scripts\deploy\deploy.mjs -C D:\Desktop\parallax --config=deploy-page.properties
+```
+
+That config is `dist=none` with the same four `extra=` entries, so it uploads the page and images and
+touches neither the APK nor `version.json`.
+
 Self-update: after signing, `node scripts/make-version-json.mjs --notes "..."` writes `version.json`
 beside the signed APK (sha256 of the signed bytes, versionCode/versionName from
 `output-metadata.json`). `deploy-apk.properties` allows both files and defers `version.json`, so
 the APK goes up first and the manifest second. Bump `versionCode` in `app/build.gradle.kts` before
 each release; the client only offers the server build when it is newer.
+
+The bump is a script, not a habit: `node scripts/bump-version.mjs --apply` reads the live manifest,
+moves `versionCode` one past the highest number either side knows and the patch of `versionName`
+one up, and writes both into `app/build.gradle.kts`. `make-version-json.mjs` refuses to write a
+manifest for a code that is already published, so the failure lands before the upload rather than
+in every installed app. `node --test scripts/bump-version.test.mjs` covers the pure parts.
 
 ## Performance notes
 

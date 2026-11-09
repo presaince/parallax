@@ -56,10 +56,24 @@ fun PostingScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp).verticalScroll(rememberScrollState())) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        ) {
+            Text(
+                text = "Posting",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.weight(1f),
+            )
+            Switch(
+                checked = state.settings.enabled,
+                onCheckedChange = { viewModel.save(it) },
+            )
+        }
+        if (state.settings.enabled) {
         Text(
-            text = if (!state.settings.configured) {
-                "Posting is off. Add your own OAuth client to turn it on."
-            } else if (state.settings.signedIn) {
+            text = if (state.settings.signedIn) {
                 "Posting is on for this account."
             } else {
                 "Client saved. Sign in to turn posting on."
@@ -127,6 +141,7 @@ fun PostingScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 8.dp),
             )
+        }
         }
     }
 }

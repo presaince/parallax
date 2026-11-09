@@ -256,6 +256,20 @@ class PlaybackController(
         _openPlayer.value = false
     }
 
+    /** A video ID raised by the OS share sheet or a YouTube link; the nav opens the player. */
+    data class SharedVideo(val id: String, val startMs: Long? = null, val endMs: Long? = null)
+
+    private val _pendingVideo = MutableStateFlow<SharedVideo?>(null)
+    val pendingVideo: StateFlow<SharedVideo?> = _pendingVideo.asStateFlow()
+
+    fun requestOpenVideo(videoId: String?, startMs: Long? = null, endMs: Long? = null) {
+        _pendingVideo.value = videoId?.let { SharedVideo(it, startMs, endMs) }
+    }
+
+    fun consumePendingVideo() {
+        _pendingVideo.value = null
+    }
+
     private var segments: List<Segment> = emptyList()
     private var rawSegments: List<Segment> = emptyList()
     private var segmentsJob: Job? = null
@@ -271,15 +285,15 @@ class PlaybackController(
     private var ticksSinceSave = 0
     /** When [play] was called, so buffering time can be logged alongside fetch time. */
     private var playStartedAtMs = 0L
-    /** Actual playback time accumulated while the player is really playing, for the history gate. */
-    private var watchedMs = 0L
-    /** User-chosen token ("30s", "60s", "25%", "100%", ...) for when a play counts as a watch. */
+    /** One row per play: Fresh until the first frame plays, then Open, then Watched. */
+    private var historyPhase = HistoryPhase.Fresh
+    private var historyWatchedMs = 0L
+    private var historyRowId: Long? = null
+    /** User-chosen token ("30s", "60s", "25%", "100%", ...) for when an open counts as a watch. */
     private var watchThresholdToken: String =
         prefs.getString(KEY_WATCH_THRESHOLD, "30s") ?: "30s"
     /** True once READY for the current play has been logged. */
     private var readyLogged = false
-    /** True once history has been recorded for the current play. */
-    private var historyLogged = false
     /** True between the deliberate stop/clear and the prepare at the start of [play]. */
     private var preparing = false
     /** When this buffering spell began, or 0 while the player is not waiting for bytes. */
@@ -386,7 +400,9 @@ class PlaybackController(
         startService()
         playStartedAtMs = System.currentTimeMillis()
         readyLogged = false
-        historyLogged = false
+        historyPhase = HistoryPhase.Fresh
+        historyWatchedMs = 0L
+        historyRowId = null
         // A different video starts with a clean recovery budget. The same video keeps what it
         // has spent, so the play() called by a retry cannot refill its own allowance.
         if (videoId != currentVideoId) recoveryAttempts = 0
@@ -432,7 +448,6 @@ class PlaybackController(
         currentChannel = channel
         currentThumb = thumbUrl
         ticksSinceSave = 0
-        watchedMs = 0L
 
         // stop() and clearMediaItems() both report IDLE. That is us doing it, not a stream that
         // died, so the warning below is suppressed until the new media is prepared.
@@ -531,8 +546,9 @@ class PlaybackController(
         // Clear the id first: the IDLE that stop() reports is this call, not a stream failure.
         currentVideoId = null
         currentStreamsKey = null
-        historyLogged = false
-        watchedMs = 0L
+        historyPhase = HistoryPhase.Fresh
+        historyWatchedMs = 0L
+        historyRowId = null
         preparing = true
         player.stop()
         player.clearMediaItems()
@@ -783,32 +799,46 @@ class PlaybackController(
             }
         }
 
-        // History counts intent, not a tap: five seconds of actual playback, once per play.
-        // Accumulated only while the player is really playing (READY, not buffering), so time
-        // spent waiting for the video to cache never counts towards the five seconds.
-        if (player.isPlaying && player.playbackState == Player.STATE_READY && currentVideoId != null) {
-            watchedMs += TICK_MS
+        // One row per play. Fresh opens on the first played frame, ungated; once truly
+        // watched past the user threshold the same row is stamped watched. Watched time
+        // only accumulates while the player is really playing (READY, not buffering).
+        val readyPlaying = player.isPlaying && player.playbackState == Player.STATE_READY
+        if (readyPlaying && historyPhase != HistoryPhase.Watched) {
+            historyWatchedMs += TICK_MS
         }
-        val videoId = currentVideoId
-        val watchThreshold = watchThresholdMs(watchThresholdToken, duration)
-        if (!historyLogged && player.isPlaying && videoId != null && watchedMs >= watchThreshold) {
-            historyLogged = true
+        val (nextPhase, write) = advanceHistory(
+            historyPhase,
+            readyPlaying,
+            historyWatchedMs,
+            watchThresholdMs(watchThresholdToken, duration),
+        )
+        if (write != null && currentVideoId != null) {
+            historyPhase = nextPhase
+            val videoId = currentVideoId!!
             val title = currentTitle
             val channel = currentChannel
             val thumb = currentThumb
             scope.launch(Dispatchers.IO) {
                 runCatching {
-                    db.history().add(
-                        HistoryEntity(
-                            videoId = videoId,
-                            title = title,
-                            channelName = channel,
-                            watchedAt = System.currentTimeMillis(),
-                            thumbUrl = thumb,
-                        ),
-                    )
+                    when (write) {
+                        HistoryWrite.Open ->
+                            historyRowId = db.history().add(
+                                HistoryEntity(
+                                    videoId = videoId,
+                                    title = title,
+                                    channelName = channel,
+                                    openedAt = System.currentTimeMillis(),
+                                    thumbUrl = thumb,
+                                ),
+                            )
+                        HistoryWrite.Watch -> {
+                            historyRowId?.let { db.history().markWatched(it, System.currentTimeMillis()) }
+                        }
+                    }
                 }
             }
+        } else {
+            historyPhase = nextPhase
         }
 
         // Persist while playing, from here rather than a ViewModel: the screen can be gone and
@@ -867,7 +897,7 @@ class PlaybackController(
     /** The current "count a watch after" token, e.g. "30s", "25%", "100%". */
     fun watchThreshold(): String = watchThresholdToken
 
-    /** Change when a play counts as a watch. Takes effect on the next play. */
+    /** Change when an open counts as a watch. Takes effect on the next play. */
     fun setWatchThreshold(token: String) {
         watchThresholdToken = token
         prefs.edit().putString(KEY_WATCH_THRESHOLD, token).apply()
@@ -951,6 +981,7 @@ class PlaybackController(
                 (seconds.coerceAtLeast(1L) * 1_000L)
             }
         }
+
         val DEFAULT_PRESETS = listOf(0.8f, 1.0f, 1.2f, 1.5f, 2.0f)
         const val KEY_SPEED = "playback_speed"
         const val MIN_SPEED = 0.25f

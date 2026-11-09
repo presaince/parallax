@@ -41,9 +41,11 @@ nothing, so it is a toggle that drops seek-to-previous. PiP on leaving the app i
 
 **Rule.** Fullscreen is landscape and nothing else is.
 
-**Edge.** Entering fullscreen forces sensor-landscape; exiting restores portrait, not "unspecified",
-because the manifest lock is portrait. Turning the phone in the player is treated as fullscreen
-too, and the manifest's portrait lock exists so the rest of the app never turns.
+**Edge.** Entering fullscreen forces sensor-landscape. Exiting hands the sensor back while the phone
+is upright, and holds a portrait lock only while it is still sideways, so exiting while holding the
+phone landscape turns the picture upright and turning it back goes fullscreen again. Turning the
+phone in the player is treated as fullscreen too, and the manifest's portrait lock exists so the
+rest of the app never turns.
 
 **Enforced by** `feature/player/PlayerScreen.kt`, `AndroidManifest.xml`.
 
@@ -52,9 +54,13 @@ failure is shown.
 
 **Edge.** The player publishes the error code; the screen reloads streams at the last position
 after a short pause, at most twice per video. A stream URL that expired while paused is exactly
-what this covers. Past two tries the failure stays on screen with Retry.
+what this covers. Past two tries the failure stays on screen with Retry — except for a permanent
+one, where Retry would only fail again: members-only, private or removed, age restricted, region
+blocked and sign-in required each show their own sentence and no button. Members-only is recognised
+by the extractor's wording, since it arrives as a plain unavailability.
 
-**Enforced by** `PlaybackController.kt` (`playerError`), `PlayerScreen.kt`.
+**Enforced by** `PlaybackController.kt` (`playerError`), `PlayerScreen.kt`,
+`data/source/SourceErrors.kt` (`SourceError.permanent`).
 
 **Rule.** A stream that goes quiet without raising an error is timed, and it counts as a failure
 for the same two retries.
@@ -103,23 +109,31 @@ one is not a picture tap, and the registry is the place new controls are added.
 `feature/player/gesture/GestureState.kt` (`SurfaceTapZones`).
 
 **Rule.** A sideways swipe seeks, in seconds per tenth of the screen, not in percent of the video.
-**Edge.** The base is 2, 5 or 10 seconds per tenth (Settings → Playback, default 5) and the rate
-rises to eight times as the finger travels. Seeking is applied during the drag, throttled to 90 ms,
-plus one exact seek on release. The pill shows the signed delta and the target.
+**Edge.** The base is 2, 5 or 10 seconds per tenth (Settings → Playback, default 5) and the first
+tenth is exactly that base; the rate climbs to eight times once the finger has travelled 40% of the
+width. Seeking is applied during the drag, throttled to 90 ms, plus one exact seek on release. The
+pill shows the signed delta and the target. `SeekRate` is shared with the gesture lesson, so the
+lesson cannot promise a different speed.
 
 **Enforced by** `PlayerScreen.kt` (`onHorizontalDelta`), `SettingsSections.kt`.
 
-**Rule.** Any downward drag minimises: left and right bands still change brightness and volume,
-the centre is the way out.
+**Rule.** A vertical drag starts as volume on the left and brightness on the right; the centre is
+the ladder. While a side drag is held, the active control follows the finger across the middle, so
+volume and brightness can be swapped without lifting. Both pills are one pair at the point where
+the finger went down: the active control 40x96, the partner 28x64 and dimmed 8dp beside it. Neither
+pill is pinned to an edge.
 
-**Edge.** Brightness only answers while the video is playing. On a paused or stopped picture the
-same vertical drag belongs to the page, so it must not dim the screen. The detector sits on a box
-that does not move, so the finger is read in screen space. A vertical gesture is not abandoned when
-the finger leaves the picture, which is what froze the drag a few percent in. A fast flick counts
-even when short; a slow drag has to pass about a fifth of the height. The surface follows the finger
-and closes with no release animation, or snaps back.
+**Edge.** A drag that starts in the centre stays on the ladder; it does not become a level control
+when it drifts sideways. A fast flick from a side becomes the centre ladder either way: down
+minimises, up goes fullscreen, and neither changes the volume or the brightness on the way, because
+a swipe asking for fullscreen did not ask for louder. Brightness only answers while the video is
+playing. On a paused or stopped picture the same vertical drag belongs to the page, so it must not
+dim the screen. The detector sits on a box that does not move, so the finger is read in screen space.
+A vertical gesture is not abandoned when the finger leaves the picture, which is what froze the drag
+a few percent in. A fast flick counts even when short; a slow drag has to pass about a fifth of the
+height. The surface follows the finger and closes with no release animation, or snaps back.
 
-**Enforced by** `PlaybackGestures.kt`, `PlayerScreen.kt`.
+**Enforced by** `PlaybackGestures.kt` (`flickBelongsToLadder`), `PlayerScreen.kt`.
 
 **Rule.** Speed is a press-and-hold dial plus a tap-to-open panel.
 
@@ -127,7 +141,9 @@ and closes with no release animation, or snaps back.
 cannot also be a brightness swipe. An interrupted gesture clears the hold in `finally`. The panel's
 fill is measured against the panel, not the screen. The dial and the panel show only the current
 speed, filled like the volume/brightness pill; the panel opens just above the control, under the
-finger. Auto quality reads as "Auto (1080p)" once ExoPlayer reports the resolved height.
+finger. A tap on the panel is the way back to 1.0x, and while the speed is anything else the pill
+says so under the number, because dragging back to exactly 1.0 is the one thing a slider is bad at.
+Auto quality reads as "Auto (1080p)" once ExoPlayer reports the resolved height.
 
 **Enforced by** `PlayerScreen.kt` (`SpeedPanel`, gesture gate).
 
@@ -176,10 +192,12 @@ facts (views, age) sit on the right of the same line.
 
 **Rule.** A seek that moved more than two seconds offers an undo on the picture for a few seconds.
 
-**Edge.** The offer covers both a sideways swipe and a drag on the progress bar. Undo returns to the
-position the gesture started from; the offer leaves on its own and never blocks the controls.
+**Edge.** The offer covers a sideways swipe, a drag on the progress bar, and any tap that
+chooses a position: a chapter, a SponsorBlock row, a description timestamp, a share-panel
+seek, or the SponsorBlock skip chip. Undo returns to the position the gesture started
+from; the offer leaves on its own and never blocks the controls.
 
-**Enforced by** `PlayerScreen.kt` (`SeekUndoChip`, `onHorizontalEnd`, `onBarEnd`).
+**Enforced by** `PlayerScreen.kt` (`SeekUndoChip`, `userSeek`, `onHorizontalEnd`, `onBarEnd`).
 
 ---
 
@@ -206,6 +224,17 @@ checked.
 the whole moment (moment mode) to the playhead; if the playhead is before the start, both move.
 
 **Enforced by** `PlayerScreen.kt` (`ShareSheet`).
+
+**Rule.** A shared link with a clip opens focused on the clip: it starts at the clip start,
+pauses at the clip end, says so on screen, and dims both sides of the bar with bracket
+ticks at the edges. "Before" plays from the start of the video; "Keep going" lets playback
+run past the end.
+
+**Edge.** The focus clears when the reader taps either way out. The toast names the
+clip range; the bar is the durable mark.
+
+**Enforced by** `PlayerScreen.kt`, `ParallaxNav.kt` (`Route.Player`), `PlaybackController.kt`
+(`SharedVideo`), `data/source/VideoSource.kt` (`shareClipFrom`).
 
 ---
 
@@ -286,10 +315,12 @@ opens a menu, not a row of chips.
 **Rule.** Pulling to refresh on History means "show me new videos": the feed switches to Feed and
 starts the refresh there.
 
-**Edge.** History stores what was watched; refreshing it would only re-read its own record. The
-pull therefore changes mode before it fetches.
+**Edge.** History holds one row per open. The first played frame writes the open, ungated;
+watched time past the user's threshold stamps the same row watched. Refreshing would only
+re-read its own record, so the pull therefore changes mode before it fetches.
 
-**Enforced by** `feature/feed/FeedScreen.kt` (`HistoryList`).
+**Enforced by** `feature/feed/FeedScreen.kt` (`HistoryList`), `playback/PlaybackController.kt`
+(`HistoryPhase`), `data/db/ParallaxDb.kt` (`HistoryDao`).
 
 **Enforced by** `ui/component/CardStyle.kt`, `ui/component/VideoRow.kt`,
 `feature/feed/FeedScreen.kt`, `feature/library/LibraryScreen.kt`.
@@ -309,8 +340,22 @@ captions follow the thumb while the fetch waits for the finger to lift. The fold
 bottom under a divider, not beside the title. There is no "back to the recipe" button: restarting
 the app is the reset.
 
+**Edge.** The chip row is the fast path; the menu at its end opens the shelf behind it: every
+recipe with a letter plate, its name and one line of what the walk does (`describe`, assembled from
+the filters unless the recipe wrote its own `description`, at most 120 characters). A recipe is
+imported from here and, when the reader wrote it, deleted from here; the database refuses a
+built-in by source. The chips follow the stored table, so a restore made in Settings appears
+without reopening the app.
+
+**Edge.** Before the first walk the screen explains itself: the river, one line saying that Bored
+picks from the reader's own library, and each mode with its `describe` sentence, tappable. A row of
+four names nobody has met yet is not a choice, so the empty screen is the explanation rather than an
+invitation to guess.
+
+**Enforced by** `feature/discover/DiscoverScreen.kt`, `data/discover/RecipeRepository.kt`.
+
 **Rule.** A subscribed channel is the feed's business. Bored skips subscribed channels by default;
-the gear beside the recipes holds the switch, and it applies to the next walk.
+the switch inside "Why these?" holds it, and it applies to the next walk.
 
 **Enforced by** `data/discover/DiscoverEngine.kt` (`subscribedChannels`), `feature/discover/DiscoverScreen.kt`.
 
@@ -436,9 +481,53 @@ kept in `SecurePrefs`.
 
 ---
 
+## First run
+
+**Rule.** A fresh install opens a four-page setup — look, ads, player gestures, subscriptions — and
+an update never does. Skipping counts as answering; setup runs again only from the button at the
+bottom of Settings.
+
+**Edge.** "Fresh" is `firstInstallTime == lastUpdateTime`, not the absence of a preference, so an
+existing reader keeps the theme, accent and SponsorBlock choice they already made. The theme,
+accent and SponsorBlock are written as they are tapped, not on Finish, so a force-close leaves the
+app matching what the preview showed. Finish and Skip write `onboarding_done`; only a re-run can be
+closed with system Back from its first page.
+
+The look page opens on a real capture of the feed in a phone frame, then Theme, Accent and Card
+preview panels. Theme is four icon tiles — System first, then Glass, Dark and Light — and opens on
+Glass; Glass follows the phone's light or dark unless a base was chosen earlier. The accent field
+is the Settings field and the preview is the Settings card, with Side, Classic and Minimal
+selectable under it. The ads page keeps both answers on screen as radio rows and starts on the
+current SponsorBlock state; "No ads" turns it on, the other turns it off, and the line below says
+YouTube ads are not in the stream either way. The player page is the Settings gesture lesson, full
+width, not a video; the invitation sits on the picture ("Gesture tutorial" / "Touch me"). The stage
+draws a dashed target for each step — ring, seek bar, volume and brightness pills — and the fourth
+teaches the real three-stop ladder (normal, mini, super-mini) with the way back. That step completes
+only after the bar was reached and the card returned to normal. A side drag follows the finger
+across the middle, so the small pill on the other side becomes the active one without lifting; the
+seek hint says longer slides move faster and names the base step in Settings. The four steps are a
+thin four-column line on the bottom edge of the picture. At the end the line is full and a Restart
+tutorial button replaces the hint; there is no checkmark. The volume/brightness pair appears at the
+point where the finger went down, the active control full size and its partner 8dp beside it; the
+dashed step-2 target is the same pair in the middle, never two edge pills. The seek target is a
+2.5dp dashed line, and the readout is the signed delta only, computed with the Settings base and
+`SeekRate`; the fake video target is gone. The last page's import card is
+the action: tapping it opens the picker, and the bottom button is Start with nothing, or Open feed
+after an import. The feed's own first load does the refresh. The region is not a page: System — the
+phone's own country, resolved through `readContentRegions` — remains the default, and changing it
+is Settings' job. Notification permission is asked there, once, with context.
+
+**Enforced by** `feature/onboarding/OnboardingFlow.kt` (`OnboardingPage`, `shouldShowOnboarding`,
+`sponsorBlockAfterAdsAnswer`), `feature/onboarding/OnboardingScreen.kt`,
+`feature/onboarding/WelcomeHero.kt`, `drawable-nodpi/onboarding_feed.webp`, `ui/nav/ParallaxNav.kt`,
+`data/importer/SubscriptionImport.kt`.
+
+---
+
 ## Appearance
 
-**Rule.** Four themes: System, Dark, Light, Glass. Changing any of them never recreates the Activity.
+**Rule.** Four themes: System, Dark, Light, Glass. A fresh install is Glass on the System base;
+changing any theme never recreates the Activity.
 
 **Edge.** Glass takes light or dark from the last ordinary theme chosen; there is no separate
 control. `Surfaces` is one block cut across: Glass on top, Solid underneath. Solid is Glass with
@@ -477,6 +566,14 @@ removing the picture. A missing thumbnail simply leaves the black frame.
 
 **Enforced by** `feature/player/PlayerScreen.kt` (`LoadingPreview`).
 
+**Rule.** The type scale is one step above Material's defaults: body 15/17, labels 12/13/15,
+titles 15/17/23. Line heights move with the sizes.
+
+**Edge.** This is a deliberate default, not a substitute for the system font scale; `sp` still
+follows the phone's setting. The smallest labels were the ones that read as a squint at 11 sp.
+
+**Enforced by** `ui/theme/Theme.kt` (`AppTypography`, `ParallaxTheme`).
+
 **Rule.** Glass draws a static aurora behind translucent surfaces; it is not a blur of the video.
 
 **Edge.** A pushed screen paints the same aurora or theme background as its floor, so the pager
@@ -486,26 +583,29 @@ underneath never shows through. A tile that wants a soft fill multiplies the sch
 **Enforced by** `Theme.kt` (`ThemeBackdrop`).
 
 **Rule.** Each content region row draws that region's real flag as its background, stretched to
-the row.
+the row. System is not a country and has no flag: it gets its own full-width row with a globe, the
+word, and "Follows the phone's own country".
 
 **Edge.** The flags are vector drawables generated from the lipis/flag-icons SVGs, not bands drawn
 by hand, so emblems and stars survive. FillBounds is deliberate: cropping a horizontal tricolour
 to fit would leave only its middle band. The selected rows carry a primary border and the main one
 is marked "Main"; there is no "Selected" text on the others.
 
-**Rule.** Up to three regions can be selected. The first one tapped is the main region: the feed
-and channel pages ask as it, and the other regions add their own search pass, one after another,
-merged and deduplicated by video id.
+**Rule.** Up to three countries can be selected, and System is the default and the fallback. The
+first one tapped is the main region: the feed and channel pages ask as it, and the other countries
+add their own search pass, one after another, merged and deduplicated by video id. System asks as
+the phone's locale country; a phone with no country in its locale sends no country at all. Nothing
+defaults to the United States.
 
-**Edge.** A fourth tap is refused and the count line says to tap one off first. The last selected
-region cannot be removed. Search with several regions is slower by roughly one fetch per extra
-country, and its results can mix languages; deleting the list to one region restores today's
-behaviour. A channel's uploads do not change by country, so the feed is never fetched more than
-once.
+**Edge.** A fourth tap is refused and the count line says to tap one off first. Tapping the last
+country off lands on System rather than refusing, because "no country" is a real answer. Picking a
+country replaces System; picking System replaces the countries. Search with several regions is
+slower by roughly one fetch per extra country, and its results can mix languages. A channel's
+uploads do not change by country, so the feed is never fetched more than once.
 
 **Enforced by** `ui/component/FlagBackground.kt`, `app/src/main/res/drawable/flag_*.xml`,
-`feature/settings/SettingsSections.kt` (`RegionSection`), `data/source/ContentRegion.kt`,
-`data/source/NewPipeSource.kt` (`search`).
+`ui/component/RegionGrid.kt`, `feature/settings/SettingsSections.kt` (`RegionSection`),
+`data/source/ContentRegion.kt` (`toggleRegion`), `data/source/NewPipeSource.kt` (`search`).
 
 ---
 
@@ -517,9 +617,10 @@ once.
 "Send another" reset, so the same note cannot be posted twice. A report carries the build and device
 always; the note and the screenshot are what the person typed and chose. The "Include logs" switch is
 on by default: on carries the last 300 log lines and a redacted copy of the settings; off sends the
-note alone, or the note and screenshot, with `logsIncluded: false` in the bundle.
+note alone, or the note and screenshot, with `logsIncluded: false` in the bundle. A filed report
+leaves one `bug: filed <name>` line in the log, so Diagnostics is the history of what was sent.
 
-**Enforced by** `feature/settings/BugScreen.kt`, `core/BugReport.kt`.
+**Enforced by** `feature/settings/BugScreen.kt`, `core/BugReport.kt`, `core/BugUpload.kt`.
 
 **Rule.** Sending POSTs one JSON bundle with a `parallax.bug/1` schema marker to the drop box; a 2xx
 that is not the endpoint's own `{"ok":true}` is a failure.
@@ -532,9 +633,11 @@ server's cooldown passes. Reports land in a directory that answers 403 over HTTP
 **Rule.** Logs are a 48-hour ring buffer on the device.
 
 **Edge.** Feed, playback, player and extractor events are logged; failures are logged with the
-channel or video id.
+channel or video id. An HTTP call logs only when it did not go to plan — a non-2xx, a 2xx with an
+empty body, or a call over 8 s — so the 300 lines a report carries cover a session rather than ten
+minutes of successful requests. `HttpTrace` is the rule.
 
-**Enforced by** `core/AppLog.kt`.
+**Enforced by** `core/AppLog.kt`, `core/HttpTrace.kt`.
 
 ---
 
@@ -542,16 +645,30 @@ channel or video id.
 
 **Rule.** Importing adds; it never replaces or deletes.
 
-**Edge.** Formats: NewPipe `subscriptions.json`, LibreTube JSON, Google Takeout `subscriptions.csv`,
-and a NewPipe `.zip` backup is read for its JSON. Duplicates are ignored by URL.
+**Edge.** One button reads every file this app knows: a `parallax-backup.json`, a settings object on
+its own, a NewPipe `subscriptions.json` or `.zip`, LibreTube JSON, a Takeout `subscriptions.csv`, or
+a single Bored recipe. The file is recognised by what is inside it, not by its name, so a renamed
+file or a wrong extension still lands. Duplicates are ignored by URL, and a file that is none of
+these says so in a sentence.
 
-**Enforced by** `data/importer/*`, `feature/library/LibraryViewModel.kt`.
+**Enforced by** `data/importer/*`, `data/backup/BackupReader.kt`, `feature/settings/SettingsViewModel.kt`.
 
-**Rule.** Export writes a NewPipe-compatible JSON.
+**Rule.** Export writes one file: subscriptions in the NewPipe shape, every stored setting, and the
+recipes the reader wrote.
 
-**Edge.** Settings can also be exported as JSON separately from subscriptions.
+**Edge.** No key or token is in the file, and a file cannot put one on the device: the restore walks
+the same table as the export and ignores every key it does not know. Settings merge rather than
+wipe, and apply live. The AI switch returns only when a Resync key is already in the Keystore; the
+endpoint and model return regardless. Watch history and notes are not in the backup.
 
-**Enforced by** `data/importer/SubscriptionExporter.kt`, `data/backup/SettingsExport.kt`.
+**Edge.** The page also lists the files it can see: the backups in a folder chosen once through the
+system picker, plus the last few files this app wrote, deduplicated by URI, folder first then
+newest, capped at eight rows. Only `.json`, `.zip` and `.csv` are offered. Tapping one imports it
+through the same path as the picker. Discovery is a SAF tree grant; the app never asks for blanket
+storage access.
+
+**Enforced by** `data/backup/Backup.kt`, `data/backup/SettingsSchema.kt`,
+`data/backup/SettingsImport.kt`, `data/importer/SubscriptionExporter.kt`.
 
 ---
 
@@ -566,6 +683,30 @@ newer build.
 
 **Enforced by** `data/update/UpdateManager.kt`, `feature/about/AboutScreen.kt`.
 
+**Rule.** Downloading is the consent. Once the archive is verified it goes straight to the system
+installer, which shows Android's own confirmation and nothing from us before it.
+
+**Edge.** The permission to install from this source is explained first, because the installer
+cannot run without it; after it is granted the install resumes on return. One automatic attempt
+only: cancelling the system sheet does not re-open it, and the About button then reads Install
+instead of Check for updates. The system confirmation cannot be suppressed — only a device owner
+or a system-signed app may install silently.
+
+**Enforced by** `UpdateManager.kt` (`verifyArchive`, `buildInstallIntent`), `AboutScreen.kt`
+(`installLaunched`), `UpdateDialog.kt`.
+
+**Rule.** About's "Download the APK" opens the published folder, not the file: the page there reads
+`version.json` and shows the build's version, notes, hash and a direct download link. One build is
+published at a time, so that list has one row until older APKs are kept.
+
+**Edge.** If the page cannot read `version.json`, it still offers `app-release.apk` directly.
+
+**Rule.** A release reuses no versionCode. The client compares codes, so a rebuilt 0.3.0 is a build
+nobody is offered; the bump script reads the published manifest and `make-version-json.mjs` refuses
+an already-published code.
+
+**Edge.** The page's APK is a signed release; debug builds from the cable are signed with another
+key and cannot install over it. Moving a device between the two needs one uninstall.
 **Rule.** The downloaded APK is validated against the archive itself before the installer sees it:
 same package, not older than installed, same signing key, and the published sha256 when one is
 supplied.

@@ -155,6 +155,7 @@ import com.presaince.parallax.data.source.VideoSource
 import com.presaince.parallax.feature.comments.CommentsSection
 import com.presaince.parallax.feature.comments.CommentsViewModel
 import com.presaince.parallax.feature.notes.NotesTab
+import com.presaince.parallax.feature.player.gesture.SeekRate
 import com.presaince.parallax.feature.player.gesture.Zone
 import com.presaince.parallax.feature.player.gesture.playbackGestures
 import com.presaince.parallax.ui.component.CardStyle
@@ -202,6 +203,8 @@ fun PlayerScreen(
     onOpenBug: () -> Unit,
     onOpenChannel: (url: String, name: String) -> Unit = { _, _ -> },
     onOpenVideo: (com.presaince.parallax.data.model.VideoSummary) -> Unit = {},
+    clipStartMs: Long? = null,
+    clipEndMs: Long? = null,
 ) {
     val viewModel: PlayerViewModel = viewModel(
         key = video.id,
@@ -291,6 +294,48 @@ fun PlayerScreen(
     // A seek that moved more than a moment gets a way back. Accidental bar taps are the reason.
     var seekUndo by remember { mutableStateOf<SeekUndo?>(null) }
     var barStartMs by remember { mutableStateOf<Long?>(null) }
+    // Every tap that chooses a position is a seek worth taking back: chapters, SponsorBlock
+    // rows, description timestamps and share-panel seeks all run through here, so the undo
+    // chip covers them as well as the bar and the swipe.
+    fun userSeek(targetMs: Long) {
+        val from = playbackState.positionMs
+        playback.seekTo(targetMs)
+        if (kotlin.math.abs(targetMs - from) >= UNDO_MIN_MS) {
+            seekUndo = SeekUndo(from, targetMs)
+        }
+    }
+    // A shared link can carry a clip. While focused the video starts at the clip start
+    // and holds at the clip end; the chip is the way out in both directions.
+    var clipFocused by remember(video.id, clipStartMs, clipEndMs) {
+        mutableStateOf(clipStartMs != null || clipEndMs != null)
+    }
+    var clipSeen by remember(video.id) { mutableStateOf(false) }
+    LaunchedEffect(video.id, clipStartMs, clipFocused) {
+        if (clipFocused && clipStartMs != null && !clipSeen) {
+            clipSeen = true
+            playback.seekTo(clipStartMs)
+        }
+    }
+    LaunchedEffect(video.id, clipEndMs, clipFocused, playbackState.positionMs, playbackState.isPlaying) {
+        if (clipFocused && clipEndMs != null && playbackState.isPlaying &&
+            playbackState.positionMs >= clipEndMs
+        ) {
+            playback.togglePlayPause()
+        }
+    }
+    LaunchedEffect(video.id, clipFocused, clipStartMs, clipEndMs) {
+        if (clipFocused) {
+            val s = clipStartMs?.let { formatDuration(it / 1000) }
+            val e = clipEndMs?.let { formatDuration(it / 1000) }
+            val label = when {
+                s != null && e != null -> "Clip $s–$e"
+                s != null -> "From $s"
+                e != null -> "To $e"
+                else -> "Clip"
+            }
+            android.widget.Toast.makeText(context, label, android.widget.Toast.LENGTH_LONG).show()
+        }
+    }
     var lastScrubSeekAt by remember { mutableLongStateOf(0L) }
     // How far the finger has travelled sideways in this gesture, as a fraction of the width.
     // The seek rate rises with it, so a short swipe is precise and a long one covers a long video.
@@ -311,6 +356,8 @@ fun PlayerScreen(
         else retryCount = 0
     }
     var dragZone by remember { mutableStateOf(Zone.Centre) }
+    // Where the finger went down: the volume/brightness pair is drawn there, not at the edges.
+    var levelAnchor by remember { mutableStateOf(Offset(0.5f, 0.5f)) }
     // A video opens clean: the picture only, no controls until the first tap.
     var controlsVisible by remember { mutableStateOf(false) }
     var speedHolding by remember { mutableStateOf(false) }
@@ -321,8 +368,21 @@ fun PlayerScreen(
 
     // Turning the phone in is a fullscreen in, turning it back is a fullscreen out. The
     // manifest already lists orientation in configChanges, so no recreation fights the flag.
+    //
+    // Leaving fullscreen while the phone is still held sideways is the one case the sensor
+    // cannot answer: the exit would be undone by the same landscape it did not change. The flag
+    // holds that decision until the phone is upright again, which is also the moment the sensor
+    // is handed back so a later turn goes fullscreen again.
+    var exitHeldSideways by remember { mutableStateOf(false) }
     LaunchedEffect(landscape) {
-        if (landscape) fullscreen = true else fullscreen = false
+        when {
+            !landscape -> {
+                fullscreen = false
+                exitHeldSideways = false
+                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR
+            }
+            !exitHeldSideways -> fullscreen = true
+        }
     }
 
     // Fullscreen means landscape plus no system bars, and both are restored on the way out.
@@ -493,13 +553,21 @@ fun PlayerScreen(
     // Full screen is the top of the ladder and normal at the top of the page is one step down.
     // The fixed lock matches the fullscreen button so a sensor lock cannot snap back.
     fun enterFullscreen() {
+        exitHeldSideways = false
         fullscreen = true
         activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
     }
 
     fun exitFullscreen() {
         fullscreen = false
-        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        // Held sideways: hold the decision and turn the picture upright. Upright: the sensor takes
+        // over again, which is what makes turning the phone go back to fullscreen.
+        exitHeldSideways = landscape
+        activity?.requestedOrientation = if (landscape) {
+            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        } else {
+            ActivityInfo.SCREEN_ORIENTATION_SENSOR
+        }
     }
 
     val overlay: @Composable () -> Unit = {
@@ -559,10 +627,11 @@ fun PlayerScreen(
         // A press on the speed dial, or an open speed panel, owns the gesture. Restarting the
         // picture detector disabled is what stops the same drag from also being a brightness swipe.
         enabled = !speedHolding && !speedPanelOpen,
-        onVerticalStart = { zone ->
+        onVerticalStart = { zone, anchor ->
             dragDown = 0f
             dragUp = 0f
             dragZone = zone
+            levelAnchor = anchor
             dragStartedAt = SystemClock.uptimeMillis()
             volumeSteps = rawVolume(audio)
             brightnessLevel = brightnessFraction(activity)
@@ -573,6 +642,7 @@ fun PlayerScreen(
         onVerticalDelta = { zone, fraction ->
             when (zone) {
                 Zone.Left -> {
+                    dragZone = Zone.Left
                     val before = volumeSteps.roundToInt()
                     // Accumulate in steps, not in whole steps per event: rounding every delta to
                     // an Int lost most of a slow swipe, which is why the slider felt stuck.
@@ -586,10 +656,16 @@ fun PlayerScreen(
                         0,
                     )
                     if (after != before) {
-                        hud = Hud(fraction = volumeFraction(audio))
+                        hud = Hud(
+                            fraction = volumeFraction(audio),
+                            brightness = false,
+                            otherFraction = brightnessFraction(activity),
+                            anchor = levelAnchor,
+                        )
                     }
                 }
                 Zone.Right -> if (playbackState.isPlaying) {
+                    dragZone = Zone.Right
                     // Brightness is a playback gesture. On a paused or stopped picture the same
                     // drag is how the page below scrolls, so it must not dim the screen instead.
                     val before = brightnessLevel
@@ -601,12 +677,18 @@ fun PlayerScreen(
                                 screenBrightness = brightnessLevel
                             }
                         }
-                        hud = Hud(fraction = brightnessLevel, brightness = true)
+                        hud = Hud(
+                            fraction = brightnessLevel,
+                            brightness = true,
+                            otherFraction = volumeFraction(audio),
+                            anchor = levelAnchor,
+                        )
                     }
                 }
                 // Centre vertical is the ladder gesture. Down follows the finger and a qualifying
                 // swipe steps down one level, up steps back one level. No animation on release.
                 else -> {
+                    dragZone = Zone.Centre
                     // The full finger travel, clamped only at the ends. The surface translation
                     // reads this directly, so what the picture does matches what the finger did.
                     dragDown = (dragDown + -fraction).coerceIn(0f, 1f)
@@ -658,9 +740,9 @@ fun PlayerScreen(
             // A short swipe moves in seconds, not in percentages of the whole video: the first
             // tenth of the screen is worth the chosen base (5 s by default), and the rate climbs
             // as the finger travels, so the far end of a two-hour video is still a few swipes away.
+            // Shared with the gesture lesson; the first tenth is exactly the Settings base.
+            val movedMs = SeekRate.movedMs(fraction, scrubTravel, seekBaseSeconds)
             scrubTravel += kotlin.math.abs(fraction)
-            val ramp = 1f + (scrubTravel.coerceAtMost(0.40f) / 0.40f) * 7f
-            val movedMs = (fraction * 10f * seekBaseSeconds * ramp * 1000f).toLong()
             val target = (scrubTargetMs ?: playbackState.positionMs) + movedMs
             scrubTargetMs = target.coerceIn(0, playbackState.durationMs)
             val settled = scrubTargetMs ?: 0L
@@ -766,32 +848,66 @@ fun PlayerScreen(
         val duration = playbackState.durationMs
         val segments = playbackState.segments
         val primary = MaterialTheme.colorScheme.primary
-        Box(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(6.dp)
-                .background(Color(0x44FFFFFF)),
+                .height(48.dp),
         ) {
-            androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
-                if (duration > 0L) {
-                    // Two layers that never share pixels: sponsors on top half, playhead on
-                    // bottom half. Overlap is the 50/50 split by construction.
-                    val half = size.height / 2f
-                    for (segment in segments) {
-                        val start = (segment.startMs.toFloat() / duration).coerceIn(0f, 1f)
-                        val end = (segment.endMs.toFloat() / duration).coerceIn(0f, 1f)
+            val barWidth = maxWidth
+            Box(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .fillMaxWidth()
+                    .height(6.dp)
+                    .background(Color(0x44FFFFFF)),
+            ) {
+                androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+                    if (duration > 0L) {
+                        // Two layers that never share pixels: sponsors on top half, playhead on
+                        // bottom half. Overlap is the 50/50 split by construction.
+                        val half = size.height / 2f
+                        for (segment in segments) {
+                            val start = (segment.startMs.toFloat() / duration).coerceIn(0f, 1f)
+                            val end = (segment.endMs.toFloat() / duration).coerceIn(0f, 1f)
+                            drawRect(
+                                color = segmentColor(segment.category),
+                                topLeft = androidx.compose.ui.geometry.Offset(start * size.width, 0f),
+                                size = androidx.compose.ui.geometry.Size((end - start) * size.width, half),
+                            )
+                        }
                         drawRect(
-                            color = segmentColor(segment.category),
-                            topLeft = androidx.compose.ui.geometry.Offset(start * size.width, 0f),
-                            size = androidx.compose.ui.geometry.Size((end - start) * size.width, half),
+                            color = primary,
+                            topLeft = androidx.compose.ui.geometry.Offset(0f, half),
+                            size = androidx.compose.ui.geometry.Size(progressFraction * size.width, half),
                         )
+                        if (clipFocused && (clipStartMs != null || clipEndMs != null)) {
+                            val cs = ((clipStartMs ?: 0L).toFloat() / duration).coerceIn(0f, 1f)
+                            val ce = ((clipEndMs ?: duration).toFloat() / duration).coerceIn(0f, 1f)
+                            val dim = Color.Black.copy(alpha = 0.45f)
+                            drawRect(dim, topLeft = androidx.compose.ui.geometry.Offset(0f, 0f),
+                                size = androidx.compose.ui.geometry.Size(cs * size.width, size.height))
+                            drawRect(dim, topLeft = androidx.compose.ui.geometry.Offset(ce * size.width, 0f),
+                                size = androidx.compose.ui.geometry.Size((1f - ce) * size.width, size.height))
+                            val bar = primary.copy(alpha = 0.9f)
+                            drawRect(bar, topLeft = androidx.compose.ui.geometry.Offset(cs * size.width - 1f, 0f),
+                                size = androidx.compose.ui.geometry.Size(2f, size.height))
+                            drawRect(bar, topLeft = androidx.compose.ui.geometry.Offset(ce * size.width - 1f, 0f),
+                                size = androidx.compose.ui.geometry.Size(2f, size.height))
+                        }
                     }
-                    drawRect(
-                        color = primary,
-                        topLeft = androidx.compose.ui.geometry.Offset(0f, half),
-                        size = androidx.compose.ui.geometry.Size(progressFraction * size.width, half),
-                    )
                 }
+            }
+            if (duration > 0L) {
+                val dotX = (barWidth * progressFraction - 6.dp)
+                    .coerceIn(0.dp, (barWidth - 12.dp).coerceAtLeast(0.dp))
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .offset(x = dotX)
+                        .size(12.dp)
+                        .clip(CircleShape)
+                        .background(primary),
+                )
             }
         }
     }
@@ -839,7 +955,7 @@ fun PlayerScreen(
                         if (lastSkip == null) {
                             SponsorChip(
                                 text = "${com.presaince.parallax.data.sponsorblock.SponsorCategories.label(seg.category)} ends at ${formatDuration(seg.endMs / 1000)}",
-                                onClick = { playback.seekTo(seg.endMs) },
+                                onClick = { userSeek(seg.endMs) },
                                 modifier = Modifier
                                     .align(Alignment.TopEnd)
                                     .padding(top = 12.dp, end = 12.dp),
@@ -897,11 +1013,38 @@ fun PlayerScreen(
                     if (lastSkip == null) {
                         SponsorChip(
                             text = "${com.presaince.parallax.data.sponsorblock.SponsorCategories.label(seg.category)} ends at ${formatDuration(seg.endMs / 1000)}",
-                            onClick = { playback.seekTo(seg.endMs) },
+                            onClick = { userSeek(seg.endMs) },
                             modifier = Modifier
                                 .align(Alignment.TopEnd)
                                 .padding(top = 12.dp, end = 12.dp),
                         )
+                    }
+                }
+                if (clipFocused) {
+                    val s = clipStartMs?.let { formatDuration(it / 1000) }
+                    val e = clipEndMs?.let { formatDuration(it / 1000) }
+                    val label = when {
+                        s != null && e != null -> "Clip $s–$e"
+                        s != null -> "From $s"
+                        e != null -> "To $e"
+                        else -> "Clip"
+                    }
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = 12.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(Color(0xE6101014))
+                            .padding(start = 14.dp, end = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(label, style = MaterialTheme.typography.labelMedium, color = Color.White)
+                        TextButton(onClick = { clipFocused = false; userSeek(0) }) {
+                            Text("Before", color = MaterialTheme.colorScheme.primary)
+                        }
+                        TextButton(onClick = { clipFocused = false }) {
+                            Text("Keep going", color = MaterialTheme.colorScheme.primary)
+                        }
                     }
                 }
                 seekUndo?.let { undo ->
@@ -917,9 +1060,13 @@ fun PlayerScreen(
                     )
                 }
                 Box(modifier = Modifier.align(Alignment.BottomCenter)) { progressLine() }
-                // Video failures (members-only, private, etc.) get the whole black frame, because
-                // that is what the failure is sitting on. Larger than a line, and retryable.
+                // Video failures (members-only, private, and the rest) get the whole black frame,
+                // because that is what the failure is sitting on. A permanent failure says its own
+                // sentence and offers no Retry: pressing it again cannot change the answer, and a
+                // button that only ever fails is the thing that reads as broken.
                 loadState.error?.let { message ->
+                    val kind = loadState.errorKind
+                    val permanent = kind?.permanent == true
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -931,8 +1078,8 @@ fun PlayerScreen(
                             modifier = Modifier.padding(24.dp),
                         ) {
                             Text(
-                                text = if (retryCount > 3) {
-                                    "ya, you're wasting your time -- how about a cat video instead?"
+                                text = if (permanent) message else if (retryCount > 3) {
+                                    "Still failing. Check your connection, then try again."
                                 } else {
                                     message
                                 },
@@ -940,12 +1087,22 @@ fun PlayerScreen(
                                 color = Color.White,
                                 textAlign = TextAlign.Center,
                             )
-                            Spacer(Modifier.height(16.dp))
-                            TextButton(onClick = {
-                                retryCount = 0
-                                viewModel.retry()
-                            }) {
-                                Text("Retry", color = Color.White)
+                            if (permanent) {
+                                Spacer(Modifier.height(12.dp))
+                                Text(
+                                    text = "Open another video from the feed.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = Color.White.copy(alpha = 0.75f),
+                                    textAlign = TextAlign.Center,
+                                )
+                            } else {
+                                Spacer(Modifier.height(16.dp))
+                                TextButton(onClick = {
+                                    retryCount = 0
+                                    viewModel.retry()
+                                }) {
+                                    Text("Retry", color = Color.White)
+                                }
                             }
                         }
                     }
@@ -963,6 +1120,11 @@ fun PlayerScreen(
         var relatedToShow by remember(video.id) {
             mutableStateOf<List<com.presaince.parallax.data.model.VideoSummary>>(emptyList())
         }
+        // What the refresh asks for, and what the source last answered. Zero runs on its own once
+        // the list is due; every tap adds one, so asking twice fetches twice and a recomposition
+        // that changes nothing never fetches at all.
+        var relatedRound by remember(video.id) { mutableIntStateOf(0) }
+        var relatedAnswered by remember(video.id) { mutableIntStateOf(-1) }
         val atEnd = playbackState.durationMs > 0 &&
             playbackState.positionMs >= playbackState.durationMs - 500
         // The last stage of the load order: prefetched once comments have settled, or at
@@ -970,16 +1132,19 @@ fun PlayerScreen(
         // screen. It is only ever shown at the end.
         val pastThreeQuarters = playbackState.durationMs > 0 &&
             playbackState.positionMs >= playbackState.durationMs * 3 / 4
-        LaunchedEffect(stage, pastThreeQuarters, endEnabled) {
-            if (endEnabled &&
-                (stage == PlayerLoadStage.UpNext || pastThreeQuarters) &&
-                relatedToShow.isEmpty()
-            ) {
-                when (val result = source.related(video.id)) {
-                    is com.presaince.parallax.core.AppResult.Ok -> relatedToShow = result.value.take(10)
-                    is com.presaince.parallax.core.AppResult.Err -> Unit
-                }
+        LaunchedEffect(stage, pastThreeQuarters, endEnabled, relatedRound) {
+            if (!endEnabled || (stage != PlayerLoadStage.UpNext && !pastThreeQuarters)) {
+                return@LaunchedEffect
             }
+            if (relatedAnswered == relatedRound) return@LaunchedEffect
+            val asked = relatedRound
+            when (val result = source.related(video.id)) {
+                is com.presaince.parallax.core.AppResult.Ok -> relatedToShow = result.value.take(10)
+                // A refresh that fails keeps the list that is already there: an empty Up next
+                // reads as "nothing follows this video", which is a worse lie than a stale row.
+                is com.presaince.parallax.core.AppResult.Err -> Unit
+            }
+            relatedAnswered = asked
         }
 
         LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
@@ -1167,7 +1332,7 @@ fun PlayerScreen(
                         watchUrl = watchUrl,
                         durationSec = (playbackState.durationMs / 1000).toInt(),
                         positionSec = shareSeconds.toInt(),
-                        onSeek = { seconds -> playback.seekTo(seconds * 1000) },
+                        onSeek = { seconds -> userSeek(seconds * 1000) },
                         onDismiss = { shareOpen = false },
                     )
                 }
@@ -1186,7 +1351,7 @@ fun PlayerScreen(
                         // none, which is honest: an intro is not the first chapter yet.
                         activeIndex = activeChapterIndex(shownChapters, playbackState.positionMs),
                         onToggle = { chaptersExpanded = !chaptersExpanded },
-                        onSeek = { seconds -> playback.seekTo(seconds * 1000) },
+                        onSeek = { seconds -> userSeek(seconds * 1000) },
                     )
                 }
             }
@@ -1202,7 +1367,7 @@ fun PlayerScreen(
                         log = log,
                         expanded = sponsorExpanded,
                         onToggle = { sponsorExpanded = !sponsorExpanded },
-                        onSeek = { ms -> playback.seekTo(ms) },
+                        onSeek = { ms -> userSeek(ms) },
                     )
                 }
             }
@@ -1215,7 +1380,7 @@ fun PlayerScreen(
                         description = descriptionBody,
                         expanded = descriptionExpanded,
                         onToggle = { descriptionExpanded = !descriptionExpanded },
-                        onSeek = { seconds -> playback.seekTo(seconds * 1000) },
+                        onSeek = { seconds -> userSeek(seconds * 1000) },
                     )
                 }
             }
@@ -1302,12 +1467,25 @@ fun PlayerScreen(
             if (endEnabled && atEnd) {
                 item(key = "related") {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        Text(
-                            text = "Up next",
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(bottom = 8.dp),
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "Up next",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.weight(1f),
+                            )
+                            // Another page from the same source, on demand: the automatic fetch is
+                            // one call per video and the end screen is where a second opinion is
+                            // wanted, not on the way there.
+                            IconButton(onClick = { relatedRound++ }) {
+                                Icon(
+                                    imageVector = Icons.Default.Refresh,
+                                    contentDescription = "Refresh up next",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
+                        }
                         relatedToShow.forEach { next ->
                             com.presaince.parallax.ui.component.VideoRow(
                                 video = next,
@@ -1838,6 +2016,8 @@ private data class Hud(
     val secondary: String? = null,
     val fraction: Float? = null,
     val brightness: Boolean = false,
+    /** The other level, shown small on the opposite side while a vertical drag is held. */
+    val otherFraction: Float? = null,
     /** Scrub progress through the video, 0..1, drawn as a bar inside the pill. */
     val progress: Float? = null,
     /** Finger position as a fraction of the picture. The readout follows it. */
@@ -1888,7 +2068,7 @@ private fun SeekUndoChip(undo: SeekUndo, onUndo: () -> Unit, modifier: Modifier 
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            text = "Jumped to ${formatDuration(undo.afterMs / 1000)}",
+            text = com.presaince.parallax.core.seekUndoLabel(undo.beforeMs, undo.afterMs),
             style = MaterialTheme.typography.labelMedium,
             color = Color.White,
         )
@@ -1952,14 +2132,66 @@ private fun HudPill(hud: Hud) {
                     modifier = Modifier.align(Alignment.TopCenter).offset(y = y),
                 )
             }
-            level != null -> Box(Modifier.fillMaxSize(), Alignment.Center) {
-                LevelPill(level = level) {
-                    Icon(
-                        painter = painterResource(if (hud.brightness) R.drawable.ic_sun else R.drawable.ic_volume),
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(22.dp),
-                    )
+            level != null -> {
+                val anchorX = (hud.anchor?.x ?: 0.5f).coerceIn(0f, 1f)
+                val activeWidth = 40.dp
+                val partnerWidth = 28.dp
+                val gap = 8.dp
+                val pairHeight = 96.dp
+                val activeLeft = maxWidth * anchorX - activeWidth / 2
+                val rowLeft = if (hud.brightness) {
+                    activeLeft - partnerWidth - gap
+                } else {
+                    activeLeft
+                }
+                val x = rowLeft.coerceIn(
+                    8.dp,
+                    (maxWidth - activeWidth - partnerWidth - gap - 8.dp).coerceAtLeast(8.dp),
+                )
+                val y = (maxHeight * anchorY - pairHeight).coerceIn(
+                    8.dp,
+                    (maxHeight - pairHeight - 8.dp).coerceAtLeast(8.dp),
+                )
+                Row(
+                    modifier = Modifier.offset(x = x, y = y).height(pairHeight),
+                    horizontalArrangement = Arrangement.spacedBy(gap),
+                    verticalAlignment = Alignment.Bottom,
+                ) {
+                    val volumeActive = !hud.brightness
+                    LevelPill(
+                        level = if (volumeActive) level else hud.otherFraction ?: 0f,
+                        modifier = if (volumeActive) {
+                            Modifier
+                        } else {
+                            Modifier.graphicsLayer { alpha = 0.5f }
+                        },
+                        width = if (volumeActive) activeWidth else partnerWidth,
+                        height = if (volumeActive) pairHeight else 64.dp,
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_volume),
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(if (volumeActive) 22.dp else 16.dp),
+                        )
+                    }
+                    LevelPill(
+                        level = if (hud.brightness) level else hud.otherFraction ?: 0f,
+                        modifier = if (hud.brightness) {
+                            Modifier
+                        } else {
+                            Modifier.graphicsLayer { alpha = 0.5f }
+                        },
+                        width = if (hud.brightness) activeWidth else partnerWidth,
+                        height = if (hud.brightness) pairHeight else 64.dp,
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_sun),
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(if (hud.brightness) 22.dp else 16.dp),
+                        )
+                    }
                 }
             }
             hud.leftEdge -> {
@@ -2456,6 +2688,35 @@ private fun ShareSheet(
             } else {
                 "$watchUrl&t=${start.toLong()}s"
             }
+            // Small seeks by name. Dragging a handle on a two-hour video cannot land on a second,
+            // so the sheet carries the step a video reviewer actually uses, and each one moves the
+            // picture as well as the start, because a clip boundary you cannot watch is a guess.
+            fun nudge(by: Float) {
+                val at = (start + by).coerceIn(0f, (total - 1).toFloat())
+                start = if (end - start > 1f) at.coerceAtMost(end - 1f) else at
+                onSeek(start.toLong())
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                listOf(-30f, -10f, -2f, 2f, 10f, 30f).forEach { step ->
+                    TextButton(
+                        onClick = { nudge(step) },
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                            horizontal = 6.dp,
+                            vertical = 4.dp,
+                        ),
+                    ) {
+                        Text(
+                            text = formatSeekDelta((step * 1000).toLong()),
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                    }
+                }
+            }
+
             Row(
                 modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -2541,11 +2802,16 @@ private fun SpeedPanel(
                 // reaching across the screen.
                 .offset(x = offset, y = offsetYdp)
                 .wrapContentWidth()
-                // Swallow taps meant for the panel itself so the scrim does not close it.
+                // Swallow taps meant for the panel itself. A tap on the pill is the way home: it
+                // resets to 1.0x and closes, which is the one speed everybody wants back and the
+                // only one a drag makes awkward to reach.
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
-                    onClick = {},
+                    onClick = {
+                        onSpeed(1f)
+                        onDismiss()
+                    },
                 )
                 .pointerInput(Unit) {
                     detectVerticalDragGestures(
@@ -2568,7 +2834,7 @@ private fun SpeedPanel(
                             onSpeed(preview)
                             onDismiss()
                         },
-                        onDragCancel = { preview = speed },
+                        onDragCancel = { preview = speed; onDismiss() },
                     )
                 },
         ) {
@@ -2580,11 +2846,22 @@ private fun SpeedPanel(
                 height = 96.dp,
                 fillColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
             ) {
-                Text(
-                    text = "%.1fx".format(preview),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = Color.White,
-                )
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = "%.1fx".format(preview),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = Color.White,
+                    )
+                    // Only while there is something to reset: a hint under 1.0x would be a
+                    // control that does nothing.
+                    if (kotlin.math.abs(preview - 1f) > 0.001f) {
+                        Text(
+                            text = "tap for 1.0x",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.White.copy(alpha = 0.72f),
+                        )
+                    }
+                }
             }
         }
     }
@@ -2662,14 +2939,8 @@ private fun brightnessFraction(activity: Activity?): Float {
 }
 
 /** "-12s" / "+12s": the size of the jump is the headline, so the sign stays visible. */
-private fun formatSeekDelta(deltaMs: Long): String {
-    val seconds = deltaMs / 1000
-    return when {
-        seconds > 0 -> "+${seconds}s"
-        seconds < 0 -> "\u2212${-seconds}s"
-        else -> "0s"
-    }
-}
+private fun formatSeekDelta(deltaMs: Long): String =
+    com.presaince.parallax.core.seekDelta(deltaMs / 1000)
 
 /** The scrub pill sits above the finger, or below it when the finger is too near the top. */
 private fun scrubProgress(positionMs: Long, durationMs: Long): Float =

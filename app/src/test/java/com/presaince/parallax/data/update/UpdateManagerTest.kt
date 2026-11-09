@@ -7,12 +7,45 @@ package com.presaince.parallax.data.update
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 
 /**
  * The update path can install an APK, so every predicate that gates it is tested here. These are
  * pure functions on purpose: the network half is exercised by hand, the decisions are not.
  */
 class UpdateManagerTest {
+
+    @Test
+    fun `a cached archive is reused only when its digest is the published one`() {
+        val file = File.createTempFile("app-update", ".apk")
+        try {
+            file.writeBytes(ByteArray(1_100_000) { (it % 251).toByte() })
+            val sha = UpdateManager.fileSha256(file)
+            assertTrue(UpdateManager.cacheReusable(file, sha))
+            assertFalse(UpdateManager.cacheReusable(file, "0".repeat(64)))
+            assertFalse(UpdateManager.cacheReusable(file, null))
+        } finally {
+            file.delete()
+        }
+    }
+
+    @Test
+    fun `an archive too small to be an APK is never reused`() {
+        val file = File.createTempFile("app-update", ".apk")
+        try {
+            file.writeBytes(ByteArray(1024))
+            val sha = UpdateManager.fileSha256(file)
+            assertFalse(UpdateManager.cacheReusable(file, sha))
+        } finally {
+            file.delete()
+        }
+    }
+
+    @Test
+    fun `a missing cached archive is not reused`() {
+        val missing = File("does-not-exist-${System.nanoTime()}.apk")
+        assertFalse(UpdateManager.cacheReusable(missing, "0".repeat(64)))
+    }
 
     @Test
     fun `versionNameGreater compares patch bumps`() {

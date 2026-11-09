@@ -15,6 +15,21 @@ fun formatDuration(seconds: Long): String {
 
 private fun Long.pad2(): String = if (this < 10) "0$this" else toString()
 
+/**
+ * The size of a seek, then where it landed: "+12s to 4:09". The seconds are the part a person
+ * remembers ("I jumped half a minute"), the position is the part they check. The minus is the
+ * typographic one, so the sign cannot be mistaken for a hyphen between two times.
+ */
+fun seekDelta(seconds: Long): String = when {
+    seconds > 0 -> "+${seconds}s"
+    seconds < 0 -> "\u2212${-seconds}s"
+    else -> "0s"
+}
+
+/** The undo chip's sentence, built from the two positions the seek moved between. */
+fun seekUndoLabel(beforeMs: Long, afterMs: Long): String =
+    "Seeked ${seekDelta((afterMs - beforeMs) / 1000)} to ${formatDuration(afterMs / 1000)}"
+
 /** Singular and plural in one place. "1 replies" is not an output the app may produce. */
 fun plural(count: Long, singular: String, plural: String = defaultPlural(singular)): String =
     if (count == 1L) "$count $singular" else "$count $plural"

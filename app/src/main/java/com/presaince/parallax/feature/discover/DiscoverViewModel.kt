@@ -15,6 +15,7 @@ import com.presaince.parallax.data.discover.WalkStep
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -39,12 +40,14 @@ class DiscoverViewModel(
     init {
         viewModelScope.launch {
             val problems = recipes.ensureBuiltIns()
-            val loaded = recipes.all()
-            _state.update {
-                it.copy(
-                    recipes = loaded,
-                    message = problems.firstOrNull(),
-                )
+            if (problems.isNotEmpty()) {
+                _state.update { it.copy(message = problems.first()) }
+            }
+        }
+        // The chips follow the table: a backup or a delete elsewhere is not a stale list here.
+        viewModelScope.launch {
+            recipes.observeRecipes().collect { loaded ->
+                _state.update { it.copy(recipes = loaded) }
             }
         }
     }
@@ -133,8 +136,28 @@ class DiscoverViewModel(
         _state.update { it.copy(message = null) }
     }
 
+    /** A note the screen owns: a file that could not be read, before any recipe is touched. */
     fun notify(message: String) {
         _state.update { it.copy(message = message) }
+    }
+
+    /** Only the reader's own recipes reach this: the query refuses a built-in by source. */
+    fun delete(name: String) {
+        viewModelScope.launch {
+            recipes.delete(name)
+            _state.update {
+                if (it.selected == name) {
+                    it.copy(
+                        selected = null,
+                        recipe = null,
+                        picks = emptyList(),
+                        message = "Removed $name",
+                    )
+                } else {
+                    it.copy(message = "Removed $name")
+                }
+            }
+        }
     }
 
     private companion object {

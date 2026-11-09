@@ -19,6 +19,9 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.SideEffect
 import androidx.core.view.WindowCompat
+import com.presaince.parallax.data.source.shareClipFrom
+import com.presaince.parallax.data.source.videoIdFromUrl
+import com.presaince.parallax.feature.onboarding.isOnboardingDone
 import com.presaince.parallax.playback.PlaybackService
 import com.presaince.parallax.ui.nav.ParallaxNav
 import com.presaince.parallax.ui.theme.ParallaxTheme
@@ -38,10 +41,26 @@ class MainActivity : ComponentActivity() {
 
     /** A tap on the media notification asks for the playing video's full player. */
     private fun handleIntent(intent: Intent?) {
-        if (intent?.getBooleanExtra(PlaybackService.EXTRA_OPEN_PLAYER, false) != true) return
-        // Cleared, so a rotation does not ask again.
-        intent.removeExtra(PlaybackService.EXTRA_OPEN_PLAYER)
-        (application as ParallaxApp).container.playback.requestOpenPlayer()
+        if (intent == null) return
+        if (intent.getBooleanExtra(PlaybackService.EXTRA_OPEN_PLAYER, false) == true) {
+            // Cleared, so a rotation does not ask again.
+            intent.removeExtra(PlaybackService.EXTRA_OPEN_PLAYER)
+            (application as ParallaxApp).container.playback.requestOpenPlayer()
+            return
+        }
+        // The OS share sheet and YouTube links arrive here: the text is a watch URL
+        // or a clip pair, the player opens it; anything else is ignored, feed is fallthrough.
+        val text = when (intent.action) {
+            Intent.ACTION_VIEW -> intent.dataString
+            Intent.ACTION_SEND -> intent.getStringExtra(Intent.EXTRA_TEXT)
+            else -> null
+        }
+        val id = text?.let { videoIdFromUrl(it) }
+        if (id != null && text != null) {
+            val container = (application as ParallaxApp).container
+            val clip = shareClipFrom(text)
+            container.playback.requestOpenVideo(id, clip.startMs, clip.endMs)
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -64,9 +83,10 @@ class MainActivity : ComponentActivity() {
                 SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT)
             },
         )
-        askForNotificationPermission()
-
         val container = (application as ParallaxApp).container
+        // A first-run wizard asks on its last page, with context. Asking here would put a system
+        // dialog over the welcome screen, which is the worst first frame the app can produce.
+        if (isOnboardingDone(container.preferences)) askForNotificationPermission()
         handleIntent(intent)
         setContent {
             val theme = rememberThemeController()

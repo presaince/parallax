@@ -10,6 +10,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -26,17 +27,23 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -44,14 +51,15 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -63,18 +71,24 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import com.presaince.parallax.R
 import com.presaince.parallax.data.discover.DiscoverEngine
 import com.presaince.parallax.data.discover.Recipe
 import com.presaince.parallax.data.discover.RecipeRepository
+import com.presaince.parallax.data.discover.RecipeSource
+import com.presaince.parallax.data.discover.describe
 import com.presaince.parallax.data.model.VideoSummary
 import com.presaince.parallax.ui.component.CardStyle
 import com.presaince.parallax.ui.component.SineRiver
 import com.presaince.parallax.ui.component.ScrollToTopButton
 import com.presaince.parallax.ui.component.VideoRow
 import com.presaince.parallax.ui.component.watchCounts
+import com.presaince.parallax.ui.theme.accentTextColour
 import com.presaince.parallax.ui.theme.faded
 import com.presaince.parallax.ui.theme.parallaxFilterChipColors
+import kotlinx.coroutines.launch
 import kotlin.math.PI
 import kotlin.math.sin
 
@@ -106,6 +120,26 @@ fun DiscoverScreen(
     }
     // Bored's own setting: subscribed channels are the feed's job, not the walk's.
     var hideSubs by remember { mutableStateOf(prefs.getBoolean("bored_hide_subscribed", true)) }
+    var managing by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    val recipeImporter = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val text = runCatching {
+                context.contentResolver.openInputStream(uri)?.use { stream ->
+                    java.io.InputStreamReader(stream).readText()
+                }
+            }.getOrNull()
+            if (text.isNullOrBlank()) {
+                viewModel.notify("Could not read that file")
+            } else {
+                viewModel.import(text)
+            }
+        }
+    }
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -123,6 +157,30 @@ fun DiscoverScreen(
                     )
                 }
             }
+            // The chips are the fast path; this is where a recipe can be read, added or removed.
+            IconButton(onClick = { managing = true }) {
+                Icon(
+                    imageVector = Icons.Default.MoreVert,
+                    contentDescription = "Manage recipes",
+                    tint = accentTextColour(),
+                )
+            }
+        }
+
+        if (managing) {
+            RecipeSheet(
+                recipes = state.recipes,
+                onOpen = { name ->
+                    managing = false
+                    viewModel.selectAndWalk(name)
+                },
+                onDelete = viewModel::delete,
+                onAdd = {
+                    managing = false
+                    recipeImporter.launch(arrayOf("application/json", "*/*"))
+                },
+                onDismiss = { managing = false },
+            )
         }
 
         state.message?.let { message ->
@@ -151,26 +209,55 @@ fun DiscoverScreen(
         }
 
         if (state.picks.isEmpty()) {
-            // The waiting screen is the river, at the size the picture would have been.
+            // The waiting screen is the river, at the size the picture would have been. Before
+            // anything has run it is also the explanation: "Choose a mode" over four names nobody
+            // has met yet is not a choice, so each mode arrives with the sentence that says what
+            // it will do.
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 SineRiver(
                     modifier = Modifier.fillMaxWidth().height(180.dp),
                     interactive = true,
                 )
-                if (state.walking) {
-                    Text(
-                        text = "Finding something…",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 220.dp),
-                    )
-                } else {
-                    Text(
-                        text = "Choose a mode",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 220.dp),
-                    )
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 220.dp, start = 8.dp, end = 8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    if (state.walking) {
+                        Text(
+                            text = "Finding something…",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else {
+                        Text(
+                            text = "Bored picks from your own library. Tap a mode:",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(bottom = 8.dp),
+                        )
+                        state.recipes.take(4).forEach { recipe ->
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .clickable { viewModel.selectAndWalk(recipe.name) }
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                            ) {
+                                Text(
+                                    text = recipe.name,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                )
+                                Text(
+                                    text = describe(recipe),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
                 }
             }
         } else {
@@ -274,7 +361,7 @@ private fun RecipeWhy(
                 )
             }
             Text(
-                text = explain(recipe),
+                text = describe(recipe),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -398,23 +485,105 @@ private fun SwitchSetting(title: String, checked: Boolean, onChange: (Boolean) -
     }
 }
 
-private fun explain(recipe: Recipe): String = buildString {
-    append(
-        when (recipe.seed.seed) {
-            "history" -> "Related to ${recipe.seed.count} videos you watched"
-            "topChannels" -> "Related to ${recipe.seed.count} of your top channels"
-            "random" -> "Related to ${recipe.seed.count} random videos in your library"
-            else -> "Related to your library"
-        },
-    )
-    recipe.filters.minDurationSec?.let { append(" · at least ${it / 60} min") }
-    recipe.filters.maxAgeDays?.let { append(" · newer than $it days") }
-    if ("shorts" in recipe.filters.excludeKeywords) append(" · no Shorts")
-    if ("live" in recipe.filters.excludeKeywords) append(" · no live")
-}
-
 private fun toggleKeyword(current: List<String>, keyword: String, add: Boolean): List<String> =
     if (add) (current + keyword).distinct() else current.filterNot { it == keyword }
+
+/**
+ * The recipe shelf: what each recipe does, which ones are the reader's, and the one place a new
+ * one arrives from. The chips above stay the fast path — this is the shelf behind them, not a
+ * second way to start a walk.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RecipeSheet(
+    recipes: List<Recipe>,
+    onOpen: (String) -> Unit,
+    onDelete: (String) -> Unit,
+    onAdd: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 28.dp),
+        ) {
+            Text(text = "Recipes", style = MaterialTheme.typography.titleLarge)
+            Text(
+                text = "A recipe is a walk through related videos with a few opinions. " +
+                    "Tap one to use it.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
+            )
+            recipes.forEach { recipe ->
+                RecipeShelfRow(recipe = recipe, onOpen = onOpen, onDelete = onDelete)
+            }
+            OutlinedButton(
+                onClick = onAdd,
+                modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+            ) {
+                Text("Add from a file")
+            }
+        }
+    }
+}
+
+/**
+ * One recipe: a letter plate instead of a borrowed icon, the name, and what the walk will do.
+ * Built-ins have no delete control because the assets still ship them; the query refuses them
+ * anyway, so the control is absent rather than present and lying.
+ */
+@Composable
+private fun RecipeShelfRow(
+    recipe: Recipe,
+    onOpen: (String) -> Unit,
+    onDelete: (String) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .clickable { onOpen(recipe.name) }
+            .padding(horizontal = 4.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(44.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = recipe.name.take(1).uppercase(),
+                style = MaterialTheme.typography.titleMedium,
+                color = accentTextColour(),
+            )
+        }
+        Column(modifier = Modifier.weight(1f).padding(start = 12.dp)) {
+            Text(text = recipe.name, style = MaterialTheme.typography.titleSmall)
+            Text(
+                text = describe(recipe),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (recipe.source == RecipeSource.USER) {
+            IconButton(onClick = { onDelete(recipe.name) }) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_delete),
+                    contentDescription = "Delete ${recipe.name}",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
 
 /**
  * The same river as the notes field, at full width: three sine layers around the accent hue,

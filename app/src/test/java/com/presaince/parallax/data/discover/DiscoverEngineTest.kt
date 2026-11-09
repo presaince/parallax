@@ -145,7 +145,7 @@ class DiscoverEngineTest {
         private val progress: List<String> = emptyList(),
     ) : DiscoverStore {
         override suspend fun recentHistory(limit: Int): List<HistoryEntity> =
-            historyIds.map { HistoryEntity(videoId = it, title = it, channelName = "c", watchedAt = 1) }
+            historyIds.map { HistoryEntity(videoId = it, title = it, channelName = "c", openedAt = 1) }
 
         override suspend fun progressIds(): List<String> = progress
 

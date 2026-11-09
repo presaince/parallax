@@ -25,10 +25,16 @@ class ThemeContrastTest {
         val primary: androidx.compose.ui.graphics.Color,
     )
 
-    private fun resolve(accent: Accent, dark: Boolean, level: Float, policy: ContrastPolicy): Resolved {
+    private fun resolve(
+        accent: Accent,
+        dark: Boolean,
+        level: Float,
+        policy: ContrastPolicy,
+        glass: Boolean = true,
+    ): Resolved {
         val base = if (dark) darkScheme(accent) else lightScheme(accent)
-        val scale = auroraScale(accent, dark, solid = false, policy = policy)
-        val surfaces = glassTextSurfaces(accent, dark, solid = false, level = level, scale = scale)
+        val scale = if (glass) auroraScale(accent, dark, solid = false, policy = policy) else 1f
+        val surfaces = textSurfaces(glass, accent, dark, solid = false, level = level, scale = scale)
         val bodyColour = ensureContrast(base.onSurface, surfaces, policy.ratio)
         val secondaryColour = ensureContrast(base.onSurfaceVariant, surfaces, policy.ratio)
         val ink = accentInk(base.primary, surfaces, policy)
@@ -110,6 +116,93 @@ class ThemeContrastTest {
                     )
                 }
             }
+        }
+    }
+
+    @Test
+    fun every_accent_the_shuffle_can_pick_holds_the_policy() {
+        for (accent in accents) {
+            for (dark in modes) {
+                for (policy in listOf(ContrastPolicy.AA, ContrastPolicy.AAA)) {
+                    for (level in listOf(0f, 0.42f, 0.9f, 1f)) {
+                        if (!accentHolds(accent, policy, glass = true, dark, solid = false, level)) continue
+                        val r = resolve(accent, dark, level, policy)
+                        assertTrue(
+                            "${accent.name} dark=$dark ${policy.label} at $level body",
+                            r.body >= policy.ratio,
+                        )
+                        assertTrue(
+                            "${accent.name} dark=$dark ${policy.label} at $level secondary",
+                            r.secondary >= policy.ratio,
+                        )
+                        assertTrue(
+                            "${accent.name} dark=$dark ${policy.label} at $level accent text",
+                            r.ink >= policy.ratio,
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    fun the_shuffle_always_has_somewhere_to_go_at_aa() {
+        for (accent in accents) {
+            for (dark in modes) {
+                val pool = accents.filter {
+                    it.name != accent.name &&
+                        accentHolds(it, ContrastPolicy.AA, glass = true, dark, solid = false, level = 0.42f)
+                }
+                assertTrue("${accent.name} dark=$dark left no accent to roll to", pool.isNotEmpty())
+            }
+        }
+    }
+
+    @Test
+    fun off_lets_the_shuffle_pick_anything() {
+        for (accent in accents) {
+            for (dark in modes) {
+                assertTrue(accentHolds(accent, ContrastPolicy.OFF, glass = true, dark, false, 1f))
+            }
+        }
+    }
+
+    @Test
+    fun light_theme_needs_the_setting_for_a_warm_accent() {
+        // The case that proves the card is not Glass-only: amber as text on a white card is 3.3:1
+        // raw. Off leaves it there; Standard walks it to 4.5.
+        val amber = Accents.byName("h60")
+        val off = resolve(amber, dark = false, level = 0.42f, policy = ContrastPolicy.OFF, glass = false)
+        val standard = resolve(amber, dark = false, level = 0.42f, policy = ContrastPolicy.AA, glass = false)
+        assertTrue("raw amber reads at ${off.ink}", off.ink < 4.5f)
+        assertTrue("walked amber reads at ${standard.ink}", standard.ink >= 4.5f)
+    }
+
+    @Test
+    fun dark_theme_already_clears_the_top_setting() {
+        for (accent in accents) {
+            val off = resolve(accent, dark = true, level = 0.42f, policy = ContrastPolicy.OFF, glass = false)
+            assertTrue("${accent.name} body", off.body >= 7f)
+            assertTrue("${accent.name} secondary", off.secondary >= 7f)
+        }
+    }
+
+    @Test
+    fun the_shuffle_guard_reads_the_theme_it_is_in() {
+        for (accent in accents) {
+            val holdsInLight = accentHolds(
+                accent,
+                ContrastPolicy.AA,
+                glass = false,
+                dark = false,
+                solid = false,
+                level = 0.42f,
+            )
+            if (!holdsInLight) continue
+            val r = resolve(accent, dark = false, level = 0.42f, policy = ContrastPolicy.AA, glass = false)
+            assertTrue("${accent.name} in light", r.ink >= 4.5f)
+            assertTrue("${accent.name} in light", r.body >= 4.5f)
+            assertTrue("${accent.name} in light", r.secondary >= 4.5f)
         }
     }
 

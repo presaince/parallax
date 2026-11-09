@@ -5,16 +5,24 @@
 package com.presaince.parallax.feature.settings
 
 import android.content.ContentResolver
+import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.presaince.parallax.core.AppResult
+import com.presaince.parallax.core.plural
+import com.presaince.parallax.data.backup.Backup
+import com.presaince.parallax.data.backup.BackupFile
+import com.presaince.parallax.data.backup.BackupFiles
+import com.presaince.parallax.data.backup.BackupReader
+import com.presaince.parallax.data.backup.SettingsExport
+import com.presaince.parallax.data.backup.SettingsImport
 import com.presaince.parallax.data.db.ParallaxDb
-import com.presaince.parallax.data.db.SubscriptionEntity
-import com.presaince.parallax.data.importer.ImportResult
+import com.presaince.parallax.data.discover.RecipeRepository
+import com.presaince.parallax.data.discover.RecipeResult
 import com.presaince.parallax.data.importer.ImportedSubscription
-import com.presaince.parallax.data.importer.SubscriptionExporter
-import com.presaince.parallax.data.importer.SubscriptionImporter
-import com.presaince.parallax.data.importer.SubscriptionZip
+import com.presaince.parallax.data.importer.importSubscriptionText
+import com.presaince.parallax.data.importer.readImportText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -22,73 +30,133 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
 
 data class DataUiState(
     val busy: Boolean = false,
     val message: String? = null,
+    /** Bumped when a restore writes preferences, so the live theme can re-read them. */
+    val settingsApplied: Int = 0,
 )
 
-/** Import and export, which belong with the rest of the settings rather than in a header. */
+/**
+ * One import and one export. The file decides what it is: a combined backup, a settings object, a
+ * subscription list from another client, or a single recipe. Four buttons used to ask the reader
+ * to know which of those they were holding.
+ */
 class SettingsViewModel(
     private val db: ParallaxDb,
+    private val context: Context,
     private val resolver: ContentResolver,
+    private val recipes: RecipeRepository,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(DataUiState())
     val state: StateFlow<DataUiState> = _state.asStateFlow()
 
-    fun import(uri: Uri) {
+    fun import(uri: Uri, apiKeyPresent: Boolean) {
         viewModelScope.launch {
             _state.update { it.copy(busy = true, message = null) }
-
-            val text = withContext(Dispatchers.IO) {
-                runCatching {
-                    val bytes = resolver.openInputStream(uri)?.use { it.readBytes() }
-                        ?: return@runCatching null
-                    if (bytes.size > 2 && bytes[0] == 'P'.code.toByte() &&
-                        bytes[1] == 'K'.code.toByte()
-                    ) {
-                        SubscriptionZip.findSubscriptionsJson(bytes)
-                    } else {
-                        bytes.toString(Charsets.UTF_8)
-                    }
-                }.getOrNull()
+            val text = readImportText(resolver, uri)
+            val (message, settingsApplied) = if (text.isNullOrBlank()) {
+                "Could not read that file" to false
+            } else {
+                restore(BackupReader.read(text), apiKeyPresent)
             }
-
-            if (text.isNullOrBlank()) {
-                _state.update { it.copy(busy = false, message = "Could not read that file") }
-                return@launch
-            }
-
-            when (val parsed = SubscriptionImporter.parse(text)) {
-                is ImportResult.Ok -> {
-                    val now = System.currentTimeMillis()
-                    val rows = parsed.subscriptions.map {
-                        SubscriptionEntity(url = it.url, name = it.name, addedAt = now)
-                    }
-                    val inserted = withContext(Dispatchers.IO) {
-                        withContext(Dispatchers.IO) { db.subscriptions().insertAll(rows) }
-                    }
-                    val added = inserted.count { it != -1L }
-                    val skipped = if (parsed.skipped > 0) ", ${parsed.skipped} skipped (no URL)" else ""
-                    _state.update {
-                        it.copy(
-                            busy = false,
-                            message = "${parsed.format}: $added added, ${rows.size - added} already there$skipped",
-                        )
-                    }
-                }
-                is ImportResult.Err -> _state.update {
-                    it.copy(busy = false, message = parsed.message)
-                }
+            _state.update {
+                it.copy(
+                    busy = false,
+                    message = message,
+                    settingsApplied = it.settingsApplied + if (settingsApplied) 1 else 0,
+                )
             }
         }
     }
 
-    /** The subscription list as NewPipe-style JSON, for the export picker to write. */
-    suspend fun exportJson(): String = withContext(Dispatchers.IO) {
-        val subs = db.subscriptions().all().map { ImportedSubscription(url = it.url, name = it.name) }
-        SubscriptionExporter.newPipeJson(subs)
+    /** Write the whole phone to the picked file, then say what actually went in. */
+    fun export(uri: Uri) {
+        viewModelScope.launch {
+            _state.update { it.copy(busy = true, message = null) }
+            val message = withContext(Dispatchers.IO) {
+                runCatching {
+                    val subscriptions = db.subscriptions().all()
+                        .map { ImportedSubscription(url = it.url, name = it.name) }
+                    val settings = SettingsExport.values(context)
+                    val userRecipes = recipes.userJsons()
+                    val json = Backup.json(settings, subscriptions, userRecipes)
+                    val written = resolver.openOutputStream(uri)
+                        ?.use { it.write(json.toByteArray()) } != null
+                    if (written) {
+                        // Offered back on the Data page from the next visit, folder or not.
+                        val name = uri.lastPathSegment?.substringAfterLast('/')
+                            ?: "parallax-backup.json"
+                        BackupFiles.remember(context, uri, name)
+                        Backup.receipt(
+                            subscriptions = subscriptions.size,
+                            settings = SettingsExport.count(settings),
+                            recipes = userRecipes.size,
+                        )
+                    } else {
+                        "Could not write the file"
+                    }
+                }.getOrElse { "Could not write the file" }
+            }
+            _state.update { it.copy(busy = false, message = message) }
+        }
+    }
+
+    private suspend fun restore(file: BackupFile, apiKeyPresent: Boolean): Pair<String, Boolean> =
+        when (file) {
+            is BackupFile.Combined -> combined(file.json, apiKeyPresent)
+            is BackupFile.Settings ->
+                SettingsImport.apply(context, file.json, apiKeyPresent).message to true
+            is BackupFile.Subscriptions -> when (val result = importSubscriptionText(db, file.text)) {
+                is AppResult.Ok -> result.value.message to false
+                is AppResult.Err -> result.message to false
+            }
+            is BackupFile.Recipe -> when (val result = recipes.import(file.json)) {
+                is RecipeResult.Ok -> "Imported ${result.recipe.name}" to false
+                is RecipeResult.Err -> result.problems.take(3).joinToString("; ") to false
+            }
+            is BackupFile.Unknown -> file.reason to false
+        }
+
+    private suspend fun combined(json: JSONObject, apiKeyPresent: Boolean): Pair<String, Boolean> {
+        val parts = mutableListOf<String>()
+        var applied = false
+
+        json.optJSONObject("subscriptions")?.let { subscriptions ->
+            when (val result = importSubscriptionText(db, subscriptions.toString())) {
+                is AppResult.Ok -> parts += result.value.message
+                is AppResult.Err -> parts += result.message
+            }
+        }
+        json.optJSONObject("settings")?.let { settings ->
+            parts += SettingsImport.apply(context, settings, apiKeyPresent).message
+            applied = true
+        }
+        parts += restoreRecipes(json.optJSONArray("recipes"))
+
+        val message = parts.filter { it.isNotBlank() }.joinToString(". ")
+        return (message.ifBlank { "That backup is empty" }) to applied
+    }
+
+    /** Each recipe is validated on its own: one bad file does not cost the other nine. */
+    private suspend fun restoreRecipes(array: JSONArray?): String {
+        if (array == null || array.length() == 0) return ""
+        var imported = 0
+        var firstProblem: String? = null
+        for (index in 0 until array.length()) {
+            when (val result = recipes.import(array.optString(index))) {
+                is RecipeResult.Ok -> imported++
+                is RecipeResult.Err -> if (firstProblem == null) {
+                    firstProblem = result.problems.firstOrNull()
+                }
+            }
+        }
+        val summary = if (imported > 0) "${plural(imported.toLong(), "recipe")} imported" else ""
+        return listOfNotNull(summary, firstProblem).joinToString(". ")
     }
 
     fun dismissMessage() {

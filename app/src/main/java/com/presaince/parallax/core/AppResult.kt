@@ -47,6 +47,20 @@ sealed interface SourceError {
         override val userMessage = "This video is private or has been removed."
     }
 
+    /**
+     * Only the channel's paying members can watch it. YouTube reports this as a generic
+     * unavailability, so the source layer recognises the wording; the screen needs its own state
+     * because retrying can never help.
+     */
+    data object MembersOnly : SourceError {
+        override val userMessage = "This video is only for members of the channel."
+    }
+
+    /** True when trying again cannot change the answer. The UI offers no retry for these. */
+    val permanent: Boolean
+        get() = this is MembersOnly || this is PrivateOrRemoved || this is AgeRestricted ||
+            this is GeoBlocked || this is SignInConfirmRequired
+
     /** YouTube returned SABR only streaming data, with no direct stream URLs. */
     data object SabrOnly : SourceError {
         override val userMessage = "YouTube returned streaming data with no playable stream URLs."

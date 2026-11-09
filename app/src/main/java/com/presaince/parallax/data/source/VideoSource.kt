@@ -45,3 +45,49 @@ fun videoIdFromUrl(url: String): String? {
     )
     return patterns.firstNotNullOfOrNull { it.find(url)?.groupValues?.get(1) }
 }
+
+/** A shared link's clip bounds in milliseconds, when there is a single moment at all. */
+data class ShareClip(val startMs: Long?, val endMs: Long?)
+
+/** Parses `t=`, `start=`/`end=` and the "1:20–2:05" line a shared clip carries. */
+fun shareClipFrom(text: String): ShareClip {
+    val query = text.substringAfter("?", "").substringBefore(" ")
+    fun param(name: String): String? = Regex("""[?&]$name=([^&#\s]+)""").find(text)?.groupValues?.get(1)
+    val seconds = { raw: String -> parseYouTubeTime(raw) }
+    val start = param("start")?.let(seconds) ?: param("t")?.let(seconds)
+    val end = param("end")?.let(seconds)
+    if (start != null && end != null && end > start) return ShareClip(start, end)
+    // The second line of a shared clip: "link&t=80s" then "1:20–2:05" on the next line.
+    val range = Regex("""(\d+(?::\d{1,2}){0,2})\s*[–—-]\s*(\d+(?::\d{1,2}){0,2})""").find(text)
+    if (range != null) {
+        val a = parseColonRange(range.groupValues[1])
+        val b = parseColonRange(range.groupValues[2])
+        if (a != null && b != null && b > a) return ShareClip(a, b)
+    }
+    return ShareClip(start, null)
+}
+
+/** A YouTube time: plain seconds ("90"), "90s", "1m30s" or "45m" in milliseconds. */
+fun parseYouTubeTime(raw: String): Long? {
+    val t = raw.trim().lowercase()
+    if (t.isEmpty()) return null
+    val total = if (t.contains('h') || t.contains('m') || t.contains('s')) {
+        val h = Regex("""(\d+)\s*h""").find(t)?.groupValues?.get(1)?.toLong() ?: 0L
+        val m = Regex("""(\d+)\s*m""").find(t)?.groupValues?.get(1)?.toLong() ?: 0L
+        val s = Regex("""(\d+)\s*s""").find(t)?.groupValues?.get(1)?.toLong() ?: 0L
+        if (h == 0L && m == 0L && s == 0L && !Regex("""\d+""").containsMatchIn(t)) return null
+        (h * 3600 + m * 60 + s) * 1000L
+    } else {
+        t.toLongOrNull()?.times(1000) ?: return null
+    }
+    return total
+}
+
+/** "1:20" or "1:02:30" to milliseconds. */
+private fun parseColonRange(raw: String): Long? {
+    val parts = raw.split(":").map { it.toLongOrNull() }
+    if (parts.any { it == null } || parts.isEmpty()) return null
+    var seconds = 0L
+    for (p in parts) seconds = seconds * 60 + p!!
+    return seconds * 1000L
+}

@@ -7,6 +7,8 @@ package com.presaince.parallax.feature.settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import android.content.Context
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import com.presaince.parallax.ui.component.LevelPill
@@ -40,14 +42,17 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -58,6 +63,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -65,10 +71,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -79,8 +89,10 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -89,12 +101,16 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.presaince.parallax.R
 import com.presaince.parallax.core.AppLog
 import com.presaince.parallax.core.QUALITY_STOPS
+import com.presaince.parallax.core.timeAgo
+import com.presaince.parallax.data.backup.BackupFiles
+import com.presaince.parallax.data.backup.FoundFile
 import com.presaince.parallax.data.auth.PostingManager
 import com.presaince.parallax.data.db.ParallaxDb
 import com.presaince.parallax.data.resync.ResyncSettings
 import com.presaince.parallax.data.resync.ResyncStore
 import com.presaince.parallax.data.source.flag
 import com.presaince.parallax.data.sponsorblock.SponsorCategories
+import com.presaince.parallax.feature.player.gesture.SeekRate
 import com.presaince.parallax.playback.PlaybackController
 import com.presaince.parallax.ui.theme.Accents
 import com.presaince.parallax.ui.theme.ContrastPolicy
@@ -105,9 +121,11 @@ import com.presaince.parallax.ui.theme.ThemeMode
 import com.presaince.parallax.ui.theme.contrastRatio
 import com.presaince.parallax.ui.theme.faded
 import com.presaince.parallax.ui.theme.parallaxFilterChipColors
+import com.presaince.parallax.ui.theme.toHsl
 import com.presaince.parallax.ui.theme.worstContrast
 import com.presaince.parallax.ui.component.CardStyle
 import com.presaince.parallax.ui.component.CardLayout
+import com.presaince.parallax.ui.component.SettingsTile
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.PI
@@ -136,7 +154,7 @@ fun SettingsSectionScreen(
         SettingsSectionId.REGION -> RegionSection(onRegionChange)
         SettingsSectionId.SPONSOR -> SponsorSection(playback)
         SettingsSectionId.ACCOUNTS -> AccountsSection(resyncStore, posting, auth)
-        SettingsSectionId.DATA -> DataSection(db, recipes)
+        SettingsSectionId.DATA -> DataSection(db, recipes, theme, resyncStore)
         SettingsSectionId.DIAGNOSTICS -> DiagnosticsSection(onOpenLogs, log)
         // One About page, not two: the section is the whole thing.
         SettingsSectionId.ABOUT -> com.presaince.parallax.feature.about.AboutScreen()
@@ -212,6 +230,8 @@ private fun AppearanceSection(theme: ThemeController) {
             },
         )
 
+        // Every theme, not just Glass: Light is where a warm accent sits at 2.4:1 as text, and Dark
+        // is where the reader needs to see there is nothing to fix.
         Caption("Contrast")
         ContrastCard(theme)
 
@@ -276,12 +296,9 @@ private fun AppearanceSection(theme: ThemeController) {
 }
 
 /**
- * Contrast as a reading, not a promise. The numbers are measured on the resolved theme: the fill
- * composited over the aurora, the accent text after its shade has been walked, and the label on an
- * accent fill. Change the accent, the theme or the transparency dial and the numbers move with them.
- *
- * It is also the place the theme admits what it did: the ceiling on the transparency dial, and the
- * one thing it never does — replace the accent the reader picked.
+ * Contrast as one number, one sentence and three buttons. It is shown in every theme because Light
+ * is where a warm accent can sit at 2.4:1 as text, and Dark is where the reader needs to know
+ * there is nothing to fix. In Glass the same number covers the composited card, not the ideal token.
  */
 @Composable
 private fun ContrastCard(theme: ThemeController) {
@@ -290,13 +307,33 @@ private fun ContrastCard(theme: ThemeController) {
     val rawInk = LocalAccentInk.current
     val ink = if (rawInk == Color.Unspecified) scheme.primary else rawInk
 
-    val body = worstContrast(scheme.onSurface, surfaces)
-    val secondary = worstContrast(scheme.onSurfaceVariant, surfaces)
-    val accentText = worstContrast(ink, surfaces)
-    val onFill = contrastRatio(scheme.onPrimary, scheme.primary)
-    val worst = minOf(body, secondary, accentText, onFill)
+    val worst = minOf(
+        worstContrast(scheme.onSurface, surfaces),
+        worstContrast(scheme.onSurfaceVariant, surfaces),
+        worstContrast(ink, surfaces),
+        contrastRatio(scheme.onPrimary, scheme.primary),
+    )
     val target = theme.contrast.ratio
     val holding = worst >= target
+    val glass = theme.mode == ThemeMode.GLASS
+    // Whether the policy actually moved anything. When it did not, the card says so in words: an
+    // identical result for three settings looks broken unless the screen names the reason. The
+    // threshold is a perceptual one — a 2%-lightness nudge is not a change anyone can see.
+    val inkMoved = kotlin.math.abs(
+        ink.toHsl().third - scheme.primary.toHsl().third,
+    ) > 0.015f
+    val aurora = remember(theme.accent, theme.dark, theme.solidSurfaces, theme.contrast) {
+        if (glass) {
+            com.presaince.parallax.ui.theme.auroraScale(
+                theme.accent,
+                theme.dark,
+                theme.solidSurfaces,
+                theme.contrast,
+            )
+        } else {
+            1f
+        }
+    }
 
     val shape = RoundedCornerShape(20.dp)
     Column(
@@ -306,130 +343,59 @@ private fun ContrastCard(theme: ThemeController) {
             .clip(shape)
             .border(1.dp, MaterialTheme.colorScheme.surfaceVariant, shape)
             .background(MaterialTheme.colorScheme.surfaceVariant.faded(0.35f))
-            .padding(horizontal = 14.dp, vertical = 12.dp),
+            .padding(horizontal = 14.dp, vertical = 10.dp),
     ) {
+        // Number and control on one line: the reading belongs beside the thing that changes it, and
+        // the card is two lines tall instead of four.
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(modifier = Modifier.weight(1f).padding(end = 10.dp)) {
-                Text(
-                    text = "Text contrast",
-                    style = MaterialTheme.typography.titleSmall,
-                )
-                Text(
-                    text = "Measured on what is behind the text, glass included.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
             Text(
                 text = "%.1f:1".format(worst),
-                style = MaterialTheme.typography.headlineSmall,
+                style = MaterialTheme.typography.titleLarge,
                 color = if (holding) {
                     MaterialTheme.colorScheme.onSurface
                 } else {
                     MaterialTheme.colorScheme.error
                 },
+                modifier = Modifier.weight(1f),
             )
-        }
-
-        ContrastRow("Body text", body, target)
-        ContrastRow("Secondary text", secondary, target)
-        ContrastRow("Accent labels", accentText, target)
-        ContrastRow("On accent fill", onFill, target)
-
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            ContrastPolicy.all.forEach { policy ->
-                PickChip(
-                    label = policy.label,
-                    selected = theme.contrast == policy,
-                    onClick = { theme.chooseContrast(policy) },
-                )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ContrastPolicy.all.forEach { policy ->
+                    PickChip(
+                        label = policy.label,
+                        selected = theme.contrast == policy,
+                        onClick = { theme.chooseContrast(policy) },
+                    )
+                }
             }
         }
 
-        val cap = remember(theme.accent, theme.dark, theme.solidSurfaces, theme.contrast) {
-            com.presaince.parallax.ui.theme.maxGlassLevel(
-                theme.accent,
-                theme.dark,
-                theme.solidSurfaces,
-                theme.contrast,
-            )
-        }
-        val aurora = remember(theme.accent, theme.dark, theme.solidSurfaces, theme.contrast) {
-            com.presaince.parallax.ui.theme.auroraScale(
-                theme.accent,
-                theme.dark,
-                theme.solidSurfaces,
-                theme.contrast,
-            )
-        }
-        val capped = theme.mode == ThemeMode.GLASS && cap < 0.999f &&
-            theme.glassLevel >= cap - 0.001f
-        val dimmed = theme.mode == ThemeMode.GLASS && aurora < 0.999f
-        val glass = theme.mode == ThemeMode.GLASS
-        val did = buildList {
-            if (glass && dimmed) {
-                add("the aurora runs at ${(aurora * 100).roundToInt()}% so text straight on the page passes")
-            }
-            if (glass && capped) {
-                add("the transparency dial stops at ${(cap * 100).roundToInt()}%")
-            }
-        }
+        // One line, no wrapping: every branch is written to fit beside the number's width. What it
+        // says in Dark is the point of the card — that the setting is already satisfied.
         Text(
             text = when {
-                !theme.contrast.enforced ->
-                    "Off keeps every colour exactly as chosen. Some pairs sit below the floor, " +
-                        "which is the point of the setting."
-                did.isNotEmpty() ->
-                    "Your accent stays as picked. Accent text takes a shade of the same hue, " +
-                        "and " + did.joinToString(", and ") + "."
-                else ->
-                    "Your accent stays as picked. Accent text takes a shade of the same hue " +
-                        "until the pair clears ${theme.contrast.target}."
+                !theme.contrast.enforced -> "Off — the palette as drawn."
+                !holding -> "%.1f short of %.1f:1, and nothing here can reach it.".format(
+                    target - worst,
+                    target,
+                )
+                glass && aurora < 0.999f -> "Glow at %d%% keeps the page readable.".format(
+                    (aurora * 100).roundToInt(),
+                )
+                inkMoved -> "Accent labels use a darker shade of the same hue."
+                else -> "Nothing to change — %s already passes %.1f:1.".format(
+                    when {
+                        glass -> "glass"
+                        theme.dark -> "Dark"
+                        else -> "Light"
+                    },
+                    target,
+                )
             },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 10.dp),
-        )
-    }
-}
-
-/** One measured pair: the label, the number, and whether it clears the chosen floor. */
-@Composable
-private fun ContrastRow(label: String, ratio: Float, target: Float) {
-    val holding = ratio >= target
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            modifier = Modifier
-                .padding(end = 8.dp)
-                .size(6.dp)
-                .clip(CircleShape)
-                .background(
-                    if (holding) {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    } else {
-                        MaterialTheme.colorScheme.error
-                    },
-                ),
-        )
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodySmall,
-            modifier = Modifier.weight(1f),
-        )
-        Text(
-            text = "%.1f:1".format(ratio),
-            style = MaterialTheme.typography.labelMedium,
-            color = if (holding) {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            } else {
-                MaterialTheme.colorScheme.error
-            },
+            maxLines = 1,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            modifier = Modifier.padding(top = 2.dp),
         )
     }
 }
@@ -827,7 +793,7 @@ private fun FactButton(
  * the preview follows the theme and the accent, and the play mark says what it is.
  */
 @Composable
-private fun PreviewCard(style: CardStyle) {
+internal fun PreviewCard(style: CardStyle) {
     val meta = buildList {
         if (style.channel) add("Channel name")
         if (style.age) add("3h ago")
@@ -1195,7 +1161,11 @@ private fun ThemePicker(theme: ThemeController) {
 }
 
 @Composable
-private fun AccentGrid(theme: ThemeController) {
+internal fun AccentGrid(theme: ThemeController) {
+    val context = LocalContext.current
+    // The phone's own colour, read once per composition: a dot of the actual primary, so the
+    // choice shows what it will do rather than describing it.
+    val system = remember(context) { Accents.system(context) }
     val rows = Accents.all.chunked(6)
     Column(modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
         rows.forEach { row ->
@@ -1207,7 +1177,19 @@ private fun AccentGrid(theme: ThemeController) {
                     val selected = accent.name == theme.accent.name
                     val index = Accents.all.indexOf(accent) + 1
                     Box(
-                        modifier = Modifier.weight(1f).height(44.dp),
+                        // The whole cell is the target, not the 38 dp swatch: a colour is a
+                        // 48 dp touch target even when the dot inside it is smaller.
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp)
+                            .clickable { theme.chooseAccent(accent) }
+                            .semantics {
+                                contentDescription = if (selected) {
+                                    "Accent $index, selected"
+                                } else {
+                                    "Accent $index"
+                                }
+                            },
                         contentAlignment = Alignment.Center,
                     ) {
                         Box(
@@ -1223,18 +1205,60 @@ private fun AccentGrid(theme: ThemeController) {
                                         MaterialTheme.colorScheme.surfaceVariant
                                     },
                                     shape = CircleShape,
-                                )
-                                .clickable { theme.chooseAccent(accent) }
-                                .semantics {
-                                    contentDescription = if (selected) {
-                                        "Accent $index, selected"
-                                    } else {
-                                        "Accent $index"
-                                    }
-                                },
+                                ),
                         )
                     }
                 }
+            }
+        }
+        // Not a nineteenth dot: the wheel is a grid of hues, and this is not one of them — it is
+        // the phone's palette, which can be any hue and moves with the wallpaper. Its own row,
+        // with the real primary as the dot, keeps that difference visible.
+        val systemSelected = theme.accent.name == Accents.SYSTEM
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 2.dp)
+                .height(48.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .clickable { theme.chooseAccent(system) }
+                .semantics {
+                    contentDescription = if (systemSelected) {
+                        "System colour, selected"
+                    } else {
+                        "System colour"
+                    }
+                },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(26.dp)
+                    .clip(CircleShape)
+                    .background(system.darkPrimary)
+                    .border(
+                        width = if (systemSelected) 3.dp else 1.dp,
+                        color = if (systemSelected) {
+                            MaterialTheme.colorScheme.onBackground
+                        } else {
+                            MaterialTheme.colorScheme.surfaceVariant
+                        },
+                        shape = CircleShape,
+                    ),
+            )
+            Spacer(Modifier.width(12.dp))
+            Text(
+                text = "System colour",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onBackground,
+            )
+            if (systemSelected) {
+                Spacer(Modifier.weight(1f))
+                Icon(
+                    imageVector = Icons.Default.Check,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                )
             }
         }
     }
@@ -1405,13 +1429,13 @@ private fun PlaybackSection(playback: PlaybackController) {
             }
         }
 
-        // When a play becomes a "watch" in history. 30 seconds is the industry default
-        // (YouTube counts a view at 30s, or on completion for shorter videos); the chips
-        // below let it be shortened, lengthened, or expressed as a share of the video.
+        // How much playing counts an open as a watch. Opens enter History at once;
+        // this is only when the same open is also stamped watched.
         Caption("Count a watch after")
         Text(
-            text = "How much of a video has to play before it is counted in history. " +
-                "30 seconds is the usual default; shorter values count quick opens too.",
+            text = "History records every open at once. This only decides when an open is " +
+                "also counted as a watch. 30 seconds is the usual default; shorter values " +
+                "count quick opens too.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -1820,153 +1844,185 @@ private fun PostingSection(posting: PostingManager, auth: com.presaince.parallax
     com.presaince.parallax.feature.posting.PostingScreen(manager = posting, auth = auth)
 }
 
+/**
+ * One export, one import, and the files this app can see. The import decides what a file is from
+ * its content; the reader only has to point at something.
+ */
 @Composable
 private fun DataSection(
     db: ParallaxDb,
     recipes: com.presaince.parallax.data.discover.RecipeRepository,
+    theme: ThemeController,
+    resyncStore: ResyncStore,
 ) {
     val context = LocalContext.current
     val viewModel: SettingsViewModel = viewModel(
         factory = viewModelFactory {
-            initializer { SettingsViewModel(db, context.contentResolver) }
+            initializer {
+                SettingsViewModel(db, context.applicationContext, context.contentResolver, recipes)
+            }
         },
     )
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val scope = rememberCoroutineScope()
-    var recipeMessage by remember { mutableStateOf<String?>(null) }
-    var dataMessage by remember { mutableStateOf<String?>(null) }
+    val apiKeyPresent = remember { resyncStore.load().apiKey.isNotBlank() }
+    var found by remember { mutableStateOf<List<FoundFile>>(emptyList()) }
+    var refresh by remember { mutableIntStateOf(0) }
 
-    val recipeImporter = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument(),
+    val exporter = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json"),
     ) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        val text = runCatching {
-            context.contentResolver.openInputStream(uri)?.use { stream ->
-                java.io.InputStreamReader(stream).readText()
-            }
-        }.getOrNull()
-        if (text.isNullOrBlank()) {
-            recipeMessage = "Could not read that file"
-        } else {
-            scope.launch {
-                recipeMessage = when (val result = recipes.import(text)) {
-                    is com.presaince.parallax.data.discover.RecipeResult.Ok ->
-                        "Imported ${result.recipe.name}"
-                    is com.presaince.parallax.data.discover.RecipeResult.Err ->
-                        result.problems.take(3).joinToString("; ")
-                }
-            }
+        if (uri != null) {
+            viewModel.export(uri)
+            refresh++
         }
     }
 
-    val settingsExporter = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("application/json"),
-    ) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        val json = com.presaince.parallax.data.backup.SettingsExport.json(context)
-        val result = runCatching {
-            context.contentResolver.openOutputStream(uri)?.use { it.write(json.toByteArray()) }
-        }
-        dataMessage = if (result.isSuccess) "Settings exported" else "Could not write the file"
-    }
-    val subscriptionsImporter = rememberLauncherForActivityResult(
+    val importer = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
-    ) { uri -> uri?.let(viewModel::import) }
-    val subscriptionsExporter = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("application/json"),
     ) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        scope.launch {
-            val json = viewModel.exportJson()
-            val result = runCatching {
-                context.contentResolver.openOutputStream(uri)?.use { it.write(json.toByteArray()) }
-            }
-            dataMessage = if (result.isSuccess) "Subscriptions exported" else "Could not write the file"
+        if (uri != null) viewModel.import(uri, apiKeyPresent)
+    }
+
+    val folderPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree(),
+    ) { uri ->
+        if (uri != null) {
+            BackupFiles.rememberFolder(context, uri)
+            refresh++
         }
+    }
+
+    // A restore writes preferences under the theme controller; this is the one place that tells it.
+    LaunchedEffect(state.settingsApplied) {
+        if (state.settingsApplied > 0) theme.reload()
+    }
+    // A folder listing is a disk walk, so it never runs on the main thread. The message is a
+    // refresh key: an import or an export can add a file to the list without a second tap.
+    LaunchedEffect(refresh, state.message) {
+        found = BackupFiles.load(context)
     }
 
     Page {
-        Caption("Subscriptions")
-        // One card for subscriptions, two buttons inside it: the card is the object, the flows
-        // are the actions on it.
-        Surface(
-            color = MaterialTheme.colorScheme.surfaceVariant.faded(0.30f),
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        Caption("One file")
+        Text(
+            text = "A backup carries subscriptions, appearance, playback and your Bored recipes. " +
+                "Keys and tokens never leave the device.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
-                ValueRow(
-                    title = "Import subscriptions",
-                    value = "NewPipe zip or JSON",
-                    summary = "Also LibreTube JSON and a Google Takeout CSV.",
-                    onClick = { subscriptionsImporter.launch(arrayOf("*/*")) },
-                )
-                ValueRow(
-                    title = "Export subscriptions",
-                    value = "JSON",
-                    summary = "NewPipe-style, readable by the clients this imports from.",
-                    onClick = { subscriptionsExporter.launch("parallax-subscriptions.json") },
-                )
-            }
-        }
-        Caption("Settings and recipes")
-        Surface(
-            color = MaterialTheme.colorScheme.surfaceVariant.faded(0.30f),
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        ) {
-            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
-                ValueRow(
-                    title = "Export settings",
-                    value = "JSON",
-                    summary = "Theme, accent, SponsorBlock, Resync endpoint and search history. " +
-                        "Keys are never exported.",
-                    onClick = { settingsExporter.launch("parallax-settings.json") },
-                )
-                ValueRow(
-                    title = "Import a Bored recipe",
-                    value = "JSON",
-                    summary = "A recipe in Bored's own format, added to the recipe row there.",
-                    onClick = { recipeImporter.launch(arrayOf("application/json", "*/*")) },
-                )
-            }
-        }
-        recipeMessage?.let { message ->
-            Text(
-                text = message,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.secondary,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { recipeMessage = null }
-                    .padding(vertical = 8.dp),
+            SettingsTile(
+                icon = R.drawable.ic_upload,
+                title = "Export",
+                onClick = { exporter.launch("parallax-backup.json") },
+                modifier = Modifier.weight(1f),
+            )
+            SettingsTile(
+                icon = R.drawable.ic_download,
+                title = "Import",
+                onClick = { importer.launch(arrayOf("*/*")) },
+                modifier = Modifier.weight(1f),
             )
         }
-        dataMessage?.let { message ->
-            Text(
-                text = message,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.secondary,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { dataMessage = null }
-                    .padding(vertical = 8.dp),
+        Text(
+            text = "Import reads a Parallax backup, a NewPipe zip or JSON, a LibreTube JSON, a " +
+                "Takeout CSV, or one Bored recipe. A settings file works on its own too.",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 10.dp),
+        )
+        if (state.busy) {
+            LinearProgressIndicator(
+                modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
             )
         }
         state.message?.let { message ->
+            RestoreNote(message = message, onDismiss = viewModel::dismissMessage)
+        }
+
+        Caption("Found")
+        if (found.isEmpty()) {
             Text(
-                text = message,
+                text = "No files found yet. Export a backup, or look in a folder.",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.secondary,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable(onClick = viewModel::dismissMessage)
-                    .padding(vertical = 8.dp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
+            found.forEach { file ->
+                FoundRow(file = file) { viewModel.import(file.uri, apiKeyPresent) }
+            }
+        }
+        OutlinedButton(
+            onClick = { folderPicker.launch(null) },
+            modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+        ) {
+            Text(
+                if (BackupFiles.folder(context) == null) "Look in a folder" else "Change folder",
             )
         }
-        if (state.busy) {
-            CircularProgressIndicator(modifier = Modifier.padding(8.dp))
+    }
+}
+
+/** One file the page can see: its name, where it came from, and one tap to import it. */
+@Composable
+private fun FoundRow(file: FoundFile, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            painter = painterResource(R.drawable.ic_data),
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(18.dp),
+        )
+        Column(modifier = Modifier.weight(1f).padding(start = 12.dp)) {
+            Text(
+                text = file.name,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = if (!file.inFolder) {
+                    "Exported by Parallax"
+                } else if (file.modified > 0) {
+                    "In the folder · ${timeAgo(file.modified)}"
+                } else {
+                    "In the folder"
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
         }
+    }
+}
+
+/** The result of a restore, in a card the reader can dismiss: it is a receipt, not a dialog. */
+@Composable
+private fun RestoreNote(message: String, onDismiss: () -> Unit) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.faded(0.30f),
+        shape = RoundedCornerShape(14.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 12.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .clickable(onClick = onDismiss),
+    ) {
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.padding(14.dp),
+        )
     }
 }
 
@@ -2147,118 +2203,441 @@ private fun RegionSection(onRegionChange: (List<String>) -> Unit) {
             modifier = Modifier.padding(bottom = 8.dp),
         )
         Text(
-            text = if (chosen.size >= com.presaince.parallax.data.source.MAX_CONTENT_REGIONS) {
-                "Three selected. Tap one off to choose another."
-            } else {
-                "${chosen.size} selected"
+            text = when {
+                com.presaince.parallax.data.source.SYSTEM_REGION in chosen ->
+                    "System. YouTube answers for the phone's own country."
+                chosen.size >= com.presaince.parallax.data.source.MAX_CONTENT_REGIONS ->
+                    "Three selected. Tap one off to choose another."
+                else -> "${chosen.size} selected"
             },
             style = MaterialTheme.typography.labelMedium,
             color = tileInk(),
             modifier = Modifier.padding(bottom = 6.dp),
         )
-        // Three cards across: a flag stretched full-width reads as a flag stretched, and the
-        // long list of countries is the shortest path to a card grid.
-        com.presaince.parallax.data.source.contentRegions
-            .sortedBy { it.name.lowercase() }
-            .chunked(3)
-            .forEach { chunk ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    chunk.forEach { region ->
-                        val index = chosen.indexOf(region.code)
-                        val selected = index >= 0
-                        val main = index == 0
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(vertical = 3.dp)
-                                .height(58.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .then(
-                                    if (selected) {
-                                        Modifier.border(
-                                            if (main) 2.dp else 1.dp,
-                                            MaterialTheme.colorScheme.primary,
-                                            RoundedCornerShape(10.dp),
-                                        )
-                                    } else {
-                                        Modifier
-                                    },
-                                )
-                                .clickable {
-                                    // One tap selects, one tap removes. The last one cannot be
-                                    // removed: a search with no country has no default to fall
-                                    // back to.
-                                    val next = when {
-                                        selected -> chosen.filterNot { it == region.code }
-                                        chosen.size < com.presaince.parallax.data.source.MAX_CONTENT_REGIONS ->
-                                            chosen + region.code
-                                        else -> chosen
-                                    }
-                                    if (next.isNotEmpty() && next != chosen) {
-                                        chosen = next
-                                        onRegionChange(next)
-                                    }
-                                },
-                            contentAlignment = Alignment.CenterStart,
-                        ) {
-                            com.presaince.parallax.ui.component.FlagBackground(
-                                code = region.code,
-                                modifier = Modifier.matchParentSize(),
-                                alpha = if (selected) 0.62f else 0.38f,
-                            )
-                            Box(
-                                modifier = Modifier
-                                    .matchParentSize()
-                                    .background(
-                                        Brush.horizontalGradient(
-                                            listOf(
-                                                MaterialTheme.colorScheme.surface.copy(alpha = 0.78f),
-                                                MaterialTheme.colorScheme.surface.copy(alpha = 0.30f),
-                                            ),
-                                        ),
-                                    ),
-                            )
-                            Text(
-                                text = region.name,
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = if (selected) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.onSurface
-                        },
-                        modifier = Modifier.padding(start = 14.dp),
+        com.presaince.parallax.ui.component.RegionGrid(
+            regions = com.presaince.parallax.data.source.regionChoices,
+            chosen = chosen,
+            onToggle = { code ->
+                val next = com.presaince.parallax.data.source.toggleRegion(chosen, code)
+                if (next != chosen) {
+                    chosen = next
+                    onRegionChange(next)
+                }
+            },
+        )
+    }
+}
+
+/**
+ * The dashed target for the step in progress: a ring for the tap, a bar for the seek, the two
+ * side pills for volume and brightness, and a mini-player outline for the flick. They sit under
+ * the live readouts, so the dashed shape is where the finger goes and the black pill is what the
+ * player would draw. Nothing here takes pointer input.
+ */
+@Composable
+private fun GestureStageHint(step: Int, modifier: Modifier = Modifier) {
+    val ink = tileInk().copy(alpha = 0.78f)
+    Box(modifier = modifier.fillMaxSize()) {
+        when (step) {
+            0 -> Box(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .size(58.dp)
+                    .dashedCircle(ink),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PlayArrow,
+                    contentDescription = null,
+                    tint = ink,
+                    modifier = Modifier.size(26.dp),
+                )
+            }
+            1 -> Box(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .fillMaxWidth(0.84f)
+                    .height(18.dp),
+            ) {
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val stroke = 1.5.dp.toPx()
+                    val dash = PathEffect.dashPathEffect(
+                        floatArrayOf(6.dp.toPx(), 5.dp.toPx()),
                     )
-                        }
-                    }
-                    repeat(3 - chunk.size) { Spacer(Modifier.weight(1f)) }
+                    val y = size.height / 2f
+                    val inset = 16.dp.toPx()
+                    drawLine(
+                        color = ink,
+                        start = Offset(inset, y),
+                        end = Offset(size.width - inset, y),
+                        strokeWidth = stroke,
+                        pathEffect = dash,
+                    )
+                    val head = 4.5.dp.toPx()
+                    drawPath(
+                        Path().apply {
+                            moveTo(inset, y)
+                            lineTo(inset + head, y - head)
+                            lineTo(inset + head, y + head)
+                            close()
+                        },
+                        ink,
+                    )
+                    drawPath(
+                        Path().apply {
+                            moveTo(size.width - inset, y)
+                            lineTo(size.width - inset - head, y - head)
+                            lineTo(size.width - inset - head, y + head)
+                            close()
+                        },
+                        ink,
+                    )
                 }
             }
+            2 -> Row(
+                modifier = Modifier.align(Alignment.Center),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.Bottom,
+            ) {
+                // The two controls are a pair, not two things on opposite walls.
+                StageLevelHint(R.drawable.ic_volume, ink)
+                StageLevelHint(R.drawable.ic_sun, ink)
+            }
+            3 -> Column(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 10.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_arrow_down),
+                    contentDescription = null,
+                    tint = ink,
+                    modifier = Modifier.size(20.dp),
+                )
+                Box(
+                    modifier = Modifier
+                        .padding(top = 4.dp)
+                        .width(118.dp)
+                        .height(36.dp)
+                        .dashedRoundRect(ink, 10.dp),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(start = 10.dp, bottom = 6.dp)
+                            .fillMaxWidth(0.45f)
+                            .height(3.dp)
+                            .background(ink),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StageLevelHint(icon: Int, ink: Color) {
+    Box(
+        modifier = Modifier
+            .width(34.dp)
+            .height(88.dp)
+            .dashedRoundRect(ink, 14.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            painter = painterResource(icon),
+            contentDescription = null,
+            tint = ink,
+            modifier = Modifier.size(18.dp),
+        )
+    }
+}
+
+/** One half of the live pair: the active control full size, the partner smaller and dimmed. */
+@Composable
+private fun StageLevelPill(
+    active: Boolean,
+    level: Float,
+    icon: Int,
+    activeWidth: Dp,
+    partnerWidth: Dp,
+    pairHeight: Dp,
+) {
+    Box(
+        modifier = Modifier
+            .width(if (active) activeWidth else partnerWidth)
+            .height(if (active) pairHeight else 64.dp)
+            .then(
+                if (active) {
+                    Modifier
+                } else {
+                    Modifier.graphicsLayer { alpha = 0.45f }
+                },
+            )
+            .clip(RoundedCornerShape(if (active) 14.dp else 11.dp))
+            .background(Color(0xE6101014)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .fillMaxHeight(level)
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)),
+        )
+        Icon(
+            painter = painterResource(icon),
+            contentDescription = null,
+            tint = Color.White,
+            modifier = Modifier.size(if (active) 18.dp else 14.dp),
+        )
+    }
+}
+
+private fun Modifier.dashedRoundRect(color: Color, corner: Dp): Modifier = drawBehind {
+    val stroke = 1.5.dp.toPx()
+    drawRoundRect(
+        color = color,
+        topLeft = Offset(stroke / 2f, stroke / 2f),
+        size = Size(size.width - stroke, size.height - stroke),
+        cornerRadius = CornerRadius(corner.toPx()),
+        style = Stroke(
+            width = stroke,
+            pathEffect = PathEffect.dashPathEffect(
+                floatArrayOf(6.dp.toPx(), 5.dp.toPx()),
+            ),
+        ),
+    )
+}
+
+private fun Modifier.dashedCircle(color: Color): Modifier = drawBehind {
+    val stroke = 1.5.dp.toPx()
+    drawCircle(
+        color = color,
+        radius = size.minDimension / 2f - stroke / 2f,
+        style = Stroke(
+            width = stroke,
+            pathEffect = PathEffect.dashPathEffect(
+                floatArrayOf(6.dp.toPx(), 5.dp.toPx()),
+            ),
+        ),
+    )
+}
+
+/** Four columns along the bottom of the picture, filled as each gesture lands. */
+@Composable
+private fun LessonProgress(completed: Int, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        repeat(4) { index ->
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(3.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(
+                        if (index < completed) {
+                            tileInk()
+                        } else {
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.25f)
+                        },
+                    ),
+            )
+        }
+    }
+}
+
+/**
+ * The way down and back up the ladder. Once the card leaves the full stage, a faint dashed
+ * outline holds its place so the three stops are visible at once.
+ */
+@Composable
+private fun GestureLadderHint(level: Int, modifier: Modifier = Modifier) {
+    val ink = tileInk().copy(alpha = 0.78f)
+    Box(modifier = modifier.fillMaxSize()) {
+        if (level > GestureLesson.NORMAL) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .padding(1.dp)
+                    .dashedRoundRect(
+                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.30f),
+                        14.dp,
+                    ),
+            )
+        }
+        when (level) {
+            GestureLesson.NORMAL -> Icon(
+                painter = painterResource(R.drawable.ic_arrow_down),
+                contentDescription = null,
+                tint = ink,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 10.dp)
+                    .size(24.dp),
+            )
+            GestureLesson.MINI -> Row(
+                modifier = Modifier.align(Alignment.Center),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_arrow_down),
+                    contentDescription = null,
+                    tint = ink,
+                    modifier = Modifier.size(24.dp),
+                )
+                Icon(
+                    painter = painterResource(R.drawable.ic_arrow_up),
+                    contentDescription = null,
+                    tint = ink,
+                    modifier = Modifier.size(24.dp),
+                )
+            }
+            else -> Icon(
+                painter = painterResource(R.drawable.ic_arrow_up),
+                contentDescription = null,
+                tint = ink,
+                modifier = Modifier.align(Alignment.Center).size(24.dp),
+            )
+        }
+    }
+}
+
+/** The mini player as the lesson draws it: the same picture, smaller, with two title lines. */
+@Composable
+private fun MiniLesson() {
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Icon(
+            painter = painterResource(R.drawable.ic_pause),
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.25f),
+            modifier = Modifier.size(28.dp),
+        )
+        Column(modifier = Modifier.align(Alignment.BottomStart).padding(10.dp)) {
+            Box(
+                modifier = Modifier
+                    .width(64.dp)
+                    .height(4.dp)
+                    .background(
+                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
+                        RoundedCornerShape(2.dp),
+                    ),
+            )
+            Box(
+                modifier = Modifier
+                    .padding(top = 4.dp)
+                    .width(42.dp)
+                    .height(3.dp)
+                    .background(
+                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.32f),
+                        RoundedCornerShape(2.dp),
+                    ),
+            )
+        }
+    }
+}
+
+/** The super-minimised bar: a thumbnail, two lines and the up arrow that brings it back. */
+@Composable
+private fun BarLesson() {
+    Box(modifier = Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(30.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(Color.Black.copy(alpha = 0.55f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_pause),
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier.size(14.dp),
+                )
+            }
+            Column(modifier = Modifier.weight(1f).padding(start = 8.dp)) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.55f)
+                        .height(4.dp)
+                        .background(
+                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
+                            RoundedCornerShape(2.dp),
+                        ),
+                )
+                Box(
+                    modifier = Modifier
+                        .padding(top = 3.dp)
+                        .fillMaxWidth(0.35f)
+                        .height(3.dp)
+                        .background(
+                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.32f),
+                            RoundedCornerShape(2.dp),
+                        ),
+                )
+            }
+            Icon(
+                painter = painterResource(R.drawable.ic_arrow_up),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier.size(16.dp),
+            )
+        }
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .fillMaxWidth(0.4f)
+                .height(2.dp)
+                .background(MaterialTheme.colorScheme.primary),
+        )
     }
 }
 
 /**
  * The gestures, learnt by doing them: a stand-in video you can tap, slide and flick. Every gesture
  * draws the same readout the player draws, so the lesson is the muscle memory, not a table of text.
+ *
+ * The fourth gesture is the real ladder: normal, mini, super-mini, and the way back up. The step
+ * completes only after the bar was reached and the card returned to normal.
  */
 @Composable
-private fun GestureTutorial() {
+internal fun GestureTutorial() {
+    val context = LocalContext.current
+    val seekBaseSeconds = context.getSharedPreferences(
+        "parallax",
+        android.content.Context.MODE_PRIVATE,
+    ).getInt("seek_base_seconds", 5).coerceIn(1, 30).toFloat()
     var tap by remember { mutableStateOf<Offset?>(null) }
     var seekSeconds by remember { mutableStateOf<Int?>(null) }
-    var level by remember { mutableStateOf<Float?>(null) }
-    var levelIsBrightness by remember { mutableStateOf(false) }
-    var minimised by remember { mutableStateOf(false) }
+    var seekTravel by remember { mutableFloatStateOf(0f) }
+    var seekDeltaMs by remember { mutableLongStateOf(0L) }
+    var volumeLevel by remember { mutableFloatStateOf(0.5f) }
+    var brightnessLevel by remember { mutableFloatStateOf(0.5f) }
+    var sideActive by remember { mutableStateOf(false) }
+    var activeBrightness by remember { mutableStateOf(false) }
+    var levelAnchor by remember { mutableStateOf(Offset(0.5f, 0.5f)) }
+    var ladderLevel by remember { mutableIntStateOf(GestureLesson.NORMAL) }
+    var reachedBar by remember { mutableStateOf(false) }
     var started by remember { mutableStateOf(false) }
-    var hint by remember { mutableStateOf("Tap the card to start the lesson") }
-    val scope = rememberCoroutineScope()
-
-    val scale by animateFloatAsState(
-        targetValue = if (minimised) 0.35f else 1f,
-        animationSpec = tween(if (minimised) 300 else 180),
-        label = "tutorial-minimise",
+    var hint by remember { mutableStateOf("") }
+    val instructions = listOf(
+        "Tap the box",
+        "Slide left or right to seek",
+        "Slide up or down anywhere: left volume, right brightness",
+        "Flick down twice, then up twice",
     )
+    var step by remember { mutableIntStateOf(0) }
+    val done = step >= instructions.size
+    val seekHint = "Base ${seekBaseSeconds.toInt()} s per tenth. Longer slides move faster; " +
+        "change it in Settings \u2192 Playback."
 
     LaunchedEffect(tap) {
         if (tap != null) {
@@ -2267,41 +2646,41 @@ private fun GestureTutorial() {
         }
     }
 
-    Column(modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
-        val instructions = listOf(
-            "Tap the box",
-            "Slide left or right to seek",
-            "Slide up or down on a side",
-            "Flick down to minimise",
-        )
-        var step by remember { mutableIntStateOf(0) }
-        val done = step >= instructions.size
-        Text(
-            text = when {
-                !started -> "Tap the card to start"
-                done -> "All four. Those are the real gestures in the player."
-                else -> "Step ${step + 1} of ${instructions.size} · ${instructions[step]}"
-            },
-            style = MaterialTheme.typography.labelLarge,
-            color = tileInk(),
-            modifier = Modifier.padding(bottom = 6.dp),
-        )
-        // Small on purpose: a tutorial that fills the width is a screen, not a card. The four
-        // gestures are a thing to try on the way past the switch below it.
-        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-            Box(
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 10.dp),
+    ) {
+        if (started) {
+            Text(
+                text = if (done) {
+                    "All four. Those are the real gestures."
+                } else {
+                    instructions[step]
+                },
+                style = MaterialTheme.typography.titleMedium,
+                color = tileInk(),
+                textAlign = TextAlign.Center,
                 modifier = Modifier
-                    .fillMaxWidth(0.72f)
-                    .aspectRatio(16f / 9f)
-                .clip(RoundedCornerShape(14.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant.faded(0.45f))
-                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(14.dp))
-                .pointerInput(Unit) {
+                    .fillMaxWidth()
+                    .padding(bottom = 10.dp),
+            )
+        }
+
+        // The stage keeps its 16:9 size while the card inside it walks the ladder. The pointer
+        // input is on the stage, not the shrinking card, so a swipe still lands when the card is
+        // a bar at the bottom.
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(16f / 9f)
+                .pointerInput(seekBaseSeconds) {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         val width = size.width.toFloat().coerceAtLeast(1f)
                         val height = size.height.toFloat().coerceAtLeast(1f)
-                        val leftSide = down.position.x < width / 2f
+                        val onSide = down.position.x < width * 0.28f ||
+                            down.position.x > width * 0.72f
                         var last = down.position
                         var totalX = 0f
                         var totalY = 0f
@@ -2310,183 +2689,325 @@ private fun GestureTutorial() {
                             val event = awaitPointerEvent()
                             val change = event.changes.firstOrNull { it.id == down.id } ?: break
                             change.consume()
-                            totalX += change.position.x - last.x
-                            totalY += change.position.y - last.y
+                            val dx = change.position.x - last.x
+                            val dy = change.position.y - last.y
+                            totalX += dx
+                            totalY += dy
                             last = change.position
                             if (axis == 0 &&
-                                (kotlin.math.abs(totalX) > 24f || kotlin.math.abs(totalY) > 24f)
+                                (kotlin.math.abs(totalX) > 24f ||
+                                    kotlin.math.abs(totalY) > 24f)
                             ) {
-                                axis = if (kotlin.math.abs(totalX) > kotlin.math.abs(totalY)) 1 else 2
+                                axis = if (
+                                    kotlin.math.abs(totalX) > kotlin.math.abs(totalY)
+                                ) {
+                                    1
+                                } else {
+                                    2
+                                }
+                                if (axis == 1) {
+                                    seekTravel = 0f
+                                    seekDeltaMs = 0L
+                                    seekSeconds = 0
+                                }
                             }
                             when (axis) {
-                                1 -> {
-                                    seekSeconds = ((totalX / width) * 120f).toInt()
-                                    hint = "Slide left or right to seek"
+                                1 -> if (ladderLevel == GestureLesson.NORMAL) {
+                                    val fraction = dx / width
+                                    seekDeltaMs += SeekRate.movedMs(
+                                        fraction,
+                                        seekTravel,
+                                        seekBaseSeconds,
+                                    )
+                                    seekTravel += kotlin.math.abs(fraction)
+                                    seekSeconds = (seekDeltaMs / 1000L).toInt()
+                                    hint = "Longer slides move faster."
                                 }
-                                2 -> {
-                                    level = (0.5f - totalY / height).coerceIn(0f, 1f)
-                                    levelIsBrightness = !leftSide
-                                    hint = if (leftSide) {
-                                        "Up or down on the left is volume"
+                                2 -> when {
+                                    onSide && ladderLevel == GestureLesson.NORMAL -> {
+                                        val left = change.position.x < width / 2f
+                                        val next = (0.5f - totalY / height).coerceIn(0f, 1f)
+                                        activeBrightness = !left
+                                        sideActive = true
+                                        levelAnchor = Offset(
+                                            down.position.x / width,
+                                            down.position.y / height,
+                                        )
+                                        if (left) volumeLevel = next else brightnessLevel = next
+                                        hint = "Slide across to the other control while your " +
+                                            "finger is down."
+                                    }
+                                    !onSide -> hint = if (totalY > 0) {
+                                        "One step down the ladder"
                                     } else {
-                                        "Up or down on the right is brightness"
+                                        "One step up the ladder"
                                     }
                                 }
                             }
                             if (!change.pressed) {
-                                if (axis == 0) {
-                                    tap = Offset(
-                                        down.position.x / width,
-                                        down.position.y / height,
-                                    )
-                                    hint = "Controls appear where you tap"
-                                    if (step == 0) step = 1
-                                } else if (axis == 2 && totalY > height * 0.2f) {
-                                    minimised = true
-                                    hint = "A downward flick goes to the mini player"
-                                    if (step == 3) step = 4
-                                    scope.launch {
-                                        delay(900)
-                                        minimised = false
+                                when (axis) {
+                                    0 -> if (
+                                        started && ladderLevel == GestureLesson.NORMAL
+                                    ) {
+                                        tap = Offset(
+                                            down.position.x / width,
+                                            down.position.y / height,
+                                        )
+                                        if (step == 0) step = 1
+                                        hint = "Controls appear where you tap"
                                     }
-                                } else if (axis == 1 && step == 1) {
-                                    step = 2
-                                } else if (axis == 2 && step == 2) {
-                                    step = 3
+                                    1 -> if (
+                                        ladderLevel == GestureLesson.NORMAL &&
+                                        step == 1
+                                    ) {
+                                        step = 2
+                                        hint = "Keep your finger down and slide across to use " +
+                                            "the other side."
+                                    }
+                                    2 -> if (
+                                        onSide && ladderLevel == GestureLesson.NORMAL
+                                    ) {
+                                        if (step == 2) {
+                                            step = 3
+                                            hint = "Flick down twice, then up twice."
+                                            if (
+                                                GestureLesson.isComplete(
+                                                    step,
+                                                    ladderLevel,
+                                                    reachedBar,
+                                                )
+                                            ) {
+                                                step = 4
+                                            }
+                                        }
+                                    } else if (!onSide) {
+                                        val before = ladderLevel
+                                        ladderLevel = GestureLesson.nextLevel(
+                                            ladderLevel,
+                                            totalY,
+                                            height * 0.12f,
+                                        )
+                                        if (ladderLevel == GestureLesson.BAR) reachedBar = true
+                                        if (ladderLevel != before) {
+                                            hint = when (ladderLevel) {
+                                                GestureLesson.NORMAL -> "Back to the player"
+                                                GestureLesson.MINI ->
+                                                    "One step down: the mini player"
+                                                else -> "The bar. Swipe up twice to return."
+                                            }
+                                        }
+                                        if (
+                                            step == 3 &&
+                                            GestureLesson.isComplete(
+                                                step,
+                                                ladderLevel,
+                                                reachedBar,
+                                            )
+                                        ) {
+                                            step = 4
+                                            hint = "All four. Those are the real gestures."
+                                        }
+                                    }
                                 }
                                 seekSeconds = null
-                                level = null
+                                sideActive = false
                                 break
                             }
                         }
                     }
                 },
-            contentAlignment = Alignment.Center,
         ) {
-            // The stand-in picture, which shrinks when you flick it down.
             Box(
                 modifier = Modifier
-                    .matchParentSize()
-                    .graphicsLayer {
-                        scaleX = scale
-                        scaleY = scale
-                        translationY = if (minimised) size.height * 0.55f else 0f
-                    },
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_pause),
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.25f),
-                    modifier = Modifier.size(48.dp),
-                )
-            }
-
-            seekSeconds?.let { seconds ->
-                val signed = when {
-                    seconds > 0 -> "+${seconds}s"
-                    seconds < 0 -> "\u2212${-seconds}s"
-                    else -> "0s"
-                }
-                // The same pill the player draws: the jump as the headline, the target underneath,
-                // and the video's progress inside the bottom edge.
-                val target = (210 + seconds).coerceIn(0, 720)
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .padding(top = 8.dp)
-                        .width(150.dp)
-                        .height(50.dp)
-                        .clip(RoundedCornerShape(25.dp))
-                        .background(Color(0xE6101014)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = signed,
-                            style = MaterialTheme.typography.titleMedium,
-                            color = Color.White,
-                        )
-                        Text(
-                            text = "%d:%02d".format(target / 60, target % 60),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Color.White.copy(alpha = 0.7f),
-                        )
-                    }
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .fillMaxWidth()
-                            .height(4.dp)
-                            .background(Color(0x33FFFFFF)),
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth((target / 720f).coerceIn(0f, 1f))
-                                .fillMaxHeight()
-                                .background(MaterialTheme.colorScheme.primary),
-                        )
-                    }
-                }
-            }
-
-            level?.let { value ->
-                Box(
-                    modifier = Modifier
-                        .align(if (levelIsBrightness) Alignment.CenterEnd else Alignment.CenterStart)
-                        .padding(horizontal = 10.dp)
-                        .width(36.dp)
-                        .height(96.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(Color(0xE6101014)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .fillMaxWidth()
-                            .fillMaxHeight(value)
-                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)),
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth(
+                        if (ladderLevel == GestureLesson.MINI) 0.62f else 1f,
                     )
-                    Icon(
-                        painter = painterResource(
-                            if (levelIsBrightness) R.drawable.ic_sun else R.drawable.ic_volume,
+                    .then(
+                        if (ladderLevel == GestureLesson.BAR) {
+                            Modifier.height(44.dp)
+                        } else {
+                            Modifier.aspectRatio(16f / 9f)
+                        },
+                    )
+                    .animateContentSize()
+                    .clip(
+                        RoundedCornerShape(
+                            if (ladderLevel == GestureLesson.BAR) 10.dp else 14.dp,
                         ),
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(18.dp),
                     )
-                }
-            }
+                    .background(MaterialTheme.colorScheme.surfaceVariant.faded(0.45f))
+                    .border(
+                        1.dp,
+                        MaterialTheme.colorScheme.outlineVariant,
+                        RoundedCornerShape(
+                            if (ladderLevel == GestureLesson.BAR) 10.dp else 14.dp,
+                        ),
+                    ),
+            ) {
+                Crossfade(
+                    targetState = ladderLevel,
+                    modifier = Modifier.fillMaxSize(),
+                    label = "lesson-level",
+                ) { stage ->
+                    when (stage) {
+                        GestureLesson.NORMAL -> Box(modifier = Modifier.fillMaxSize()) {
+                            // The stand-in picture. It no longer scales; the card itself moves
+                            // down the ladder.
+                            Box(
+                                modifier = Modifier.matchParentSize(),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    painter = painterResource(R.drawable.ic_pause),
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme
+                                        .onSurfaceVariant.copy(alpha = 0.25f),
+                                    modifier = Modifier.size(48.dp),
+                                )
+                            }
 
-            tap?.let { point ->
-                BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-                    val disc = 44.dp
-                    val x = (maxWidth * point.x / 1f - disc / 2)
-                        .coerceIn(0.dp, (maxWidth - disc).coerceAtLeast(0.dp))
-                    val y = (maxHeight * point.y / 1f - disc / 2)
-                        .coerceIn(0.dp, (maxHeight - disc).coerceAtLeast(0.dp))
-                    Box(
-                        modifier = Modifier
-                            .offset(x = x, y = y)
-                            .size(disc)
-                            .clip(CircleShape)
-                            .background(Color(0x66000000))
-                            .border(2.dp, Color.White, CircleShape),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.PlayArrow,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(26.dp),
-                        )
+                            if (started && !done && step < 3) {
+                                GestureStageHint(
+                                    step = step,
+                                    modifier = Modifier.matchParentSize(),
+                                )
+                            }
+
+                            seekSeconds?.let { seconds ->
+                                val signed = when {
+                                    seconds > 0 -> "+${seconds}s"
+                                    seconds < 0 -> "\u2212${-seconds}s"
+                                    else -> "0s"
+                                }
+                                // The lesson has no video to name a target for, so it shows the
+                                // distance the finger moved, not a fake position.
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.TopCenter)
+                                        .padding(top = 8.dp)
+                                        .width(130.dp)
+                                        .height(40.dp)
+                                        .clip(RoundedCornerShape(20.dp))
+                                        .background(Color(0xE6101014)),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text(
+                                        text = signed,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = Color.White,
+                                    )
+                                }
+                            }
+
+                            if (sideActive) {
+                                val activeLevel = if (activeBrightness) {
+                                    brightnessLevel
+                                } else {
+                                    volumeLevel
+                                }
+                                val otherLevel = if (activeBrightness) {
+                                    volumeLevel
+                                } else {
+                                    brightnessLevel
+                                }
+                                BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                                    val activeWidth = 36.dp
+                                    val partnerWidth = 26.dp
+                                    val gap = 8.dp
+                                    val pairHeight = 96.dp
+                                    val activeLeft =
+                                        maxWidth * levelAnchor.x - activeWidth / 2
+                                    val rowLeft = if (activeBrightness) {
+                                        activeLeft - partnerWidth - gap
+                                    } else {
+                                        activeLeft
+                                    }
+                                    val x = rowLeft.coerceIn(
+                                        8.dp,
+                                        (
+                                            maxWidth - activeWidth -
+                                                partnerWidth - gap - 8.dp
+                                            ).coerceAtLeast(8.dp),
+                                    )
+                                    val y = (
+                                        maxHeight * levelAnchor.y - pairHeight
+                                        ).coerceIn(
+                                        8.dp,
+                                        (
+                                            maxHeight - pairHeight - 8.dp
+                                            ).coerceAtLeast(8.dp),
+                                    )
+                                    Row(
+                                        modifier = Modifier
+                                            .offset(x = x, y = y)
+                                            .height(pairHeight),
+                                        horizontalArrangement = Arrangement.spacedBy(gap),
+                                        verticalAlignment = Alignment.Bottom,
+                                    ) {
+                                        StageLevelPill(
+                                            active = !activeBrightness,
+                                            level = if (!activeBrightness) {
+                                                activeLevel
+                                            } else {
+                                                otherLevel
+                                            },
+                                            icon = R.drawable.ic_volume,
+                                            activeWidth = activeWidth,
+                                            partnerWidth = partnerWidth,
+                                            pairHeight = pairHeight,
+                                        )
+                                        StageLevelPill(
+                                            active = activeBrightness,
+                                            level = if (activeBrightness) {
+                                                activeLevel
+                                            } else {
+                                                otherLevel
+                                            },
+                                            icon = R.drawable.ic_sun,
+                                            activeWidth = activeWidth,
+                                            partnerWidth = partnerWidth,
+                                            pairHeight = pairHeight,
+                                        )
+                                    }
+                                }
+                            }
+
+                            tap?.let { point ->
+                                BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                                    val disc = 44.dp
+                                    val x = (maxWidth * point.x - disc / 2)
+                                        .coerceIn(0.dp, (maxWidth - disc).coerceAtLeast(0.dp))
+                                    val y = (maxHeight * point.y - disc / 2)
+                                        .coerceIn(0.dp, (maxHeight - disc).coerceAtLeast(0.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .offset(x = x, y = y)
+                                            .size(disc)
+                                            .clip(CircleShape)
+                                            .background(Color(0x66000000))
+                                            .border(2.dp, Color.White, CircleShape),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.PlayArrow,
+                                            contentDescription = null,
+                                            tint = Color.White,
+                                            modifier = Modifier.size(26.dp),
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        GestureLesson.MINI -> MiniLesson()
+                        else -> BarLesson()
                     }
                 }
             }
+
             if (!started) {
-                // The invitation is the overlay, not another paragraph under the card. One tap
-                // anywhere on the picture begins the lesson; until then the gestures do nothing.
+                // The invitation lives on the picture, where the finger is going.
                 Box(
                     modifier = Modifier
                         .matchParentSize()
@@ -2494,7 +3015,7 @@ private fun GestureTutorial() {
                         .background(Color(0x99000000))
                         .clickable {
                             started = true
-                            hint = "Try it: tap, slide, or flick down"
+                            hint = ""
                         },
                     contentAlignment = Alignment.Center,
                 ) {
@@ -2506,33 +3027,69 @@ private fun GestureTutorial() {
                             modifier = Modifier.size(30.dp),
                         )
                         Text(
-                            text = "Tap to try the gestures",
+                            text = "Gesture tutorial",
                             style = MaterialTheme.typography.labelLarge,
+                            color = Color.White.copy(alpha = 0.75f),
+                            modifier = Modifier.padding(top = 6.dp),
+                        )
+                        Text(
+                            text = "Touch me",
+                            style = MaterialTheme.typography.titleLarge,
                             color = Color.White,
-                            modifier = Modifier.padding(top = 4.dp),
+                            modifier = Modifier.padding(top = 2.dp),
                         )
                     }
                 }
             }
-        }
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = hint,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.weight(1f).padding(top = 6.dp),
-            )
-            if (done) {
-                TextButton(
-                    onClick = {
-                        step = 0
-                        hint = "Try it: tap, slide, or flick down"
-                    },
-                ) {
-                    Text("Start again")
-                }
+
+            if (started && !done && step == 3) {
+                GestureLadderHint(
+                    level = ladderLevel,
+                    modifier = Modifier.matchParentSize(),
+                )
             }
+
+            // The lesson's own progress, on the picture's bottom edge: four columns, filled as
+            // each gesture lands. It replaces the row of dots that used to sit above the card.
+            LessonProgress(
+                completed = if (done) 4 else step,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(start = 12.dp, end = 12.dp, bottom = 8.dp),
+            )
+        }
+
+        if (done) {
+            TextButton(
+                onClick = {
+                    step = 0
+                    ladderLevel = GestureLesson.NORMAL
+                    reachedBar = false
+                    tap = null
+                    volumeLevel = 0.5f
+                    brightnessLevel = 0.5f
+                    sideActive = false
+                    activeBrightness = false
+                    seekSeconds = null
+                    seekTravel = 0f
+                    seekDeltaMs = 0L
+                    levelAnchor = Offset(0.5f, 0.5f)
+                    hint = ""
+                },
+                modifier = Modifier.align(Alignment.CenterHorizontally),
+            ) {
+                Text("Restart tutorial")
+            }
+        } else if (started) {
+            Text(
+                text = if (step == 1) seekHint else hint,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 10.dp),
+            )
         }
     }
 }

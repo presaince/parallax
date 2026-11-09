@@ -155,7 +155,7 @@ class FeedViewModel(
         }
     }
 
-    /** Puts the swiped row back as one watch event. The watch count does not survive a swipe. */
+    /** Puts the swiped row back as one open event. The watch count does not survive a swipe. */
     fun undoRemove() {
         viewModelScope.launch {
             val group = status.value.lastRemoved
@@ -165,7 +165,7 @@ class FeedViewModel(
                         videoId = group.videoId,
                         title = group.title,
                         channelName = group.channelName,
-                        watchedAt = group.watchedAt,
+                        openedAt = group.watchedAt,
                         thumbUrl = group.thumbUrl,
                     ),
                 )

@@ -104,6 +104,31 @@ class UpdateManager(private val context: Context) {
          */
         internal fun signersMatch(archive: Set<String>?, installed: Set<String>?): Boolean =
             archive != null && installed != null && archive.isNotEmpty() && archive == installed
+
+        /** SHA-256 of a file, hex. The updater's only use is comparing a download to its manifest. */
+        internal fun fileSha256(file: File): String {
+            val digest = MessageDigest.getInstance("SHA-256")
+            file.inputStream().use { input ->
+                val buffer = ByteArray(64 * 1024)
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read == -1) break
+                    digest.update(buffer, 0, read)
+                }
+            }
+            return digest.digest().joinToString("") { "%02x".format(it) }
+        }
+
+        /**
+         * Whether the archive already on disk is the one this manifest publishes. A manifest with no
+         * digest cannot answer that, so an old version.json always downloads again — the alternative
+         * is installing whatever happened to be in the cache.
+         */
+        internal fun cacheReusable(file: File, expectedSha: String?): Boolean {
+            if (!file.isFile || file.length() < 1_000_000L) return false
+            if (expectedSha.isNullOrBlank()) return false
+            return sha256Matches(expectedSha, fileSha256(file))
+        }
     }
 
     private val client = OkHttpClient.Builder()
@@ -149,10 +174,29 @@ class UpdateManager(private val context: Context) {
         val newer = latest.versionCode > BuildConfig.VERSION_CODE ||
             (latest.versionCode == BuildConfig.VERSION_CODE &&
                 versionNameGreater(latest.versionName, BuildConfig.VERSION_NAME))
-        if (newer) UpdateState.Available(latest) else UpdateState.UpToDate
+        when {
+            !newer -> UpdateState.UpToDate
+            // The download survives in the cache, and a repeat check costs nothing: hashing the
+            // file it already has is cheaper than moving 33 MB again. Verified like a fresh
+            // download, because "in the cache" is not a reason to trust an archive.
+            else -> cachedArchive(latest)?.let { UpdateState.Downloaded(latest, it) }
+                ?: UpdateState.Available(latest)
+        }
     } catch (e: Exception) {
         UpdateState.Failed(e.message)
     }
+
+    /** The archive in the cache, when it is the one this manifest publishes and still installable. */
+    private fun cachedArchive(info: UpdateInfo): File? {
+        val file = updateFile()
+        if (!cacheReusable(file, info.sha256)) return null
+        return runCatching {
+            verifyArchive(file, allowSameVersion = false)
+            file
+        }.getOrNull()
+    }
+
+    private fun updateFile(): File = File(File(context.cacheDir, "updates").apply { mkdirs() }, "app-update.apk")
 
     /**
      * Streams the APK into cacheDir/updates/, reporting 0..1 progress, and validates the result.
@@ -165,14 +209,24 @@ class UpdateManager(private val context: Context) {
      * installed" — stays exactly as strict.
      */
     suspend fun download(info: UpdateInfo, force: Boolean = false, onProgress: (Float) -> Unit): File = withContext(Dispatchers.IO) {
+        val dir = File(context.cacheDir, "updates").apply { mkdirs() }
+        val target = File(dir, "app-update.apk")
+
+        // Same manifest, same bytes: the archive is already here. A forced download skips this on
+        // purpose — force exists for a manifest that no longer describes the file.
+        if (!force && cacheReusable(target, info.sha256)) {
+            Log.i(TAG, "Update already downloaded and matches version.json — not fetching again")
+            verifyArchive(target, allowSameVersion = false)
+            onProgress(1f)
+            return@withContext target
+        }
+
         val url = if (force) cacheBusted(info.apkUrl, System.currentTimeMillis()) else info.apkUrl
         val request = Request.Builder().url(url).build()
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
             val body = response.body ?: throw IOException("Empty response body")
             val total = body.contentLength()
-            val dir = File(context.cacheDir, "updates").apply { mkdirs() }
-            val target = File(dir, "app-update.apk")
             var downloaded = 0L
 
             body.byteStream().use { input ->
@@ -205,7 +259,7 @@ class UpdateManager(private val context: Context) {
             val expected = info.sha256
             if (expected == null) {
                 Log.w(TAG, "version.json carries no sha256 — skipping the checksum check")
-            } else if (!sha256Matches(expected, calculateSha256(target))) {
+            } else if (!sha256Matches(expected, fileSha256(target))) {
                 if (!force) {
                     target.delete()
                     throw IOException("APK checksum mismatch — the download does not match version.json")
@@ -271,18 +325,6 @@ class UpdateManager(private val context: Context) {
             MessageDigest.getInstance("SHA-256").digest(signer.toByteArray())
                 .joinToString("") { "%02x".format(it) }
         }
-    }
-
-    private fun calculateSha256(file: File): String {
-        val digest = MessageDigest.getInstance("SHA-256")
-        file.inputStream().use { input ->
-            val buf = ByteArray(64 * 1024)
-            var read: Int
-            while (input.read(buf).also { read = it } != -1) {
-                digest.update(buf, 0, read)
-            }
-        }
-        return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
     private fun isLikelyApk(file: File): Boolean {

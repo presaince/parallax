@@ -24,7 +24,7 @@ import com.presaince.parallax.data.secure.SecurePrefs
 import com.presaince.parallax.data.source.NewPipeSource
 import com.presaince.parallax.data.source.LlmRepairPlanner
 import com.presaince.parallax.data.source.initContentCountry
-import com.presaince.parallax.data.source.readContentRegions
+import com.presaince.parallax.data.source.resolvedRegions
 import com.presaince.parallax.data.source.writeContentRegions
 import com.presaince.parallax.data.source.OkHttpDownloader
 import com.presaince.parallax.data.source.VideoSource
@@ -78,7 +78,7 @@ class AppContainer(context: Context) {
 
     init {
         // The extractor needs a downloader before any service can be used.
-        initContentCountry(http, readContentRegions(appContext).first(), log)
+        initContentCountry(http, resolvedRegions(appContext).first(), log)
     }
 
     /**
@@ -88,7 +88,7 @@ class AppContainer(context: Context) {
      */
     fun setContentRegions(codes: List<String>) {
         writeContentRegions(appContext, codes)
-        initContentCountry(http, readContentRegions(appContext).first(), log)
+        initContentCountry(http, resolvedRegions(appContext).first(), log)
     }
 
     fun setContentRegion(code: String) = setContentRegions(listOf(code))
@@ -108,8 +108,9 @@ class AppContainer(context: Context) {
                 ParallaxDb.MIGRATION_8_9,
                 ParallaxDb.MIGRATION_9_10,
                 ParallaxDb.MIGRATION_10_11,
+                ParallaxDb.MIGRATION_11_12,
             )
-            // Real migrations only: the destructive fallback is gone. Schema v11 is exported and
+            // Real migrations only: the destructive fallback is gone. Schema v12 is exported and
             // committed; the next change needs a real migration plus a migration test.
             .build()
     }

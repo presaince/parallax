@@ -63,3 +63,17 @@ object SurfaceTapZones {
 
 /** -1 for the left half, +1 for the right half. */
 fun seekDirection(x: Float, widthPx: Float): Int = if (x < widthPx / 2f) -1 else 1
+
+/**
+ * Whether a vertical drag belongs to the ladder rather than to the level under the finger.
+ *
+ * A flick either way is the ladder: down means one step out, up means fullscreen. Only the flick
+ * hands off, because a slow drag up a side band is still "make it louder". Without the upward
+ * case a fast swipe up from the left third changed the volume on its way to fullscreen, which is
+ * the one thing a person swiping for fullscreen did not ask for.
+ */
+fun flickBelongsToLadder(zone: Zone, totalDy: Float, pxPerMs: Float, threshold: Float): Boolean {
+    if (zone == Zone.Centre) return false
+    if (abs(totalDy) <= 0.001f) return false
+    return if (totalDy > 0f) pxPerMs > threshold else -pxPerMs > threshold
+}

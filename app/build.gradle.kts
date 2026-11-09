@@ -34,8 +34,11 @@ android {
         // Android 13. Desugaring is deliberately not used; modern devices only.
         minSdk = 33
         targetSdk = 36
-        versionCode = 3
-        versionName = "0.3.0"
+        // Both numbers move together, with scripts/bump-version.mjs --apply. Never hand-edit one:
+        // the page names the version and the updater compares versionCode, so a build that keeps
+        // code 3 is a build that nobody is offered.
+        versionCode = 10
+        versionName = "0.3.7"
     }
 
     buildFeatures {

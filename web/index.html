@@ -1,0 +1,799 @@
+<!doctype html>
+<!--
+  Parallax downloads: https://odesaplay.com.ua/other_apps/parallax/
+
+  Ships with the APK (extra= line in deploy-apk.properties) and alone through
+  deploy-page.properties, so a copy edit does not need a signed release on disk.
+
+  Styled after the app's own Glass theme rather than a stock dark page: the same near-black base
+  (glassBase) and the three accent-adjacent aurora glows from glassBlobs, painted fixed behind the
+  page, with translucent cards, a hairline border and an inner top highlight above it. Nothing
+  animates and nothing is blurred except the cards' backdrop, which is the promise the copy makes.
+  One static file, no build step, no shared bundle. The only data it reads is version.json, which
+  make-version-json.mjs already writes on every release, so the version, notes and hash cannot go
+  stale.
+
+  One release is published at a time: app-release.apk is overwritten. The builds
+  list is a list anyway, so keeping older APKs later is a data change, not a
+  rewrite.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Parallax — a YouTube client that does the things YouTube won't</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#07070b" />
+    <meta name="robots" content="noindex" />
+    <meta name="description" content="Direct APK downloads for Parallax, a local-first YouTube client for Android 13 and newer. No account, no server, no analytics." />
+    <style>
+      :root {
+        color-scheme: dark;
+        --surface: #07070b;
+        --glass: 10 14 20;
+        --border: rgb(255 255 255 / 0.14);
+        --border-hi: rgb(255 255 255 / 0.22);
+        --accent: #4cc2e8;
+        --brand-b: #a5e4f5;
+        --text: #e9f0f5;
+        --text-muted: #b0bcc6;
+        --aurora-1: 76 194 232;
+        --aurora-2: 148 139 228;
+        --aurora-3: 139 228 184;
+        --radius: 1.25rem;
+        --2xs: 0.75rem;
+        --3xs: 0.6875rem;
+        --sm: 0.9375rem;
+        --base: 1.0625rem;
+      }
+      * { box-sizing: border-box; }
+      html { scrollbar-color: rgb(255 255 255 / 0.2) transparent; }
+      body {
+        margin: 0;
+        background: var(--surface);
+        color: var(--text);
+        font: var(--base)/1.6 system-ui, -apple-system, 'Segoe UI', sans-serif;
+        -webkit-font-smoothing: antialiased;
+        overflow-x: hidden;
+      }
+      /* The app's own backdrop: the three accent-adjacent glows from glassBlobs over the same
+         near-black base the Glass theme uses. Fixed behind the page, the way ThemeBackdrop paints
+         it, so scrolling costs no frames; nothing here moves or blurs. */
+      body::before {
+        content: '';
+        position: fixed;
+        inset: 0;
+        z-index: -1;
+        pointer-events: none;
+        background:
+          radial-gradient(70% 55% at 16% 10%, rgb(var(--aurora-1) / 0.38), transparent 70%),
+          radial-gradient(62% 52% at 86% 38%, rgb(var(--aurora-2) / 0.36), transparent 70%),
+          radial-gradient(72% 60% at 32% 96%, rgb(var(--aurora-3) / 0.3), transparent 68%),
+          linear-gradient(180deg, #090b11, #06070a 55%, #080a10);
+      }
+      a { color: inherit; }
+      :focus-visible { outline: 2px solid var(--brand-b); outline-offset: 3px; border-radius: 6px; }
+      .wrap { max-width: 72rem; margin: 0 auto; padding: 0 1rem; }
+      @media (min-width: 640px) { .wrap { padding: 0 1.5rem; } }
+
+      /* One recipe for every surface that sits above the aurora. The fill stays dark enough that
+         muted text clears 4.5:1 over the brightest blob; the blur is what makes it glass. */
+      .glass, .card, .mock, .builds {
+        position: relative;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background-color: rgb(var(--glass) / 0.46);
+        background-image: linear-gradient(160deg, rgb(255 255 255 / 0.09), rgb(255 255 255 / 0.015) 45%, rgb(255 255 255 / 0.045));
+        -webkit-backdrop-filter: blur(22px) saturate(150%);
+        backdrop-filter: blur(22px) saturate(150%);
+        box-shadow:
+          inset 0 1px 0 rgb(255 255 255 / 0.16),
+          inset 0 -1px 0 rgb(0 0 0 / 0.28),
+          0 28px 56px -36px rgb(0 0 0 / 0.95);
+      }
+      @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+        .glass, .card, .mock, .builds { background-color: rgb(12 16 22 / 0.95); }
+      }
+
+      .eyebrow {
+        margin: 0;
+        color: var(--accent);
+        font-size: var(--3xs);
+        font-weight: 500;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+      }
+      h1 {
+        margin: 1rem 0 0;
+        font-size: clamp(2.3rem, 1.6rem + 3.2vw, 3.3rem);
+        line-height: 1.1;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+        text-wrap: balance;
+      }
+      h1 span { display: block; }
+      h1 .brand {
+        margin-top: 0.5rem;
+        display: inline-block;
+        background: linear-gradient(90deg, var(--accent), var(--brand-b));
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+      .sub { margin: 1.25rem 0 0; max-width: 28rem; color: var(--text-muted); text-wrap: pretty; }
+
+      .cta {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-top: 1.75rem;
+        padding: 0.75rem 1.25rem;
+        border-radius: 999px;
+        background: linear-gradient(135deg, var(--brand-b), var(--accent));
+        color: #04131a;
+        font-size: var(--sm);
+        font-weight: 600;
+        text-decoration: none;
+        box-shadow:
+          inset 0 1px 0 rgb(255 255 255 / 0.55),
+          0 10px 30px -12px rgb(var(--aurora-1) / 0.7);
+        transition: filter 120ms;
+      }
+      .cta:hover { filter: brightness(1.08); }
+      .cta svg { flex-shrink: 0; }
+      .cta-meta {
+        margin-left: 1rem;
+        color: var(--text-muted);
+        font-size: var(--2xs);
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+      .fine { margin: 1rem 0 0; max-width: 28rem; color: var(--text-muted); font-size: 0.8125rem; line-height: 1.6; text-wrap: pretty; }
+
+      .hero { display: grid; align-items: center; gap: 2.5rem; padding: 3.5rem 0 2.5rem; }
+      @media (min-width: 768px) {
+        .hero { grid-template-columns: 1fr 1fr; gap: 3.5rem; padding: 4.5rem 0 3.5rem; }
+      }
+      .phone {
+        position: relative;
+        width: 100%;
+        max-width: 300px;
+        margin: 0 auto;
+        aspect-ratio: 9 / 20;
+        overflow: hidden;
+        border: 1px solid var(--border-hi);
+        border-radius: 2rem;
+        background: #000;
+        box-shadow:
+          0 0 0 6px rgb(255 255 255 / 0.035),
+          0 0 0 7px rgb(255 255 255 / 0.07),
+          0 48px 90px -50px rgb(0 0 0 / 1),
+          0 0 80px -24px rgb(var(--aurora-1) / 0.4);
+      }
+      .phone img { width: 100%; height: 100%; object-fit: cover; object-position: top; }
+
+      .card { padding: 1.25rem; }
+      @media (min-width: 640px) { .card { padding: 1.5rem; } }
+      .install {
+        border-color: rgb(var(--aurora-1) / 0.4);
+        background-image:
+          linear-gradient(160deg, rgb(var(--aurora-1) / 0.13), transparent 55%),
+          linear-gradient(160deg, rgb(255 255 255 / 0.06), rgb(255 255 255 / 0.012) 45%, rgb(255 255 255 / 0.03));
+        box-shadow:
+          inset 0 1px 0 rgb(255 255 255 / 0.14),
+          inset 0 0 0 1px rgb(var(--aurora-1) / 0.05),
+          0 28px 56px -36px rgb(0 0 0 / 0.95),
+          0 0 90px -34px rgb(var(--aurora-1) / 0.55);
+      }
+      .install h2, .card h2 { margin: 0; font-size: 1.125rem; font-weight: 600; }
+      .steps { display: grid; gap: 1rem; margin: 1rem 0 0; padding: 0; list-style: none; }
+      @media (min-width: 640px) { .steps { grid-template-columns: repeat(3, 1fr); } }
+      .steps li { display: flex; gap: 0.75rem; }
+      .num {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        width: 1.5rem;
+        height: 1.5rem;
+        border: 1px solid rgb(var(--aurora-1) / 0.45);
+        border-radius: 999px;
+        background: rgb(var(--aurora-1) / 0.12);
+        color: var(--accent);
+        font-size: var(--2xs);
+        font-weight: 600;
+      }
+      .steps h3 { margin: 0; font-size: var(--sm); font-weight: 600; }
+      .steps p { margin: 0.25rem 0 0; font-size: 0.8125rem; line-height: 1.6; color: var(--text-muted); }
+
+      section.block { margin-top: 4rem; }
+      h2.section { margin: 0; font-size: clamp(1.4rem, 1.2rem + 0.7vw, 1.7rem); font-weight: 600; letter-spacing: -0.01em; text-wrap: balance; }
+
+      .showcase { display: grid; gap: 2.5rem; margin-top: 2rem; }
+      .showcase > div { display: grid; gap: 1.5rem; align-items: center; }
+      @media (min-width: 768px) {
+        .showcase > div { grid-template-columns: 1fr 1fr; gap: 3rem; }
+        .showcase > div:nth-child(even) .mock { order: 2; }
+      }
+      .showcase h3 { margin: 0.5rem 0 0; font-size: 1.125rem; font-weight: 600; }
+      .showcase p { margin: 0.5rem 0 0; max-width: 34rem; font-size: var(--sm); line-height: 1.65; color: var(--text-muted); text-wrap: pretty; }
+      .showcase .note { margin-top: 0.75rem; font-size: var(--2xs); letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-muted); opacity: 0.7; }
+
+      /* The share panel and the appearance panel, rebuilt in markup rather than captured: they stay
+         crisp at any width, and the share one shows the constraint the copy describes. */
+      .mock { padding: 1.25rem; }
+      .chips { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+      .chip {
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 0.25rem 0.75rem;
+        font-size: var(--2xs);
+        color: var(--text-muted);
+      }
+      .chip.on {
+        border-color: rgb(var(--aurora-1) / 0.5);
+        background: rgb(var(--aurora-1) / 0.15);
+        color: var(--accent);
+        font-weight: 500;
+      }
+      .mock-head { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
+      .mock-title { font-size: var(--sm); font-weight: 600; }
+      .mock .mock-copy { margin: 0.75rem 0 0; font-size: var(--2xs); line-height: 1.65; color: var(--text-muted); }
+      .range { position: relative; height: 2rem; margin-top: 1.5rem; }
+      .range-track {
+        position: absolute;
+        inset: 50% 0 auto;
+        height: 0.375rem;
+        transform: translateY(-50%);
+        border-radius: 999px;
+        background: rgb(255 255 255 / 0.16);
+      }
+      .range-fill {
+        position: absolute;
+        top: 50%;
+        left: 18%;
+        width: 30%;
+        height: 0.375rem;
+        transform: translateY(-50%);
+        border-radius: 999px;
+        background: var(--accent);
+      }
+      .range-handle {
+        position: absolute;
+        top: 50%;
+        width: 1.25rem;
+        height: 1.25rem;
+        transform: translate(-50%, -50%);
+        border-radius: 999px;
+        background: var(--accent);
+        box-shadow: 0 0 0 4px rgb(var(--aurora-1) / 0.18);
+      }
+      .range-now { position: absolute; top: 0; width: 1px; height: 2rem; background: rgb(255 255 255 / 0.5); }
+      .range-labels { display: flex; justify-content: space-between; margin-top: 0.5rem; font-size: var(--2xs); }
+      .range-labels span:first-child { color: var(--text); font-weight: 500; }
+      .range-labels span:last-child { color: var(--text-muted); }
+      .range-actions { display: flex; gap: 1rem; margin-top: 1rem; font-size: var(--2xs); font-weight: 500; color: var(--accent); }
+      .range-actions .push { margin-left: auto; }
+      .mock-rows { display: grid; gap: 1rem; }
+      .mock-row .mock-label {
+        font-size: var(--2xs);
+        font-weight: 500;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--text-muted);
+      }
+      .mock-row .chips { margin-top: 0.5rem; }
+      .mock-foot {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-top: 1.25rem;
+        font-size: var(--2xs);
+        color: var(--text-muted);
+      }
+      .mock-foot b { color: var(--accent); font-weight: 500; }
+
+      .features { display: grid; gap: 1.75rem 2.5rem; margin-top: 1.5rem; }
+      @media (min-width: 640px) { .features { grid-template-columns: 1fr 1fr; } }
+      .features > div {
+        display: grid;
+        grid-template-columns: 2rem 1fr;
+        column-gap: 0.75rem;
+        padding-top: 1rem;
+        border-top: 1px solid var(--border);
+      }
+      .features .icon {
+        grid-row: 1 / span 2;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 2rem;
+        height: 2rem;
+        border: 1px solid rgb(var(--aurora-1) / 0.32);
+        border-radius: 0.6rem;
+        background: rgb(var(--aurora-1) / 0.12);
+        color: var(--accent);
+        box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.14);
+      }
+      .features .icon svg { width: 1rem; height: 1rem; }
+      .features h3 { margin: 0; font-size: var(--sm); font-weight: 600; }
+      .features p { margin: 0.375rem 0 0; font-size: var(--sm); line-height: 1.65; color: var(--text-muted); text-wrap: pretty; }
+
+      .shots { display: grid; gap: 1.5rem; margin-top: 1.5rem; }
+      @media (min-width: 640px) { .shots { grid-template-columns: repeat(2, 1fr); } }
+      @media (min-width: 860px) { .shots { grid-template-columns: repeat(3, 1fr); } }
+      .shots figure { margin: 0; }
+      .shots .phone { max-width: 260px; }
+      figcaption {
+        max-width: 260px;
+        margin: 0.75rem auto 0;
+        text-align: center;
+        font-size: var(--2xs);
+        line-height: 1.6;
+        color: var(--text-muted);
+      }
+
+      .split { display: grid; gap: 2rem; margin-top: 0; }
+      @media (min-width: 768px) { .split { grid-template-columns: 1fr 1fr; } }
+      .points { margin: 0.75rem 0 0; padding: 0; list-style: none; }
+      .points li { display: flex; gap: 0.5rem; margin-top: 0.5rem; font-size: var(--sm); line-height: 1.65; color: var(--text-muted); }
+      .points li::before {
+        content: '';
+        flex-shrink: 0;
+        width: 0.25rem;
+        height: 0.25rem;
+        margin-top: 0.6rem;
+        border-radius: 999px;
+        background: rgb(var(--aurora-1) / 0.8);
+      }
+      .cta-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-top: 1.25rem;
+        color: var(--accent);
+        font-size: var(--sm);
+        font-weight: 600;
+        text-decoration: underline;
+        text-decoration-color: rgb(76 194 232 / 0.4);
+        text-underline-offset: 4px;
+      }
+      .cta-link:hover { color: var(--text); }
+
+      .builds { margin-top: 1.5rem; padding: 0 1.25rem; list-style: none; }
+      .builds li { padding: 1.25rem 0; border-bottom: 1px solid var(--border); }
+      .builds li:last-child { border-bottom: 0; }
+      .build-row { display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem; }
+      .build-name { font-weight: 600; }
+      .build-meta { color: var(--text-muted); font-size: 0.8125rem; }
+      .build-notes { margin: 0.5rem 0 0; white-space: pre-line; font-size: 0.8125rem; line-height: 1.7; color: #c6ced6; }
+      .build-hash { margin-top: 0.5rem; font: 0.75rem/1.6 ui-monospace, Consolas, monospace; color: var(--text-muted); word-break: break-all; }
+      .builds a { color: var(--accent); font-weight: 600; text-decoration: none; white-space: nowrap; }
+      .builds a:hover { text-decoration: underline; }
+
+      footer {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+        margin-top: 4rem;
+        padding: 1.5rem 0 4rem;
+        border-top: 1px solid var(--border);
+      }
+      @media (min-width: 640px) { footer { flex-direction: row; align-items: center; justify-content: space-between; } }
+      footer a { color: var(--text-muted); font-size: var(--3xs); letter-spacing: 0.16em; text-transform: uppercase; text-decoration: none; }
+      footer a:hover { color: var(--text); }
+      .brand-gradient {
+        background-image: linear-gradient(100deg, #f8fafc 0%, #a5e4f5 52%, #4cc2e8 100%);
+        background-size: 150% auto;
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+        animation: brand-drift 22s ease-in-out infinite;
+      }
+      @keyframes brand-drift {
+        0%, 100% { background-position: 0% 50%; }
+        50% { background-position: 100% 50%; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .brand-gradient { animation: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <main>
+        <section class="hero">
+          <div>
+            <p class="eyebrow">Android 13 and newer · direct APK · GPLv3</p>
+            <h1>
+              <span>A YouTube client that</span>
+              <span class="brand">does the things YouTube won't</span>
+            </h1>
+            <p class="sub">
+              Parallax plays YouTube without a Google account. Subscriptions, history, progress and notes live in a database on the phone, so nothing about what you watch leaves it. SponsorBlock, gestures on the picture, speed in 0.1 steps, notes dictated at the playhead, and a mode for when you cannot decide what to watch.
+            </p>
+            <a class="cta" href="app-release.apk">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <path d="M7 10l5 5 5-5" />
+                <path d="M12 15V3" />
+              </svg>
+              <span id="cta-label">Download Parallax</span>
+            </a>
+            <p class="fine">
+              Android will ask once whether this source can install apps.
+            </p>
+          </div>
+          <div class="phone">
+            <img
+              src="img/feed.webp"
+              alt="The Parallax feed: a subscription feed of video cards"
+              loading="eager"
+            />
+          </div>
+        </section>
+
+        <section class="card install" aria-labelledby="install">
+          <h2 id="install">Installing it</h2>
+          <ol class="steps">
+            <li>
+              <span class="num">1</span>
+              <div>
+                <h3>Download the APK</h3>
+                <p>Chrome calls it an unusual file. It is the app; keep it.</p>
+              </div>
+            </li>
+            <li>
+              <span class="num">2</span>
+              <div>
+                <h3>Open it from Downloads</h3>
+                <p>Android asks whether that app may install unknown apps. Allow it once.</p>
+              </div>
+            </li>
+            <li>
+              <span class="num">3</span>
+              <div>
+                <h3>Open Parallax</h3>
+                <p>First start asks for nothing. No sign-in, no permissions, no account.</p>
+              </div>
+            </li>
+          </ol>
+        </section>
+
+        <section class="block" aria-labelledby="showcase">
+          <h2 class="section" id="showcase">What it does differently</h2>
+          <div class="showcase">
+            <div>
+              <div class="mock" aria-hidden="true">
+                <div class="mock-head">
+                  <span class="mock-title">Share</span>
+                  <div class="chips">
+                    <span class="chip">This moment</span>
+                    <span class="chip on">A clip</span>
+                  </div>
+                </div>
+                <p class="mock-copy">The link carries the start. The end goes in the text, because a YouTube link cannot hold both.</p>
+                <div class="range">
+                  <div class="range-track"></div>
+                  <div class="range-fill"></div>
+                  <span class="range-handle" style="left: 18%"></span>
+                  <span class="range-handle" style="left: 48%"></span>
+                  <span class="range-now" style="left: 52%"></span>
+                </div>
+                <div class="range-labels"><span>6:12 – 6:38</span><span>26 s</span></div>
+                <div class="range-actions">
+                  <span>Go to start</span>
+                  <span>Go to end</span>
+                  <span class="push">Sync to now</span>
+                </div>
+              </div>
+              <div>
+                <p class="eyebrow">Sharing</p>
+                <h3>Share the range, not the whole video</h3>
+                <p>
+                  One panel decides what the link carries: the moment you are on, or a range around
+                  it. A YouTube link holds one time, so the start goes in the URL and the end goes
+                  in the text. Play to either edge, or pull the end to the video with Sync to now.
+                </p>
+                <p class="note">This moment · A clip · Go to start · Go to end, two seconds early · Sync to now</p>
+              </div>
+            </div>
+            <div>
+              <div class="mock" aria-hidden="true">
+                <div class="mock-rows">
+                  <div class="mock-row">
+                    <p class="mock-label">Theme</p>
+                    <div class="chips">
+                      <span class="chip">System</span>
+                      <span class="chip">Dark</span>
+                      <span class="chip">Light</span>
+                      <span class="chip on">Glass</span>
+                    </div>
+                  </div>
+                  <div class="mock-row">
+                    <p class="mock-label">Accent shuffle</p>
+                    <div class="chips">
+                      <span class="chip on">Daily</span>
+                      <span class="chip">Hourly</span>
+                      <span class="chip">Focus</span>
+                    </div>
+                  </div>
+                  <div class="mock-row">
+                    <p class="mock-label">Card preview</p>
+                    <div class="chips">
+                      <span class="chip">Classic</span>
+                      <span class="chip">Side</span>
+                      <span class="chip on">Minimal</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="mock-foot">
+                  <span>Contrast 7.0:1 — holds</span>
+                  <b>Shuffle off by default</b>
+                </div>
+              </div>
+              <div>
+                <p class="eyebrow">Appearance</p>
+                <h3>Glass, and an accent that moves</h3>
+                <p>
+                  Four themes: System, Dark, Light and Glass. Glass is translucent surfaces over a
+                  still aurora, and it takes its tone from the last ordinary theme you picked. The
+                  accent is brand cyan by default, the phone's own colour under System, or one of
+                  eighteen hues; shuffle moves it daily, hourly, or every time you open the app, and
+                  is off by default. The screen ends with a live preview of the video cards — three
+                  layouts and ten facts — and the contrast ratio the current theme reaches.
+                </p>
+                <p class="note">System · Dark · Light · Glass · 18 accents · shuffle daily, hourly or Focus · live card preview</p>
+              </div>
+            </div>
+            <div>
+              <div class="phone">
+                <img src="img/bored.webp" alt="Bored Mode: a recipe, the reason it was chosen, and the sliders that change it" loading="lazy" />
+              </div>
+              <div>
+                <p class="eyebrow">Bored Mode</p>
+                <h3>When you cannot decide</h3>
+                <p>
+                  Recipes instead of a recommendation feed: a deep dive, something fresh,
+                  something long, a short break. Each pick shows the path that found it, and Why
+                  these? opens the reasoning with sliders for shortest, newest and surprise.
+                  Nothing here is stored.
+                </p>
+                <p class="note">Deep dive · Fresh · Longform · Short break</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="block" aria-labelledby="rest">
+          <h2 class="section" id="rest">The rest of it</h2>
+          <div class="features">
+            <div>
+              <span class="icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />
+                  <path d="m9 12 2 2 4-4" />
+                </svg>
+              </span>
+              <h3>Everything stays on the phone</h3>
+              <p>Room on the device holds the subscriptions, the history, the progress and the notes. No account, no server, no analytics. Uninstalling deletes all of it.</p>
+            </div>
+            <div>
+              <span class="icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 4v16" />
+                  <path d="M6.029 4.285A2 2 0 0 0 3 6v12a2 2 0 0 0 3.029 1.715l9.997-5.998a2 2 0 0 0 .003-3.432z" />
+                </svg>
+              </span>
+              <h3>SponsorBlock, by category</h3>
+              <p>The categories you tick are skipped in the player. The rest is left alone.</p>
+            </div>
+            <div>
+              <span class="icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z" />
+                </svg>
+              </span>
+              <h3>Speed in 0.1 steps</h3>
+              <p>Hold the speed pill and slide between 0.25× and 5×, or tap the presets you set.</p>
+            </div>
+            <div>
+              <span class="icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 19v3" />
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                  <rect x="9" y="2" width="6" height="13" rx="3" />
+                </svg>
+              </span>
+              <h3>Notes, dictated</h3>
+              <p>Speak a note at the playhead and it keeps its timestamp. Playing pauses while you talk and resumes when you save.</p>
+            </div>
+            <div>
+              <span class="icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z" />
+                  <path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12" />
+                  <path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17" />
+                </svg>
+              </span>
+              <h3>Collections</h3>
+              <p>Four rules over your own library: gathering dust, almost done, they are back, never opened.</p>
+            </div>
+            <div>
+              <span class="icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M2 10h6V4" />
+                  <path d="m2 4 6 6" />
+                  <path d="M21 10V7a2 2 0 0 0-2-2h-7" />
+                  <path d="M3 14v2a2 2 0 0 0 2 2h3" />
+                  <rect x="12" y="14" width="10" height="7" rx="1" />
+                </svg>
+              </span>
+              <h3>Picture in picture</h3>
+              <p>Leave the app and the video keeps playing in a floating window, until you close it.</p>
+            </div>
+            <div>
+              <span class="icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
+                  <path d="M21 3v5h-5" />
+                  <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
+                  <path d="M8 16H3v5" />
+                </svg>
+              </span>
+              <h3>Resync, if you want it</h3>
+              <p>Comment timestamps can be aligned against a transcript with your own model key. Off by default, and the key stays in the Android Keystore.</p>
+            </div>
+            <div>
+              <span class="icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 15V3" />
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <path d="m7 10 5 5 5-5" />
+                </svg>
+              </span>
+              <h3>Updates without a store</h3>
+              <p>About checks the manifest beside the APK and installs the next build from here. The old build keeps working if the check fails.</p>
+            </div>
+            <div>
+              <span class="icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
+                  <path d="M21 3v5h-5" />
+                </svg>
+              </span>
+              <h3>When a stream stalls</h3>
+              <p>If a stream errors or goes quiet for 20 seconds, Parallax fetches fresh streams and retries twice. A disk cache you size in Settings holds what you have watched.</p>
+            </div>
+            <div>
+              <span class="icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.106-3.105c.32-.322.863-.22.983.218a6 6 0 0 1-8.259 7.057l-7.91 7.91a1 1 0 0 1-2.999-3l7.91-7.91a6 6 0 0 1 7.057-8.259c.438.12.54.662.219.984z" />
+                </svg>
+              </span>
+              <h3>When YouTube changes</h3>
+              <p>If the extractor stops reading YouTube, it resets and tries once more. An empty search can be re-asked with a shorter query. Both write to the app log.</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="block" aria-labelledby="shots">
+          <h2 class="section" id="shots">On the phone</h2>
+          <div class="shots">
+            <figure>
+              <div class="phone">
+                <img src="img/player.webp" alt="The player: chapters, comments and notes under the picture" loading="lazy" />
+              </div>
+              <figcaption>The player: chapters, comments and notes under the picture.</figcaption>
+            </figure>
+            <figure>
+              <div class="phone">
+                <img src="img/appearance.webp" alt="Appearance: theme, accent and a live preview of your cards" loading="lazy" />
+              </div>
+              <figcaption>Appearance: theme, accent and a live preview of your cards.</figcaption>
+            </figure>
+            <figure>
+              <div class="phone">
+                <img src="img/library.webp" alt="Library: subscriptions as channels, History one tap away" loading="lazy" />
+              </div>
+              <figcaption>Library: your subscriptions as channels, History one tap away.</figcaption>
+            </figure>
+          </div>
+        </section>
+
+        <section class="block split" aria-labelledby="limits">
+          <div>
+            <h2 class="section" id="limits">What it is not</h2>
+            <ul class="points">
+              <li>This page and the APK are the distribution.</li>
+              <li>Not a downloader yet. Nothing is saved for offline playback.</li>
+              <li>Posting comments and replies needs your own Google OAuth client, so it stays off until one is supplied.</li>
+              <li>Android 13 or newer. The extractor uses APIs that only exist from there.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h2>If it breaks</h2>
+            <p class="sub" style="margin-top: 0.5rem; font-size: var(--sm)">
+              It's one person's project. Tell me what happened and which screen you were on;
+              the app keeps its own log and a bug report attaches a screenshot.
+            </p>
+            <a class="cta-link" href="app-release.apk">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <path d="M7 10l5 5 5-5" />
+                <path d="M12 15V3" />
+              </svg>
+              Download the latest APK
+            </a>
+          </div>
+        </section>
+
+        <section class="block" aria-labelledby="builds">
+          <h2 class="section" id="builds">Builds</h2>
+          <p class="fine" style="margin-top: 0.5rem">
+            One build is published at a time. Each row carries the notes and the sha256 of the
+            signed file.
+          </p>
+          <ol class="builds" id="versions">
+            <li class="build-meta">Loading…</li>
+          </ol>
+          <noscript>
+            <p class="fine"><a href="app-release.apk" style="color: var(--accent)">Download the latest APK</a></p>
+          </noscript>
+        </section>
+
+        <footer>
+          <a href="https://odesaplay.com.ua/other_apps/portfolio/?app=parallax">More about the app</a>
+          <a href="https://github.com/presaince/parallax" rel="noopener" aria-label="Parallax on GitHub">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" style="vertical-align: -2px; margin-right: 0.35rem">
+              <path d="M12 .5C5.73.5 .5 5.73 .5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.56 0-.27-.01-1.15-.02-2.09-3.2.69-3.88-1.37-3.88-1.37-.52-1.33-1.27-1.68-1.27-1.68-1.04-.71.08-.69.08-.69 1.15.08 1.75 1.18 1.75 1.18 1.02 1.75 2.68 1.24 3.34.95.1-.74.4-1.24.72-1.53-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.28 1.18-3.09-.12-.29-.51-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11.05 11.05 0 0 1 5.79 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.24 2.76.12 3.05.74.81 1.18 1.83 1.18 3.09 0 4.42-2.7 5.39-5.27 5.68.41.36.78 1.06.78 2.14 0 1.55-.01 2.8-.01 3.18 0 .31.21.68.8.56A10.52 10.52 0 0 0 23.5 12C23.5 5.73 18.27 .5 12 .5z" />
+            </svg>
+            GitHub
+          </a>
+          <span style="color: var(--text-muted); font-size: var(--3xs); letter-spacing: 0.16em; text-transform: uppercase">
+            Parallax · GPLv3 · Kotlin and Compose
+          </span>
+          <span style="color: var(--text-muted); font-size: var(--3xs); letter-spacing: 0.16em; text-transform: uppercase">
+            Made by <span class="brand-gradient" style="text-transform: none; letter-spacing: 0; font-size: var(--sm); vertical-align: baseline">Presaince</span>
+          </span>
+        </footer>
+      </main>
+    </div>
+
+    <script>
+      const esc = (s) =>
+        String(s ?? '').replace(/[&<>"']/g, (c) => ({
+          '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+        })[c])
+
+      const list = document.getElementById('versions')
+      const label = document.getElementById('cta-label')
+
+      fetch('version.json?_=' + Date.now(), { cache: 'no-store' })
+        .then((r) => {
+          if (!r.ok) throw new Error('HTTP ' + r.status)
+          return r.json()
+        })
+        .then((v) => {
+          const notes = v.notes && v.notes.en ? v.notes.en : ''
+          if (v.versionName) label.textContent = 'Download Parallax ' + v.versionName
+          list.innerHTML = `
+            <li>
+              <div class="build-row">
+                <span class="build-name">Version ${esc(v.versionName)}</span>
+                <a href="${esc(v.apkUrl)}">Download</a>
+              </div>
+              <div class="build-meta">build ${esc(v.versionCode)}</div>
+              ${notes ? `<p class="build-notes">${esc(notes)}</p>` : ''}
+              <div class="build-hash">sha256 ${esc(v.sha256)}</div>
+            </li>`
+        })
+        .catch(() => {
+          list.innerHTML = `
+            <li class="build-meta">
+              The manifest could not be read.
+              <a href="app-release.apk">Download the latest APK</a>
+            </li>`
+        })
+    </script>
+  </body>
+</html>

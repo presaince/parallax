@@ -1,32 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The launcher icon: the echo. Two objects, one in front of the other.
+  The near P sits at full size; the far P is at 0.625 and displaced 5.3 back, which is the same
+  relationship the window mark uses, without the sheet around it. At 48dp the far P still reads as
+  a second letter, which is why this one ships before the window does.
+  The 32-unit mark is scaled 2.25 into the 72dp safe zone and nudged 1.4/1.0 so the pair is centred.
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- The P from the Presaince favicon, unchanged path, scaled into the 72dp safe zone. -->
+
     <group
-        android:scaleX="2.25"
-        android:scaleY="2.25"
         android:translateX="18"
-        android:translateY="18">
-        <path
-            android:pathData="M11.5 23.5V8.5h5.2a4.1 4.1 0 0 1 0 8.2h-5.2"
-            android:strokeWidth="3.2"
-            android:strokeLineCap="round"
-            android:strokeLineJoin="round">
-            <aapt:attr name="android:strokeColor">
-                <gradient
-                    android:type="linear"
-                    android:startX="0"
-                    android:startY="0"
-                    android:endX="32"
-                    android:endY="32">
-                    <item android:offset="0" android:color="#FFF8FAFC" />
-                    <item android:offset="0.52" android:color="#FFA5E4F5" />
-                    <item android:offset="1" android:color="#FF4CC2E8" />
-                </gradient>
-            </aapt:attr>
-        </path>
+        android:translateY="18"
+        android:scaleX="2.25"
+        android:scaleY="2.25">
+        <group
+            android:translateX="1.4"
+            android:translateY="1.0">
+
+            <!-- the far object: same path, smaller, further back -->
+            <group
+                android:translateX="-5.3"
+                android:translateY="-5.3"
+                android:pivotX="16"
+                android:pivotY="16"
+                android:scaleX="0.625"
+                android:scaleY="0.625">
+                <path
+                    android:pathData="M11.5,23.5 L11.5,8.5 L16.7,8.5 A4.1,4.1 0 0 1 16.7,16.7 L11.5,16.7"
+                    android:strokeWidth="3.2"
+                    android:strokeAlpha="0.55"
+                    android:strokeLineCap="round"
+                    android:strokeLineJoin="round">
+                    <aapt:attr name="android:strokeColor">
+                        <gradient
+                            android:type="linear"
+                            android:startX="0"
+                            android:startY="0"
+                            android:endX="32"
+                            android:endY="32">
+                            <item android:offset="0" android:color="#FFF8FAFC" />
+                            <item android:offset="0.52" android:color="#FFA5E4F5" />
+                            <item android:offset="1" android:color="#FF4CC2E8" />
+                        </gradient>
+                    </aapt:attr>
+                </path>
+            </group>
+
+            <!-- the near object -->
+            <path
+                android:pathData="M11.5,23.5 L11.5,8.5 L16.7,8.5 A4.1,4.1 0 0 1 16.7,16.7 L11.5,16.7"
+                android:strokeWidth="3.2"
+                android:strokeLineCap="round"
+                android:strokeLineJoin="round">
+                <aapt:attr name="android:strokeColor">
+                    <gradient
+                        android:type="linear"
+                        android:startX="0"
+                        android:startY="0"
+                        android:endX="32"
+                        android:endY="32">
+                        <item android:offset="0" android:color="#FFF8FAFC" />
+                        <item android:offset="0.52" android:color="#FFA5E4F5" />
+                        <item android:offset="1" android:color="#FF4CC2E8" />
+                    </gradient>
+                </aapt:attr>
+            </path>
+        </group>
     </group>
 </vector>

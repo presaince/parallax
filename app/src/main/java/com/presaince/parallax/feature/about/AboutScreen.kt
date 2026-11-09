@@ -6,6 +6,7 @@ package com.presaince.parallax.feature.about
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,6 +17,9 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -28,13 +32,17 @@ import androidx.compose.ui.unit.dp
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.material3.Button
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.presaince.parallax.BuildConfig
+import com.presaince.parallax.data.update.UPDATE_BASE_URL
 import com.presaince.parallax.data.update.UpdateState
 import com.presaince.parallax.ui.theme.oklch
 
@@ -63,6 +71,42 @@ fun AboutScreen() {
     val updateState by viewModel.state.collectAsStateWithLifecycle()
     val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val brandRamp = if (darkTheme) BrandRampDark else BrandRampLight
+
+    // The installer permission lives on a system screen, so the app can only send the person there
+    // and pick the thread up on the way back. Without this the Install button had nowhere to go and
+    // simply closed the dialog.
+    var canInstall by remember { mutableStateOf(context.packageManager.canRequestPackageInstalls()) }
+    var waitingForPermission by remember { mutableStateOf(false) }
+
+    fun launchInstall() {
+        val intent = viewModel.installIntent()
+        if (intent == null) {
+            waitingForPermission = true
+            viewModel.openInstallPermissionSettings()
+            return
+        }
+        waitingForPermission = false
+        runCatching { context.startActivity(intent) }
+    }
+
+    // Downloading is the consent. Android still shows its own confirmation, and that one is the
+    // decision; a second question from us had the same answer by construction. One automatic
+    // attempt only, so a cancelled install does not re-open the sheet on every resume.
+    var installLaunched by remember { mutableStateOf(false) }
+    LaunchedEffect(updateState, canInstall) {
+        val ready = updateState is UpdateState.Downloaded
+        if (!ready) installLaunched = false
+        if (ready && canInstall && !waitingForPermission && !installLaunched) {
+            installLaunched = true
+            launchInstall()
+        }
+    }
+
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        val granted = context.packageManager.canRequestPackageInstalls()
+        canInstall = granted
+        if (granted && waitingForPermission) launchInstall()
+    }
 
     // The manifest check runs once when the page is opened; the button runs it again on demand.
     LaunchedEffect(Unit) {
@@ -124,26 +168,45 @@ fun AboutScreen() {
                 modifier = Modifier.weight(1f),
             )
             // The button sits on the right edge of the version line, not on its own row below it.
+            // Once the archive is downloaded it is the install control: the automatic attempt can
+            // be cancelled at the system sheet, and then this is the way back to it.
             Button(
-                onClick = { viewModel.check() },
+                onClick = {
+                    if (updateState is UpdateState.Downloaded) launchInstall() else viewModel.check()
+                },
                 enabled = !isChecking,
             ) {
-                Text(if (isChecking) "Checking…" else "Check for updates")
+                Text(
+                    when {
+                        isChecking -> "Checking…"
+                        updateState is UpdateState.Downloaded -> "Install"
+                        else -> "Check for updates"
+                    },
+                )
             }
+        }
+        // The download page sits beside the APK and lists the published build. The check button
+        // above installs in place; this link is for a browser, a second device, or a share.
+        TextButton(
+            onClick = {
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(UPDATE_BASE_URL))
+                runCatching { context.startActivity(intent) }
+            },
+            modifier = Modifier.padding(top = 4.dp),
+            contentPadding = PaddingValues(horizontal = 0.dp),
+        ) {
+            Text("Visit product page")
         }
         UpdateDialog(
             state = updateState,
-            needsInstallPermission = !context.packageManager.canRequestPackageInstalls(),
+            needsInstallPermission = !canInstall,
             onDownload = { viewModel.download() },
-            onInstall = {
-                viewModel.installIntent()?.let { intent ->
-                    runCatching { context.startActivity(intent) }
-                }
-                viewModel.dismiss()
-            },
             onRetry = { viewModel.check() },
             onLater = { viewModel.dismiss() },
-            onOpenSettings = { viewModel.openInstallPermissionSettings() },
+            onOpenSettings = {
+                waitingForPermission = true
+                viewModel.openInstallPermissionSettings()
+            },
         )
 
         HorizontalDivider(

@@ -21,8 +21,8 @@ import kotlin.math.pow
  */
 enum class ContrastPolicy(val stored: String, val ratio: Float, val label: String) {
     OFF("off", 1f, "Off"),
-    AA("aa", 4.5f, "AA"),
-    AAA("aaa", 7f, "AAA");
+    AA("aa", 4.5f, "Standard"),
+    AAA("aaa", 7f, "High");
 
     /** True when shades may be derived; Off leaves every colour as it was. */
     val enforced: Boolean get() = this != OFF

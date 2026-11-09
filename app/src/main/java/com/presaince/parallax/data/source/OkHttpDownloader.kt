@@ -5,6 +5,7 @@
 package com.presaince.parallax.data.source
 
 import com.presaince.parallax.core.AppLog
+import com.presaince.parallax.core.HttpTrace
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -43,12 +44,15 @@ class OkHttpDownloader(
         }
 
         val method = request.httpMethod().uppercase()
-        if (log != null) {
-            log.info("http", "$method ${hostPath(request.url())} headers=${request.headers().size}")
-        }
+        val startedAt = System.nanoTime()
         client.newCall(builder.build()).execute().use { response ->
             val raw = response.body?.string().orEmpty()
-            log?.info("http", "$method ${hostPath(request.url())} -> ${response.code} ${raw.length}B")
+            val elapsedMs = (System.nanoTime() - startedAt) / 1_000_000
+            // One line, and only when the exchange was not the expected success. Two lines per
+            // request used to fill a report's whole log window with `-> 200`. See HttpTrace.
+            HttpTrace.note(response.code, raw.length, elapsedMs)?.let { detail ->
+                log?.warn("http", "$method ${hostPath(request.url())} $detail")
+            }
             return Response(
                 response.code,
                 response.message,

@@ -39,6 +39,28 @@ class RecipeTest {
     }
 
     @Test
+    fun `a description is optional and capped`() {
+        val withLine = valid.replace(
+            "\"name\": \"Test\",",
+            "\"name\": \"Test\", \"description\": \"Long talks for a slow evening.\",",
+        )
+        val recipe = (RecipeParser.parse(withLine) as RecipeResult.Ok).recipe
+        assertEquals("Long talks for a slow evening.", recipe.description)
+
+        val tooLong = withLine.replace("Long talks", "x".repeat(121))
+        assertTrue(problems(tooLong).any { it.startsWith("description") })
+    }
+
+    @Test
+    fun `describe speaks from the filters when a recipe is silent`() {
+        val recipe = (RecipeParser.parse(valid) as RecipeResult.Ok).recipe
+
+        assertTrue(describe(recipe).startsWith("Related to 3 of your top channels"))
+        assertTrue(describe(recipe).contains("at least 10 min"))
+        assertEquals("A short line.", describe(recipe.copy(description = "A short line.")))
+    }
+
+    @Test
     fun `rejects unknown keys at every level`() {
         assertTrue(problems(valid.replace("\"name\": \"Test\",", "\"name\": \"Test\", \"colour\": \"red\",")).any {
             it.contains("unknown key")

@@ -30,7 +30,8 @@ data class HistoryEntity(
     val videoId: String,
     val title: String,
     val channelName: String,
-    val watchedAt: Long,
+    val openedAt: Long,
+    val watchedAt: Long? = null,
     val thumbUrl: String? = null,
 )
 

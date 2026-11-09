@@ -58,7 +58,13 @@ fun Throwable.toSourceError(): SourceError = when (this) {
     } else {
         SourceError.ExtractorBroken
     }
-    is ContentNotAvailableException -> SourceError.PrivateOrRemoved
+    // Members-only arrives as a plain unavailability whose only distinguishing feature is its
+    // wording; there is no extractor type for it, so it is read before the generic case.
+    is ContentNotAvailableException -> if (isMembersOnly()) {
+        SourceError.MembersOnly
+    } else {
+        SourceError.PrivateOrRemoved
+    }
     is ExtractionException -> SourceError.ExtractorBroken
     is IOException -> SourceError.NetworkFailure
     else -> SourceError.Unknown(message ?: javaClass.simpleName)
@@ -66,3 +72,9 @@ fun Throwable.toSourceError(): SourceError = when (this) {
 
 private fun Throwable.isSabrOnly(): Boolean =
     message?.contains("SABR", ignoreCase = true) == true
+
+/** "This video is only available for members of the channel of this video", and its variants. */
+internal fun Throwable.isMembersOnly(): Boolean {
+    val text = message?.lowercase() ?: return false
+    return "members" in text && ("channel" in text || "members-only" in text || "paid" in text)
+}

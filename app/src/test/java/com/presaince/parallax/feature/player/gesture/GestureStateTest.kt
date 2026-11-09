@@ -61,4 +61,24 @@ class GestureStateTest {
         assertEquals(-1, seekDirection(300f, width))
         assertEquals(1, seekDirection(800f, width))
     }
+
+    @Test
+    fun `a fast flick either way belongs to the ladder, not to a level`() {
+        // The bug: a fast swipe up from the left third turned the volume up on its way to
+        // fullscreen. Speed is pixels per millisecond, signed by direction.
+        assertTrue(flickBelongsToLadder(Zone.Left, totalDy = -80f, pxPerMs = -2f, threshold = 1f))
+        assertTrue(flickBelongsToLadder(Zone.Right, totalDy = -80f, pxPerMs = -2f, threshold = 1f))
+        assertTrue(flickBelongsToLadder(Zone.Left, totalDy = 80f, pxPerMs = 2f, threshold = 1f))
+    }
+
+    @Test
+    fun `a slow drag still owns the level under the finger`() {
+        assertFalse(flickBelongsToLadder(Zone.Left, totalDy = -80f, pxPerMs = -0.3f, threshold = 1f))
+        assertFalse(flickBelongsToLadder(Zone.Left, totalDy = 80f, pxPerMs = 0.2f, threshold = 1f))
+    }
+
+    @Test
+    fun `the centre is already the ladder`() {
+        assertFalse(flickBelongsToLadder(Zone.Centre, totalDy = 80f, pxPerMs = 4f, threshold = 1f))
+    }
 }

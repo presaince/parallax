@@ -106,22 +106,26 @@ object BugUpload {
                 val body = BugReport.bundle(app, log, note, includeShot, includeLogs)
                 val name = BugReport.uploadName()
                 _state.value = BugUploadState.Sending(body.toByteArray(Charsets.UTF_8).size.toLong())
-                post(body, name)
+                val settled = post(body, name)
+                _state.value = settled
+                // The report leaves the device, so without this line the person's own history of
+                // what they filed disappears with it. Diagnostics is where they look for it.
+                if (settled is BugUploadState.Done) log.info("bug", "filed ${settled.name}")
             } catch (error: Exception) {
                 _state.value = BugUploadState.Failed(error.message ?: error.javaClass.simpleName)
             }
         }
     }
 
-    private fun post(body: String, name: String) {
-        try {
+    private fun post(body: String, name: String): BugUploadState {
+        return try {
             val request = Request.Builder()
                 .url(ENDPOINT)
                 .header("X-Log-Name", name)
                 .post(body.toRequestBody(JSON_MEDIA))
                 .build()
             client.newCall(request).execute().use { response ->
-                _state.value = stateFor(
+                stateFor(
                     code = response.code,
                     retryAfter = response.header("Retry-After"),
                     body = response.body?.string().orEmpty(),
@@ -129,7 +133,7 @@ object BugUpload {
                 )
             }
         } catch (error: Exception) {
-            _state.value = BugUploadState.Failed(error.message ?: error.javaClass.simpleName)
+            BugUploadState.Failed(error.message ?: error.javaClass.simpleName)
         }
     }
 

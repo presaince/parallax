@@ -58,36 +58,39 @@ interface ProgressDao {
 @Dao
 interface HistoryDao {
     @Insert
-    suspend fun add(entry: HistoryEntity)
+    suspend fun add(entry: HistoryEntity): Long
 
-    @Query("SELECT * FROM history ORDER BY watchedAt DESC LIMIT 100")
+    @Query("SELECT * FROM history ORDER BY openedAt DESC LIMIT 100")
     fun observeRecent(): Flow<List<HistoryEntity>>
 
-    /** One row per video, however many times it was watched. */
+    /** One row per video, however many times it was opened. Watches count watched plays. */
     @Query(
-        "SELECT videoId, title, channelName, thumbUrl, MAX(watchedAt) AS watchedAt, " +
-            "COUNT(*) AS watches FROM history GROUP BY videoId ORDER BY watchedAt DESC LIMIT 200",
+        "SELECT videoId, title, channelName, thumbUrl, MAX(openedAt) AS watchedAt, " +
+            "SUM(CASE WHEN watchedAt IS NOT NULL THEN 1 ELSE 0 END) AS watches FROM history GROUP BY videoId ORDER BY watchedAt DESC LIMIT 200",
     )
     fun observeGrouped(): Flow<List<HistoryGroup>>
 
-    @Query("SELECT * FROM history ORDER BY watchedAt DESC LIMIT :limit")
+    @Query("SELECT * FROM history ORDER BY openedAt DESC LIMIT :limit")
     suspend fun recent(limit: Int): List<HistoryEntity>
 
     @Query("DELETE FROM history WHERE videoId = :videoId")
     suspend fun clear(videoId: String)
 
-    @Query("DELETE FROM history WHERE watchedAt >= :since")
+    @Query("DELETE FROM history WHERE openedAt >= :since")
     suspend fun clearSince(since: Long)
 
     @Query("DELETE FROM history")
     suspend fun clearAll()
 
+    @Query("UPDATE history SET watchedAt = :watchedAt WHERE id = :id")
+    suspend fun markWatched(id: Long, watchedAt: Long)
+
     /** Every play, newest first — the History section reads this, not the grouped list. */
     @Query(
-        "SELECT h.id, h.videoId, h.title, h.channelName, h.watchedAt, h.thumbUrl, " +
+        "SELECT h.id, h.videoId, h.title, h.channelName, h.openedAt AS watchedAt, h.thumbUrl, " +
             "COALESCE(p.positionMs, 0) AS positionMs, COALESCE(p.durationMs, 0) AS durationMs " +
             "FROM history h LEFT JOIN progress p ON p.videoId = h.videoId " +
-            "ORDER BY h.watchedAt DESC LIMIT :limit",
+            "ORDER BY h.openedAt DESC LIMIT :limit",
     )
     suspend fun events(limit: Int): List<HistoryProgress>
 }
@@ -270,7 +273,7 @@ interface RecipeDao {
         AiChapterEntity::class,
         RecipeEntity::class,
     ],
-    version = 11,
+    version = 12,
     exportSchema = true,
 )
 abstract class ParallaxDb : RoomDatabase() {
@@ -333,6 +336,25 @@ abstract class ParallaxDb : RoomDatabase() {
                         "`model` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, " +
                         "PRIMARY KEY(`videoId`, `atSec`))",
                 )
+            }
+        }
+
+        /** v12 one row per open: openedAt always, watchedAt only when the threshold was met. */
+        val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `history_new` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`videoId` TEXT NOT NULL, `title` TEXT NOT NULL, `channelName` TEXT NOT NULL, " +
+                        "`openedAt` INTEGER NOT NULL, `watchedAt` INTEGER, `thumbUrl` TEXT)",
+                )
+                db.execSQL(
+                    "INSERT INTO `history_new` " +
+                        "(`id`, `videoId`, `title`, `channelName`, `openedAt`, `watchedAt`, `thumbUrl`) " +
+                        "SELECT `id`, `videoId`, `title`, `channelName`, `watchedAt`, `watchedAt`, `thumbUrl` FROM `history`",
+                )
+                db.execSQL("DROP TABLE `history`")
+                db.execSQL("ALTER TABLE `history_new` RENAME TO `history`")
             }
         }
     }

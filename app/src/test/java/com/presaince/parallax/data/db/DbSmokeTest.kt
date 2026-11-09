@@ -42,8 +42,8 @@ class DbSmokeTest {
     private fun subscription(url: String, name: String = url) =
         SubscriptionEntity(url = url, name = name, addedAt = 0)
 
-    private fun history(videoId: String, watchedAt: Long, title: String = videoId) =
-        HistoryEntity(videoId = videoId, title = title, channelName = "channel", watchedAt = watchedAt)
+    private fun history(videoId: String, openedAt: Long, watchedAt: Long? = null, title: String = videoId) =
+        HistoryEntity(videoId = videoId, title = title, channelName = "channel", openedAt = openedAt, watchedAt = watchedAt)
 
     @Test
     fun `a subscription url is the primary key, so an import cannot duplicate it`() = runTest {
@@ -59,9 +59,9 @@ class DbSmokeTest {
     @Test
     fun `history groups one row per video and counts the watches`() = runTest {
         val dao = db.history()
-        dao.add(history("a", watchedAt = 100))
-        dao.add(history("a", watchedAt = 300))
-        dao.add(history("b", watchedAt = 200))
+        dao.add(history("a", openedAt = 100, watchedAt = 100))
+        dao.add(history("a", openedAt = 300, watchedAt = 300))
+        dao.add(history("b", openedAt = 200, watchedAt = 200))
 
         val groups = dao.observeGrouped().first()
 
@@ -73,7 +73,7 @@ class DbSmokeTest {
 
     @Test
     fun `a history event carries the playhead from the progress table`() = runTest {
-        db.history().add(history("a", watchedAt = 100))
+        db.history().add(history("a", openedAt = 100))
         db.progress().save(
             ProgressEntity(
                 videoId = "a",
@@ -93,7 +93,7 @@ class DbSmokeTest {
 
     @Test
     fun `an event without progress reports a zero playhead, not a missing row`() = runTest {
-        db.history().add(history("a", watchedAt = 100))
+        db.history().add(history("a", openedAt = 100))
 
         val event = db.history().events(10).single()
 

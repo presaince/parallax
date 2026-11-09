@@ -42,4 +42,19 @@ class TimeTest {
         val now = 1_800_000_000_000L
         assertEquals("now", timeAgo(now + 60_000, now))
     }
+
+    @Test
+    fun `a seek undo names the seconds as well as where it landed`() {
+        // The report: "seek undo should say secs seek too". The distance is the part a person
+        // remembers; the position is the part they check.
+        assertEquals("Seeked +12s to 1:00", seekUndoLabel(beforeMs = 48_000, afterMs = 60_000))
+        assertEquals("Seeked \u221245s to 0:15", seekUndoLabel(beforeMs = 60_000, afterMs = 15_000))
+    }
+
+    @Test
+    fun `a seek under a second does not round itself into a lie`() {
+        assertEquals("Seeked 0s to 0:30", seekUndoLabel(beforeMs = 30_000, afterMs = 30_400))
+        assertEquals("+1s", seekDelta(1))
+        assertEquals("0s", seekDelta(0))
+    }
 }

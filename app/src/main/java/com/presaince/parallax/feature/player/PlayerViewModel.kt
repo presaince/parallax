@@ -8,6 +8,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.presaince.parallax.core.AppLog
 import com.presaince.parallax.core.AppResult
+import com.presaince.parallax.core.SourceError
 import com.presaince.parallax.data.db.ParallaxDb
 import com.presaince.parallax.data.model.VideoSummary
 import com.presaince.parallax.data.resync.AiChaptersEngine
@@ -35,6 +36,8 @@ data class PlayerUiState(
     /** True once the detail (description, chapters source) has landed, after the video itself. */
     val detailReady: Boolean = false,
     val error: String? = null,
+    /** Why the stream failed, when the source could classify it. Drives the copy and the retry. */
+    val errorKind: SourceError? = null,
 )
 
 /**
@@ -137,7 +140,7 @@ class PlayerViewModel(
     }
 
     private suspend fun loadOnce(resumeOverrideMs: Long? = null) = coroutineScope {
-        _state.update { it.copy(loading = true, error = null) }
+        _state.update { it.copy(loading = true, error = null, errorKind = null) }
 
         // Streams and the resume lookup run together, and the description rides along
         // without holding playback up. They all share one StreamInfo fetch.
@@ -165,7 +168,13 @@ class PlayerViewModel(
             is AppResult.Err -> {
                 log.error("source", "streams failed for ${summary.id}: ${result.message}")
                 _state.update {
-                    it.copy(loading = false, error = result.message)
+                    it.copy(
+                        loading = false,
+                        // A classified failure gets the plain sentence; the raw extractor text
+                        // stays in the log where it is useful.
+                        error = result.sourceError?.userMessage ?: result.message,
+                        errorKind = result.sourceError,
+                    )
                 }
             }
         }

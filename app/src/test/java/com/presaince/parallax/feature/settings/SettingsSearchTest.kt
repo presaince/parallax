@@ -21,7 +21,7 @@ class SettingsSearchTest {
     @Test
     fun `finds a row by the words a person types`() {
         assertTrue("Skip SponsorBlock" in titles("ads"))
-        assertTrue("Import subscriptions" in titles("takeout"))
+        assertTrue("Import backup" in titles("takeout"))
         assertTrue("Model endpoint (AI)" in titles("api key"))
     }
 

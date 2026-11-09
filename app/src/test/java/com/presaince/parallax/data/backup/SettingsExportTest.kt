@@ -44,12 +44,14 @@ class SettingsExportTest {
             .putString("oauth_access_token", "ya29.access-token")
             .putString("oauth_refresh_token", "1//refresh-token")
             .putString("client_secret", "gocspx-client-secret")
+            // The key the auth code really writes.
+            .putString("access_token", "ya29.the-real-one")
             .commit()
 
         val json = SettingsExport.json(context)
 
         assertFalse(json.contains("sk-parallax-secret"))
-        assertFalse(json.contains("ya29.access-token"))
+        assertFalse(json.contains("ya29"))
         assertFalse(json.contains("1//refresh-token"))
         assertFalse(json.contains("gocspx-client-secret"))
         // The key names must not travel either: a reader should not learn what to ask for.
@@ -58,31 +60,37 @@ class SettingsExportTest {
     }
 
     @Test
-    fun `settings that are safe to carry are exported`() {
+    fun `every stored choice is carried, in the form the app reads`() {
         prefs()
             .putString("theme_mode", "LIGHT")
             // The stored key is the hue slot, not the spoken label ("Violet" is h280).
             .putString("accent", "h280")
             .putBoolean("sponsor_skip", false)
             .putFloat("playback_speed", 1.5f)
+            .putInt("stream_cache_mb", 4096)
+            .putBoolean("card_title", false)
             .putStringSet("sponsor_categories", setOf("music_offtopic", "intro"))
             .putString("resync_endpoint", "https://api.example/v1")
             .putString("resync_model", "some-model")
+            .putBoolean("resync_enabled", true)
             .putString("search_history", "lofi\nkotlin\n\n")
             .commit()
 
         val json = JSONObject(SettingsExport.json(context))
 
         assertEquals("parallax", json.getString("app"))
-        assertEquals(1, json.getInt("version"))
+        assertEquals(2, json.getInt("version"))
 
         val appearance = json.getJSONObject("appearance")
         assertEquals("LIGHT", appearance.getString("theme"))
         assertEquals("h280", appearance.getString("accent"))
 
+        assertFalse(json.getJSONObject("cards").getBoolean("title"))
+
         val playback = json.getJSONObject("playback")
         assertFalse(playback.getBoolean("sponsorSkip"))
         assertEquals(1.5f, playback.getDouble("speed").toFloat(), 0.0001f)
+        assertEquals(4096, playback.getInt("cacheMb"))
         // Sorted, so two exports of the same settings are byte-identical.
         val categories = playback.getJSONArray("sponsorCategories")
         assertEquals(2, categories.length())
@@ -90,7 +98,7 @@ class SettingsExportTest {
         assertEquals("music_offtopic", categories.getString(1))
 
         val resync = json.getJSONObject("resync")
-        assertFalse(resync.getBoolean("enabled"))
+        assertTrue(resync.getBoolean("enabled"))
         assertEquals("https://api.example/v1", resync.getString("endpoint"))
         assertEquals("some-model", resync.getString("model"))
 
@@ -99,14 +107,34 @@ class SettingsExportTest {
         assertEquals(2, history.length())
         assertEquals("lofi", history.getString(0))
         assertEquals("kotlin", history.getString(1))
+
+        // The region this install asks as is always worth carrying, even when never chosen.
+        assertTrue(json.getJSONObject("content").getJSONArray("regions").length() >= 1)
+    }
+
+    @Test
+    fun `the count behind a receipt counts values, not groups`() {
+        val settings = org.json.JSONObject()
+            .put("app", "parallax")
+            .put("version", 2)
+            .put(
+                "appearance",
+                org.json.JSONObject().put("theme", "DARK").put("accent", "h280"),
+            )
+            .put("search", org.json.JSONObject())
+
+        assertEquals(2, SettingsExport.count(settings))
     }
 
     @Test
     fun `an empty install still produces a readable file`() {
         val json = JSONObject(SettingsExport.json(context))
 
+        assertEquals("parallax", json.getString("app"))
         assertTrue(json.has("appearance"))
         assertTrue(json.has("playback"))
-        assertEquals(0, json.getJSONObject("search").getJSONArray("history").length())
+        assertTrue(json.has("cards"))
+        // Nothing was chosen, so nothing is claimed.
+        assertFalse(json.getJSONObject("appearance").has("theme"))
     }
 }

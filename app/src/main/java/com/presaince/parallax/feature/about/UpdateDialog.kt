@@ -22,7 +22,6 @@ fun UpdateDialog(
     state: UpdateState,
     needsInstallPermission: Boolean,
     onDownload: () -> Unit,
-    onInstall: () -> Unit,
     onRetry: () -> Unit,
     onLater: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -72,21 +71,25 @@ fun UpdateDialog(
         }
         is UpdateState.Downloaded -> {
             if (needsInstallPermission) {
+                // Install cannot work without the permission, so it is not offered as a button that
+                // does nothing. Opening the system page and coming back is the whole path.
                 AlertDialog(
                     onDismissRequest = onLater,
-                    title = { Text("Permission to install") },
-                    text = { Text("To install the update, allow this app to install other apps.") },
+                    title = { Text("Allow updates to install") },
+                    text = {
+                        Text(
+                            "Android needs permission before Parallax can hand an update to the " +
+                                "installer. Turn on Allow from this source, then come back: the " +
+                                "update installs straight away.",
+                        )
+                    },
                     confirmButton = { TextButton(onClick = onOpenSettings) { Text("Open settings") } },
-                    dismissButton = { TextButton(onClick = onInstall) { Text("Install") } },
+                    dismissButton = { TextButton(onClick = onLater) { Text("Not now") } },
                 )
             } else {
-                AlertDialog(
-                    onDismissRequest = onLater,
-                    title = { Text("Ready to install") },
-                    text = { Text("The update is downloaded. Tap Install to apply it.") },
-                    confirmButton = { TextButton(onClick = onInstall) { Text("Install") } },
-                    dismissButton = { TextButton(onClick = onLater) { Text("Later") } },
-                )
+                // Nothing: the download was the consent. The system installer's own sheet is the
+                // next screen and the only confirmation worth showing, so a dialog here asked
+                // "install?" and the installer asked the same thing again.
             }
         }
         is UpdateState.Failed -> {

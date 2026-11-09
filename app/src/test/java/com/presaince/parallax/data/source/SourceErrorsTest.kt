@@ -9,10 +9,12 @@ import com.presaince.parallax.core.SourceError
 import java.io.IOException
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.schabi.newpipe.extractor.exceptions.AgeRestrictedContentException
+import org.schabi.newpipe.extractor.exceptions.ContentNotAvailableException
 import org.schabi.newpipe.extractor.exceptions.ParsingException
 import org.schabi.newpipe.extractor.exceptions.SignInConfirmNotBotException
 
@@ -52,6 +54,30 @@ class SourceErrorsTest {
         val error = IllegalStateException("no readable captions").toSourceError()
         assertTrue(error is SourceError.Unknown)
         assertEquals("no readable captions", (error as SourceError.Unknown).raw)
+    }
+
+    @Test
+    fun `members only is its own reason, read from the wording`() {
+        // The extractor raises this as a plain unavailability; the sentence is the only signal.
+        val error = ContentNotAvailableException(
+            "This video is only available for members of the channel of this video",
+        ).toSourceError()
+        assertSame(SourceError.MembersOnly, error)
+    }
+
+    @Test
+    fun `a private video is still read as private`() {
+        val error = ContentNotAvailableException("This video is private").toSourceError()
+        assertSame(SourceError.PrivateOrRemoved, error)
+    }
+
+    @Test
+    fun `a permanent failure is one that retrying cannot change`() {
+        assertTrue(SourceError.MembersOnly.permanent)
+        assertTrue(SourceError.PrivateOrRemoved.permanent)
+        assertTrue(SourceError.AgeRestricted.permanent)
+        assertFalse(SourceError.NetworkFailure.permanent)
+        assertFalse(SourceError.ExtractorBroken.permanent)
     }
 
     @Test

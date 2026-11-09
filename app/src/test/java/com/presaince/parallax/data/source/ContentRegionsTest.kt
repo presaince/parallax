@@ -51,9 +51,43 @@ class ContentRegionsTest {
     }
 
     @Test
-    fun `an empty write changes nothing`() {
+    fun `the default is System, not a country`() {
+        assertEquals(listOf(SYSTEM_REGION), readContentRegions(context))
+    }
+
+    @Test
+    fun `an empty write means System`() {
         writeContentRegions(context, listOf("GB"))
         writeContentRegions(context, emptyList())
-        assertEquals(listOf("GB"), readContentRegions(context))
+        assertEquals(listOf(SYSTEM_REGION), readContentRegions(context))
+    }
+
+    @Test
+    fun `one tap adds, removes and stops at the cap`() {
+        assertEquals(listOf("GB"), toggleRegion(emptyList(), "GB"))
+        assertEquals(listOf("GB", "US"), toggleRegion(listOf("GB"), "US"))
+        assertEquals(listOf("GB"), toggleRegion(listOf("GB", "US"), "US"))
+        assertEquals(listOf("GB", "US", "DE"), toggleRegion(listOf("GB", "US", "DE"), "FR"))
+    }
+
+    @Test
+    fun `the last region falls back to System`() {
+        assertEquals(listOf(SYSTEM_REGION), toggleRegion(listOf("GB"), "GB"))
+    }
+
+    @Test
+    fun `a country replaces System and System replaces countries`() {
+        assertEquals(listOf("GB"), toggleRegion(listOf(SYSTEM_REGION), "GB"))
+        assertEquals(listOf(SYSTEM_REGION), toggleRegion(listOf("GB", "US"), SYSTEM_REGION))
+        assertEquals(listOf(SYSTEM_REGION), toggleRegion(listOf(SYSTEM_REGION), SYSTEM_REGION))
+    }
+
+    @Test
+    fun `System resolves to the phone's country`() {
+        writeContentRegions(context, listOf(SYSTEM_REGION))
+        val country = java.util.Locale.getDefault().country.uppercase()
+        val expected = if (country.length == 2) listOf(country) else listOf("")
+
+        assertEquals(expected, resolvedRegions(context))
     }
 }

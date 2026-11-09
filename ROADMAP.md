@@ -8,6 +8,66 @@ place. The shell and the second UI pass landed 2026-11-05 (bottom navigation, th
 inline comments, mini-player, pull-to-refresh); the device check for that pass is still pending.
 No git repo — Bodi tests a build for a few days first.
 
+## Screenshots and copy, 2026-11-09 (seventh)
+
+- **Five captures replace the three.** `parallax1..5.webp` in the portfolio, and
+  `web/img/feed|player|appearance|bored|library.webp` on the download page, are new stills of the
+  current build at 1080×2400 (exactly 9:20, so the phone frames never crop them): the feed in Glass
+  with brand cyan, the player with the chapter row, Appearance with the theme tiles and the live
+  card preview, Bored with Why these? open, and the Library grid. The demo-mode status bar is used
+  (9:41, full battery, wifi only); Oko's alert icon is the one system icon left, because killing a
+  live air-raid app to tidy a screenshot is not a trade worth making.
+- **The captures are from the phone, not a mock.** `parallax4.webp` is the Bored panel with its
+  filters visible rather than the older "Back to the recipe" screen, and `parallax2.webp` is a video
+  that actually plays, so the shot shows chapters and comments after the first frame.
+- **`onboarding_feed.webp` was regenerated** from the new feed at 540×1200, so the welcome page and
+  the marketing page cannot show different builds.
+- **Copy: the slogans went.** "Belongs to you", "on your terms", "dial in", "local-first by
+  construction" and "when the source breaks" are gone from both pages; the showcase and feature
+  titles now say what happens ("Share the range, not the whole video", "Speed in 0.1 steps",
+  "When YouTube changes"). The hero is "A YouTube client that does the things YouTube won't". The
+  install and limits copy lost their duplicate "no Play Store listing" sentence, so it is said once.
+- **The two pages still say the same words**, including the three captions under "On the phone".
+- Verified: `npm run build` in the portfolio (check-assets: 53 screenshots present), and a Playwright
+  pass over both pages measuring the decoded images: five per page, every one 1080×2400 at ratio
+  0.450, no broken image, one `h1`, captions matching the copy. Not deployed.
+
+## Settings and System accent, 2026-11-09
+
+
+
+- **Settings is one surface.** `Route.SettingsPage` is gone; the open section is state in
+  `ParallaxNav`, so the Pburger can never push Settings on top of itself and Back can only leave
+  the section or leave Settings. One `back` lambda serves the gesture and the top-bar arrow.
+- **System accent.** `Accents.SYSTEM` stores the name, `readAccent` resolves the hue from
+  `dynamicDarkColorScheme(context).primary` on every read, and `systemAccentOf` keeps the app's own
+  saturation and lightness. A grey wallpaper falls back to the brand hue; the picker draws the real
+  primary in its own row under the hue field.
+- **Shipped 0.3.7 (code 10)** to `https://odesaplay.com.ua/other_apps/parallax/`, signed with
+  Oko's release key (cert SHA-256 `289dfe1c…1f31`, the same as 0.3.6), `version.json` read back
+  from the server with code 10 and sha256 `546402dc…dbdf`.
+- Checked: `SystemAccentTest` (2 tests, hue and the grey fallback), `assembleDebug`,
+  `assembleRelease`, `apksigner verify`. **Not checked on the Pixel** — no device attached, so
+  neither the settings back behaviour nor the System swatch has had a hand run.
+
+## Download page, 2026-11-09
+
+- `web/index.html` now wears the app's own Glass theme instead of the portfolio's flat dark page:
+  the three aurora glows from `glassBlobs` on the `glassBase` near-black, fixed behind the page,
+  with `backdrop-filter` cards, a hairline border and an inner top highlight. Nothing animates and
+  the aurora does not scroll, which is the "static aurora" the copy promises. The page now mirrors
+  the portfolio's ParallaxBeta copy: the three showcase rows alternate a rebuilt panel (the share
+  card, the Appearance screen reduced to theme, accent shuffle and card preview) or a phone shot
+  with the argument and its note, and the features keep the portfolio's lucide icon tiles over a
+  hairline rule instead of becoming eight more cards. The copy in the two places is identical and
+  the portfolio reads `version.json` beside the APK, so the version cannot go stale in either.
+  The download page still carries the Builds list with the sha256, which the portfolio page has
+  no reason to show.
+- Checked in Chromium at 375, 656, 820 and 1440: no horizontal overflow, the card blur and fill
+  resolve, the generated builds row fits, and muted text measures 4.7:1 over the brightest blob
+  and 7:1 on a card. Not opened on a phone, not deployed.
+
+
 ## Phases, 2026-11-07 (third)
 
 The current batch of asks, cut into phases so nothing is dropped and each phase ends on a build.
@@ -92,6 +152,61 @@ Phases 1, 2, 3 and 6 are built and installed; the owner's check is what decides 
 - **Open question: multi-region.** Built: up to three regions, search fans out, feed stays on the
   main one.
 
+## Startup wizard, 2026-11-09 (second look)
+
+- **Four pages, fresh installs only.** Look, Ads, Player, Start. The region page was cut after the
+  first hand look: the phone's country stays the default through `readContentRegions`, and changing
+  it is Settings' job. The gate is `firstInstallTime == lastUpdateTime`, so an update never rewrites
+  an answered setup; Settings → About → Run setup again is the way back.
+- **The welcome is a real capture**: `web/img/feed.webp` scaled to 540×1200 and shipped as
+  `drawable-nodpi/onboarding_feed.webp`, in a 112 dp phone frame with an accent shadow and a 5 dp
+  float. The drawn card field is gone; it read as random squares.
+- **The look page is panels**, not paragraphs: Theme, Accent and Card preview on the Settings card
+  fill. Theme is four icon tiles — System first, then Glass, Dark, Light — and the preview card is
+  selectable: Side, Classic and Minimal write `CardStyle` and the card repaints. The tagline is
+  "No ads, better features, no tracking."
+- **Ads keeps both answers on screen**: two radio rows, starting from the current SponsorBlock
+  state. No replaces-the-buttons UX and no change-my-answer. The line under them says YouTube ads
+  are not in the stream.
+- **The player page** is the same gesture lesson at full width with titleMedium/bodyLarge type;
+  Settings keeps the compact one. Each step draws its target on the stage in dashes: a tap ring,
+  a seek bar with arrows, and volume and brightness pills. The fourth is the real three-stop
+  ladder — normal, mini, super-mini — with the card shrinking inside a fixed stage and a dashed
+  outline holding its place; the step completes only after the bar and the return. Four dots fill
+  as the gestures land, and all four plus a check is the finished state.
+- **Start** is a panel with an import icon and one format line, and the card itself opens the
+  picker; the bottom primary is only Start with nothing, then Open feed after an import. The
+  in-page duplicate was removed.
+- **About** says "Visit product page", not "Download the APK".
+- **Verified**: `assembleDebug` clean; the whole unit suite green, with `OnboardingFlowTest` now
+  four pages plus `ThemeDefaultsTest` and the `toggleRegion` cases. The debug APK was installed over
+  the existing app on the Pixel 7 with no data loss; the hand check has not run yet.
+
+## Gesture lesson and type, 2026-11-09 (third look)
+
+- **The invitation moved onto the picture**: "Gesture tutorial" / "Touch me". The header no longer
+  says "Tap the card to start".
+- **The lesson is full width** in Settings and the wizard, with one centered step line, a centered
+  hint, and the seek hint naming the speed and the base step in Settings.
+- **Progress is a four-column line** on the bottom edge of the picture; no dots and no checkmark.
+  At the end it is full and Restart tutorial replaces the hint.
+- **Volume and brightness switch without lifting**: the active control follows the finger across the
+  middle. The pair sits where the finger went down — active 40x96, partner 28x64 dimmed 8dp beside
+  it — not on the far edges. The player does the same: `PlaybackGestures` passes the down point and
+  the current half during a side drag, and the HUD draws both levels. A drag that starts in the
+  centre stays on the ladder, and a fast flick still minimises.
+- **The lesson's pair matches**: the live pair appears at the down point, and the dashed step-2
+  target is the same pair in the middle, not two edge pills.
+- **Seek matches Settings**: `SeekRate` is shared by the player and the lesson. The first tenth is
+  exactly the 2/5/10 s base and the ramp reaches 8x at 40% of the width. The lesson's target is a
+  2.5dp line and its readout is the signed delta only; the fake 210–720 s target the finger could
+  never reach is gone.
+- **The type scale is one step up** from Material's defaults in `AppTypography` (body 15/17, labels
+  12/13/15, titles 15/17/23), with line heights to match. It still follows the system font scale.
+- **Verified**: `assembleDebug` clean with the pair and `SeekRate`. The unit suite could not finish:
+  an unrelated in-progress `PostingScreen.kt` edit broke the compile when it started. The Pixel was
+  detached, so this build is not installed; the hand check is pending.
+
 ## Settings pass, 2026-11-07 (second)
 
 - **Surfaces is one control, cut across**: Glass on top, Solid underneath, in a single block. Two
@@ -164,25 +279,179 @@ Phases 1, 2, 3 and 6 are built and installed; the owner's check is what decides 
   `PlaybackRecoveryTest`), 0 failures. No hand check yet: the seek-back and reopen paths are the
   owner's to judge.
 
-## Asked, not done (second FTP batch, 2026-11-09)
+## Download page, 2026-11-09 (third)
 
+- **About gets a download link**, pointed at the published folder rather than the raw file: the page
+  there carries the version, notes and hash, and "Check for updates" still installs in place.
+- **The page wears the portfolio beta page's clothes**, not its own: the same tokens (surface,
+  accent `#4cc2e8`, 3xs/2xs/eyebrow scale), the gradient wordmark, the accent install card with three
+  numbered steps, and the phone frame. One static file, its CSS inline, no build step and no shared
+  bundle; it reads `version.json` at load, so a release never edits a page.
+- **The captures ship with it.** `web/img/feed|bored|about.webp` are copies of the portfolio's
+  `parallax*.webp`, because the portfolio's screenshots path on this host answers with the link stub
+  (HTML, 200) rather than the image. Linking out would have been a broken frame that still "passed".
+- **Two deploy configs, one page.** `deploy-apk.properties` uploads the page and images with the APK;
+  `deploy-page.properties` (`dist=none`, same `extra=` list) ships a copy change without needing a
+  signed release on disk. The four `extra=` entries live in both and must stay in step.
+- **One row is the honest answer.** `app-release.apk` is overwritten every release, so there is no
+  second build to list. Keeping older APKs — a versioned filename per release and a manifest per
+  build — is the change if history is ever wanted; nothing about the page has to change first.
+- Verified live at <https://odesaplay.com.ua/other_apps/parallax/>: the tab title, the h1, the CTA
+  reading "Download Parallax 0.3.0" from the manifest, one build row with the 6-line notes and the
+  sha256, all three images decoded at 1080 wide, `#0a0a0a` background, no console errors. The Android
+  side reuses `UPDATE_BASE_URL` and adds no logic, so there is no new test; the page has none.
+
+## Versioning, 2026-11-09 (fourth)
+
+- **0.3.1, versionCode 4.** The published manifest was still 0.3.0 / code 3, so the check in every
+  installed build answered "up to date" after a week of changes. The number had been edited by hand
+  and forgotten twice.
+- **One script owns the pair.** `scripts/bump-version.mjs --apply` reads the live manifest, sets
+  `versionCode` one past whichever number is higher, and moves the patch. The report mode exits 1
+  when the tree is not newer, so it can gate a release without writing anything.
+- **The manifest generator refuses a used code.** `make-version-json.mjs` fetches the published
+  `version.json` after signing and throws if the new code is not above it. The failure lands on the
+  release machine, not in "nothing new" on every phone.
+- **The signature answer.** The live APK is release-signed (`CN=Ukraine Drones`, same certificate
+  as Oko's release, keystore in Oko's `app/`); cable builds carry the Android debug key. Android
+  will not install either over the other, which is why the page's APK "would not install" on a
+  phone that had the debug build. One uninstall moves a device across.
+- Tests: `node --test scripts/bump-version.test.mjs`, 5 passing (patch bump, carry at 100, short
+  version, next code beats both sides, read/write round-trip). No device check: nothing rebuilt or
+  uploaded yet.
+
+## Updates, 2026-11-09
+
+- **The second question is gone.** "Ready to install" asked what the download had already answered,
+  and the system installer asked it again a moment later. A verified archive now goes straight to
+  the installer; the About button becomes Install, and a cancelled system sheet leaves it that way
+  instead of reverting to Check for updates. One automatic attempt per download, so a cancel cannot
+  become a loop.
+
+## Settings backup and tiles, 2026-11-09 (fifth)
+
+- **One backup, one file, one button each.** `parallax-backup.json` carries subscriptions, the
+  settings and the reader's own Bored recipes. The subscription half is the same NewPipe-shaped
+  object the exporter already wrote, so a restore goes back through the importer that was already
+  tested; settings and recipes keep their own objects. A backup is additive: it merges, never wipes.
+- **Settings can now be imported.** Until this pass `SettingsExport` was write-only — a settings
+  file fed to the subscription picker answered "Could not read that file". `SettingsImport` is the
+  other direction, and the two walk one table (`SettingsSchema`) so a field cannot be exported and
+  forgotten by the restore. It covers the stored choices, not only the six the old file named:
+  theme, Glass base and level, accent, room, contrast, shuffle, card layout and its ten switches,
+  quality, cache size, swipe-to-seek, PiP, restart, chapters, hide-live, haptics and its four
+  per-feature switches, Bored's skip-subscribed, regions and search history.
+- **The file is read by content, not by name.** `BackupReader` decides between a combined backup,
+  a settings object, a subscription list (NewPipe zip/JSON, LibreTube JSON, Takeout CSV) and a
+  single recipe from what is inside. Four buttons used to ask the reader to know which one they
+  were holding; there are two now, and "could not read that file" only appears when the content
+  really is unrecognised. A settings file can no longer be mistaken for a recipe.
+- **AI never comes back on without a key.** The endpoint and model restore, the switch does not
+  unless a Resync key is already in the Keystore, and the receipt says so. An enabled switch with
+  no key is a dead control.
+- **The Backup page is two large tiles; the Settings index is untouched.** The old Backup rows were
+  four paragraphs that explained file formats nobody reads at the moment of tapping. They are two
+  tiles now, Export and Import, and the export says what it wrote ("Saved 38 subscriptions, 34
+  settings and 2 recipes"). `SettingsTile` is that shape and only that page uses it; the root index
+  keeps its three-across cards and their summary line, because the ask was bigger cards on the
+  import/export page, not a new front page.
+- **Bored's recipes have a shelf.** The chip row keeps the fast path; a menu at its end opens a
+  sheet listing every recipe with a letter plate, the name and one line of what the walk does
+  (`describe`, assembled from the filters unless the recipe wrote its own `description`, ≤120
+  characters). User recipes delete; built-ins do not, and the query refuses them by source anyway.
+  Recipe import moved here from Settings. The chips follow the Room table, so a restore made in
+  Settings cannot leave Bored holding a stale list.
+- Verified: `:app:assembleDebug` clean; the whole unit suite green, 0 failures (263 tests at the
+  time of writing), including `BackupReaderTest`, `SettingsImportTest`, `BackupReceiptTest` and the
+  rewritten `SettingsExportTest`. No hand check: the tile sizes, the receipt wording on a real
+  export and the recipe sheet are the owner's to judge.
+
+## Naming and region, 2026-11-09 (sixth)
+
+- **Feedback is Haptics.** The page only ever held vibration switches, and "Feedback" reads as a
+  request for a review. Title changed; every keyword ("vibration", "buzz", "feedback") still
+  finds it.
+- **Backup is Data again**, because that is what it is. The page now says what it reads — a
+  Parallax backup, a NewPipe zip or JSON, a LibreTube JSON, a Takeout CSV, or one Bored recipe —
+  and lists what it can see: the backups in a folder chosen once through the system picker, plus
+  the last few files this app wrote, deduplicated by URI, folder first then newest, capped at
+  eight. Tapping a row imports it through the same path as the picker. SAF tree grant, no blanket
+  storage permission, only `.json`, `.zip` and `.csv` offered.
+- **Run setup again left About** for a full-width outlined button at the bottom of the settings
+  index. A wizard re-run is a settings errand, not a fact about the app.
+- **The United States is no longer a default.** Both hardcoded `"US"` literals are gone, and the
+  region picker opens with a **System** row: ask as the phone's locale country, or send no country
+  at all when the phone has none. Picking a country replaces System, System replaces the countries,
+  and tapping the last country off lands back on System instead of refusing, because "no country"
+  is a real answer.
+- Verified: `:app:assembleDebug` clean; the suite green, 274 tests, 0 failures, including
+  `BackupFilesTest` and the rewritten `ContentRegionsTest`. The empty-country path
+  (`ContentCountry("")`) is the one thing only the Pixel can settle.
+
+## Third FTP batch, 2026-11-09
+
+Thirteen reports, grouped in `docs/reports.md`. Eight of them turned into code:
+
+- **Members-only is its own state.** The extractor reports it as a plain unavailability, so
+  `SourceErrors` reads the wording and `SourceError.MembersOnly` carries its own sentence. A
+  permanent failure (`members`, `private`, `age`, `geo`, `sign-in`) now draws the black frame with
+  no Retry button: pressing it could only fail again. The "cat video" line that stood where the
+  message belonged is gone.
+- **A flick either way belongs to the ladder.** `flickBelongsToLadder` hands a fast upward swipe
+  to the minimise/fullscreen gesture instead of the volume band under the finger, which is what
+  made a swipe up for fullscreen turn the volume up on the way.
+- **Rotating works after leaving fullscreen.** Exit restores `SENSOR`, and holds the portrait
+  decision only while the phone is still sideways, so turning the phone goes back to fullscreen.
+- **The speed pill resets.** A tap is 1.0x, and the pill says so under the number while it is not.
+- **Seek undo names the seconds**: "Seeked +12s to 1:00". `seekUndoLabel` is in `core/Time.kt`.
+- **The share panel seeks.** Six step buttons (−30, −10, −2, +2, +10, +30 s) move the start and
+  the picture, because a handle on a two-hour video cannot land on a second.
+- **Up next refreshes**, one call per tap and none per recomposition; a failed refresh keeps the
+  list rather than pretending nothing follows the video.
+- **Bored explains itself.** The empty screen lists the modes with their `describe` sentence
+  instead of saying "Choose a mode" over four names nobody has met.
+
+Verified: `:app:assembleDebug` clean, 299 unit tests 0 failures (new: `flickBelongsToLadder`,
+members-only classification, `permanent`, `seekUndoLabel`), installed on the Pixel 7. **The hand
+check has not run** — the gesture, the rotation and the sheet are the owner's to judge.
+
+## Asked, not done (2026-11-09, FTP)
+
+The per-report record is `docs/reports.md`: one line per filed report, with a status that survives
+`node scripts/reports.mjs`. This is the grouped reading of what is still open.
+
+- **Buffering that lasts longer than the retry** (212007). The log shows one 15 s stall on
+  `c1JGheQBPH4` at 94 s, a recovery, `ready in 2514ms`, and `net=wifi`: the retry worked and the
+  note still says "still is". Two candidates, neither proven: the pill keeps saying *Buffering*
+  while ExoPlayer is in fact playing, or a second stall follows the first and the two retries are
+  spent. Needs a device repro with the log open, not a guess.
+- **Bored, enhanced** (222224). "Good idea, enhance it" names no behaviour. The next step is a
+  decision about what the mode is for — a recommendation engine, a playlist builder, or a faster
+  path into long-form — before any code.
+- **The portfolio's Parallax page** (222407) needs another pass, with no target named. That is the
+  portfolio project's work, not this one's.
 - **A pasted or clipboard YouTube link should open the video** instead of being searched as words.
 - **Comments expand on a row tap only.** The chevron closes them; tapping a reply must not collapse
   the thread.
+- **Voice-note count on cards**, an icon rail in the thumbnail corner, and smart placement that
+  samples the frame for dark or empty regions.
+- **A dead subscription keeps its slot.** 212007's log names `Peruvian Bull`,
+  `This channel does not exist`, on every refresh. Retiring it needs a failure count per
+  subscription, which is a Room v12 column and a decision about auto-removing something the person
+  asked for. See Queued.
 
-## Asked, not done (2026-11-07)
+## Process, 2026-11-09
 
-What has been asked for and is still outstanding, so it cannot be quietly dropped:
-
-- [x] **Card border as a signal** — watch progress only (2dp primary when >5%), removed 2026-11-08.
-- [x] **The AI page** — stub page on the Resync key (summary/ask/blurbs announced) 2026-11-08.
-- [ ] **Voice-note count on cards**, an icon rail in the thumbnail corner, and smart placement that
-      samples the frame for dark or empty regions.
-- [x] **Download integrity** — already in UpdateInfo (sha256 + version.json) 2026-11-08.
-- [x] **The cache TTLs from the plan** — metadata 6h, related 12h, uploads 30m in NewPipeSource;
-      comments 1h in ContentRepository 2026-11-08.
-- [x] **Room before release** — schema v11 exported, destructive fallback dropped 2026-11-08.
-- [ ] **Device gates** — M1–M5 have never had a run on the Pixel; M6 needs an OAuth client.
+- **Reports are read by a script, not by eye.** `node scripts/reports.mjs` pulls the last three
+  hours over FTP and prints a note and a version per report; `--log=<id>` prints only the warn and
+  error lines of one; `--open` lists what nobody has answered; `--set "223004=…"` answers one. It
+  never prints credentials and never rewrites a line that already has a status. Twelve 40KB bundles
+  used to be read in full to find five sentences.
+- **The log window is for events, not for chatter.** `HttpTrace` silences a request that succeeded
+  in good time, so a report's 300 entries cover a session instead of ten minutes; a non-2xx, an
+  empty 200 and a call over 8 s still log. `HttpTraceTest` pins the three exceptions.
+- **A filed report leaves a line behind.** `BugUpload` writes `bug: filed <name>` to the log, so
+  Diagnostics is the history of what was sent (223316, 223324).
 
 ## UI pass, 2026-11-07
 
@@ -370,10 +639,27 @@ feed state. Each is listed in ARCHITECTURE "Known gaps".
 
 ## Queued
 
+- `data/backup/Backup.kt` - the file carries subscriptions, settings and the reader's recipes, but
+  not notes or watch history. Cost of leaving it: moving phones loses the deck and every resume
+  point, which are the two things this app made itself. Found 2026-11-09 while writing the backup;
+  a third section in the same file is the fix, not a second format.
 - `ui/nav/ParallaxNav.kt` - `prefetchStreams` fires on every Player route entry, including re-entering the video that is already loaded and about to be reused, so a warm restart pays one extractor fetch for nothing. Cost: a needless request on a shared client; found 2026-11-09 while moving the retries.
 - `data/library/ContentRepository.kt` - `refreshFeed` spins `while (playbackBusy()) delay(400)` with no ceiling, so a buffering player can hold a refresh open indefinitely. Cost: a refresh that reads as a hang. Found 2026-11-09 while fixing the stall; not changed in that patch.
 - `data/source/SelfRepair.kt` — data-driven extractor (JSON path model) is not built; LLM repair covers search query and region only. Cost of leaving it: field renames still need a code change instead of a model publish.
-- `feature/**` — about thirty call sites still paint accent *text* with `colorScheme.primary` instead of `accentTextColour()`/`LocalAccentInk` (nav labels, chips and Settings are converted; feed, player, comments, library are not). Cost of leaving it: at AA and AAA those labels keep their raw accent, so a magenta or blue accent still sits near its own tinted surface. Found 2026-11-09 while adding the Contrast card.
+- `feature/**` - about thirty call sites still paint accent *text* with `colorScheme.primary` instead of `accentTextColour()`/`LocalAccentInk` (nav labels, chips and Settings are converted; feed, player, comments, library are not). Cost of leaving it: at AA and AAA those labels keep their raw accent, so a magenta or blue accent still sits near its own tinted surface. Found 2026-11-09 while adding the Contrast card.
+- `app/build.gradle.kts` - `assembleRelease` fails `validateSigningRelease` with "Keystore file not
+  set" even when `keystore.properties` is present and `signingConfigs.release.storeFile` resolves to
+  the file. Packaging works with `-x validateSigningRelease` followed by `apksigner sign`. Cost:
+  every release needs a manual signing step. Found 2026-11-09 while installing the wizard build.
+- Google sign-in for subscription import - designed but not built: an app-owned read-only OAuth
+  client (`youtube.readonly`), `subscriptions.list(mine=true)` paged 50 at a time into the same
+  subscription rows, tokens in `SecurePrefs`. Blocked on a Google Cloud client published to
+  Production, because Testing-mode refresh tokens last 7 days. Cost of leaving it: people arriving
+  from Premium must export from Google Takeout or another client first. The wizard's Start page
+  therefore shows import or empty only, with no dead sign-in row. Decided 2026-11-09.
+- `web/index.html` - the captures are full-screen stills and argue with screenshots what the app does in motion. A silent 12 s MP4 in the phone frame would show the feed swipe, player, mini player, Bored and the accent on reopen: screenrecord 1080×2400, encode 720×1600 H.264 CRF 26 `-an` `+faststart`, ≤2.5 MB, poster frame, `preload="none"`, tap to play. Not shot yet. Side quest: engine/self-repair as a 4 s rebuilt card, because it is invisible when it works.
+- `feature/player/PlayerScreen.kt` - brightness is locked at OS level sometimes with no video on: the window `screenBrightness` set during the player gesture can outlive the player, so the system brightness no longer governs the app while it stays in the foreground. Cost of leaving it: the screen stays stuck at the last gesture value until the process or the window attribute is cleared, and the symptom reads as a system setting. Found 2026-11-09 from the owner report, not yet repro'd on the device.
+- `data/library/ContentRepository.kt` - a channel that no longer exists (`Peruvian Bull` in the 212007 log) fails on every refresh and keeps its subscription slot. Retiring it needs a failure count per subscription (Room v12 and a migration) and a decision about removing something the person asked for. Cost of leaving it: one wasted extractor call per refresh per dead channel, and a line in every bug report. Found 2026-11-09 by triaging that batch.
 
 ## Milestones
 

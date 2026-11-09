@@ -136,12 +136,45 @@ class ThemeController(context: Context) {
         chooseShuffle(if (daily) ShuffleCadence.DAILY else ShuffleCadence.OFF)
     }
 
+    /**
+     * Re-read every stored choice. A backup restore writes preferences directly — the file holds
+     * stored tokens, not typed values — so the live theme has to be told afterwards; without this,
+     * an imported accent and theme only appear on the next launch.
+     */
+    fun reload() {
+        mode = readThemeMode(context)
+        glassBase = readGlassBase(context)
+        accent = readAccent(context)
+        contrast = readContrast(context)
+        shuffle = readShuffleCadence(context)
+        solidSurfaces = readSolidSurfaces(context)
+        glassLevel = readGlassLevel(context)
+        clampGlassLevel()
+    }
+
     private fun periodKey(): String =
         periodKeyFor(shuffle, LocalDate.now(), LocalDateTime.now())
 
     private fun rollAccent() {
         val key = periodKey()
-        val next = Accents.all.filter { it.name != accent.name }.random()
+        val pool = Accents.all.filter { candidate ->
+            candidate.name != accent.name &&
+                accentHolds(
+                    candidate,
+                    contrast,
+                    glass = mode == ThemeMode.GLASS,
+                    dark = dark,
+                    solid = solidSurfaces,
+                    level = glassLevel,
+                )
+        }
+        // The period is marked as handled either way: retrying on every resume would re-run the
+        // 18-accent check for a wheel that has not changed.
+        if (pool.isEmpty()) {
+            writeAccentDay(context, key)
+            return
+        }
+        val next = pool.random()
         accent = next
         writeAccent(context, next)
         writeAccentDay(context, key)
