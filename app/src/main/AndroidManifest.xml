@@ -21,12 +21,12 @@
     <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
-        android:name=".ParallaxApp"
+        android:name=".GlassTubeApp"
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="true"
-        android:theme="@style/Theme.Parallax"
+        android:theme="@style/Theme.GlassTube"
         android:usesCleartextTraffic="false">
 
         <activity
@@ -35,7 +35,7 @@
             android:exported="true"
             android:launchMode="singleTop"
             android:supportsPictureInPicture="true"
-            android:theme="@style/Theme.Parallax">
+            android:theme="@style/Theme.GlassTube">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

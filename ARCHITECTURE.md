@@ -1,11 +1,11 @@
-# Architecture — Parallax
+# Architecture — GlassTube
 
 How the app is put together and why. Behaviour is in `BEHAVIORS.md`; state and next steps are in
 `ROADMAP.md`. Where this file and the code disagree, the code wins and this file gets fixed.
 
 ## Quick facts
 
-- Native Android, Kotlin, Jetpack Compose, Material 3. Package `com.presaince.parallax`.
+- Native Android, Kotlin, Jetpack Compose, Material 3. Package `com.presaince.glasstube`.
 - `minSdk` 33, `targetSdk` 36, `compileSdk` 36. No core-library desugaring: the floor is 33 because
   NewPipeExtractor calls JDK methods that only exist from Android 13.
 - Room `version = 11`, `exportSchema = true` (`app/schemas/`), `fallbackToDestructiveMigration`.
@@ -26,7 +26,7 @@ FOREGROUND_SERVICE (media playback), REQUEST_INSTALL_PACKAGES (self-update insta
 ## Package structure
 
 ```
-app/src/main/java/com/presaince/parallax/
+app/src/main/java/com/presaince/glasstube/
   core/        AppResult, AppLog, BugReport/BugShot/BugUpload, Html, Sort, Time
   data/        model, db, source, library, discover, resync, sponsorblock, importer,
                backup (settings schema, restore, one combined file, found files), auth, secure,
@@ -34,19 +34,19 @@ app/src/main/java/com/presaince/parallax/
   playback/    PlaybackController (ExoPlayer + MediaSession + prefs), PlaybackService
   feature/     one package per screen: player, feed, search, library, collections, discover,
                channel, comments, notes, posting, settings, resync, about, onboarding
-  ui/          theme (schemes, glass), nav (ParallaxNav), component (scaffold, mini player,
+  ui/          theme (schemes, glass), nav (GlassTubeNav), component (scaffold, mini player,
                rows, flags, scroll-to-top)
   di/          AppContainer — the manual composition root
-  MainActivity.kt, ParallaxApp.kt
+  MainActivity.kt, GlassTubeApp.kt
 ```
 
 ## System overview
 
 One Activity, one Compose tree, one playback session.
 
-- `MainActivity` creates the `ThemeController` and wraps `ParallaxNav` in `ParallaxTheme`.
-- `ParallaxApp` owns the `AppContainer`; the container is the only place singletons are built.
-- `ParallaxNav` holds the route stack and the tab pager. It is the whole navigation model. On a
+- `MainActivity` creates the `ThemeController` and wraps `GlassTubeNav` in `GlassTubeTheme`.
+- `GlassTubeApp` owns the `AppContainer`; the container is the only place singletons are built.
+- `GlassTubeNav` holds the route stack and the tab pager. It is the whole navigation model. On a
   fresh install it renders `OnboardingScreen` instead of the scaffold, before any tab is composed.
 - `PlaybackController` owns the `ExoPlayer` and the media session. Every screen reads its
   `StateFlow<PlaybackState>`; nothing else touches the player.
@@ -59,10 +59,10 @@ One Activity, one Compose tree, one playback session.
 |---|---|---|
 | ExoPlayer, speed, volume, PiP | `PlaybackController` | Only it may call the player. Screens send intentions. |
 | Media notification | `PlaybackService` + session | Declared in the manifest, foreground type mediaPlayback. |
-| Route stack, selected tab | `ParallaxNav` (`remember`) | Not persisted; a cold start is always Feed. |
+| Route stack, selected tab | `GlassTubeNav` (`remember`) | Not persisted; a cold start is always Feed. |
 | Theme, accent, glass base, daily accent | `ThemeController` | Live state; never recreates the Activity. |
 | Feed, videos, history, progress, notes | Room via `ContentRepository` / DAOs | UI never writes content tables directly. |
-| Settings | `shared_prefs/parallax.xml` | Keys are read at the point of use; no settings singleton. |
+| Settings | `shared_prefs/glasstube.xml` | Keys are read at the point of use; no settings singleton. |
 | API keys | `SecurePrefs` (Android Keystore) | Never in shared prefs, never in logs. |
 
 ## Data flow
@@ -115,7 +115,7 @@ what came of it.
 - `data/resync/ResyncEngine` — 15-second tail after a comment's cue; one model call per batch.
 - `ui/theme/Theme.kt` — schemes, the glass aurora, `ThemeBackdrop` (the opaque floor under a pushed
   screen), and the mode resolver. Glass inherits the last ordinary theme.
-- `ui/nav/ParallaxNav` — a `List<Route>` plus a `HorizontalPager` that is never disposed: pushed
+- `ui/nav/GlassTubeNav` — a `List<Route>` plus a `HorizontalPager` that is never disposed: pushed
   screens draw over it. The pager is not swipeable while anything is on top.
 - `ui/component/MiniPlayer` — a second `PlayerView` bound to the same `ExoPlayer`; only one surface
   is composed at a time (mini or full).
@@ -197,9 +197,9 @@ No feature package imports another feature package; navigation is the go-between
   state mapping, thumbnail URLs.
 - Robolectric, SDK 35 (`src/test/resources/robolectric.properties`): `cleanHtml`, the settings
   export and restore, in-memory Room queries and Compose UI. Tests run against `TestApp`, not
-  `ParallaxApp`, because the real application schedules the feed worker and WorkManager is not
+  `GlassTubeApp`, because the real application schedules the feed worker and WorkManager is not
   initialised on the JVM.
-- `ExtractorCanaryTest` is opt-in (`-Dparallax.canary=true`) and hits the live extractor.
+- `ExtractorCanaryTest` is opt-in (`-Dglasstube.canary=true`) and hits the live extractor.
 - The suite is never attached to `assembleDebug`: a compile check stays a compile check.
 - The suite runs green; 263 tests at the time of writing, 2 skipped (the canary). Added 2026-11-09: `BackupReaderTest` (the file is read by
   content, not by name), `SettingsImportTest` (round trip, unknown keys refused, AI gated on a
@@ -220,10 +220,10 @@ No feature package imports another feature package; navigation is the go-between
 adb install -r app\build\outputs\apk\debug\app-debug.apk
 ```
 
-Release (direct build): `assembleRelease` is unsigned when neither `PARALLAX_*` env vars nor an
+Release (direct build): `assembleRelease` is unsigned when neither `GLASSTUBE_*` env vars nor an
 untracked `app/keystore.properties` provide a key. The key lives in one place outside both app
 trees: `C:\Users\Bodi\.config\opencode\keys\presaince-release.keystore`, the same certificate the
-Oko release uses. `app/keystore.properties` is untracked and points `PARALLAX_KEYSTORE` at its
+Oko release uses. `app/keystore.properties` is untracked and points `GLASSTUBE_KEYSTORE` at its
 absolute path; this tree keeps no copy of the key itself. A release built on another machine needs
 that keystore and properties supplied. The manual `apksigner` path remains the Oko-compatible
 fallback. The APK is copied to `app-release.apk` and uploaded with:
@@ -232,7 +232,7 @@ fallback. The APK is copied to `app-release.apk` and uploaded with:
 node C:\Users\Bodi\.config\opencode\scripts\deploy\deploy.mjs -C D:\Desktop\parallax --config=deploy-apk.properties
 ```
 
-That uploads to `/other_apps/parallax/`, where `upload.php` also lives. The portfolio links to that
+That uploads to `/other_apps/glasstube/`, where `upload.php` also lives. The portfolio links to that
 URL and ships no binaries.
 
 The folder also serves the download page: `web/index.html` and `web/img/*.webp` are uploaded beside

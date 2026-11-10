@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108" width="108" height="108"
+     role="img" aria-labelledby="gt-title" shape-rendering="geometricPrecision">
+  <title id="gt-title">GlassTube</title>
+  <!--
+    GlassTube — the launcher mark. Canonical copy: 108 x 108, which is Android's adaptive-icon
+    canvas (18dp bleed on every side, content kept inside the central 66dp).
+
+    The play button is a hole, not a shape: the aurora behind the tube is the glyph, so the mark
+    only works on the light field and not on a flat fill. That is the idea, not an accident.
+
+    Layers, back to front:
+      #101014  the tile, the app's own Tile colour
+      three    aurora blobs, the same three positions and hues as glassBlobs() in the app's theme:
+               cyan #4cc2e8 upper left, violet #7d6cf0 right, teal #3fd6a8 bottom
+      the tube 22 x 54 capsule, glass fill and rim, with the play punched out of it
+
+    The light in the tube runs down its left edge, because the brightest blob is upper left.
+    Moving the blobs means moving that sheen with them.
+
+    Everything is in this file. Copy it whole; do not re-derive it from a screenshot, and do not
+    keep a second copy with different numbers. The monochrome silhouette is glasstube-mark.svg.
+  -->
+  <defs>
+    <radialGradient id="gt-aurora-primary" cx="0.18" cy="0.16" r="0.62">
+      <stop offset="0" stop-color="#4cc2e8" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#4cc2e8" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="gt-aurora-warm" cx="0.88" cy="0.42" r="0.55">
+      <stop offset="0" stop-color="#7d6cf0" stop-opacity="0.42"/>
+      <stop offset="1" stop-color="#7d6cf0" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="gt-aurora-cool" cx="0.34" cy="0.92" r="0.60">
+      <stop offset="0" stop-color="#3fd6a8" stop-opacity="0.32"/>
+      <stop offset="1" stop-color="#3fd6a8" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="gt-glass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.05"/>
+    </linearGradient>
+    <linearGradient id="gt-sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.06"/>
+    </linearGradient>
+    <linearGradient id="gt-rim" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f8fafc" stop-opacity="0.62"/>
+      <stop offset="0.55" stop-color="#a5e4f5" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.12"/>
+    </linearGradient>
+    <!-- The play is cut out of the tube, so what shows through is the aurora. -->
+    <mask id="gt-play-hole">
+      <rect x="43" y="27" width="22" height="54" rx="11" fill="#fff"/>
+      <path d="M50.3 47.1 L61.3 54 L50.3 60.9 Z" fill="#000"/>
+    </mask>
+  </defs>
+
+  <rect width="108" height="108" fill="#101014"/>
+  <rect width="108" height="108" fill="url(#gt-aurora-primary)"/>
+  <rect width="108" height="108" fill="url(#gt-aurora-warm)"/>
+  <rect width="108" height="108" fill="url(#gt-aurora-cool)"/>
+
+  <g mask="url(#gt-play-hole)">
+    <rect x="43" y="27" width="22" height="54" rx="11" fill="url(#gt-glass)"/>
+    <rect x="46" y="30" width="3.4" height="46" rx="1.7" fill="url(#gt-sheen)"/>
+  </g>
+  <rect x="43.6" y="27.6" width="20.8" height="52.8" rx="10.4"
+        fill="none" stroke="url(#gt-rim)" stroke-width="1.2"/>
+</svg>

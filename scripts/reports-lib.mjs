@@ -1,7 +1,7 @@
 // Pure helpers behind `scripts/reports.mjs`. Everything here takes and returns strings or plain
 // objects, so `reports.test.mjs` can exercise it without a socket or a file.
 
-/** Epoch millis from `parallax_<device>_<code>_yyyyMMdd-HHmmss.json`, or null. */
+/** Epoch millis from `glasstube_<device>_<code>_yyyyMMdd-HHmmss.json`, or null. */
 export function stampFromName(name) {
   const m = String(name).match(/(\d{8})-(\d{6})\.json$/)
   if (!m) return null

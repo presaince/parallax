@@ -29,5 +29,5 @@ jobs:
         run: >
           ./gradlew testDebugUnitTest
           --tests '*ExtractorCanaryTest*'
-          -Dparallax.canary=true
+          -Dglasstube.canary=true
           --no-daemon --console=plain --rerun-tasks

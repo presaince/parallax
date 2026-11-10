@@ -23,20 +23,20 @@ jobs:
 
       - name: Unpack the keystore
         env:
-          KEYSTORE_BASE64: ${{ secrets.PARALLAX_KEYSTORE_BASE64 }}
+          KEYSTORE_BASE64: ${{ secrets.GLASSTUBE_KEYSTORE_BASE64 }}
         run: |
           if [ -z "$KEYSTORE_BASE64" ]; then
-            echo "PARALLAX_KEYSTORE_BASE64 is not set" >&2
+            echo "GLASSTUBE_KEYSTORE_BASE64 is not set" >&2
             exit 1
           fi
-          echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/parallax.jks"
+          echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/glasstube.jks"
 
       - name: Build signed release
         env:
-          PARALLAX_KEYSTORE: ${{ runner.temp }}/parallax.jks
-          PARALLAX_KEYSTORE_PASSWORD: ${{ secrets.PARALLAX_KEYSTORE_PASSWORD }}
-          PARALLAX_KEY_ALIAS: ${{ secrets.PARALLAX_KEY_ALIAS }}
-          PARALLAX_KEY_PASSWORD: ${{ secrets.PARALLAX_KEY_PASSWORD }}
+          GLASSTUBE_KEYSTORE: ${{ runner.temp }}/glasstube.jks
+          GLASSTUBE_KEYSTORE_PASSWORD: ${{ secrets.GLASSTUBE_KEYSTORE_PASSWORD }}
+          GLASSTUBE_KEY_ALIAS: ${{ secrets.GLASSTUBE_KEY_ALIAS }}
+          GLASSTUBE_KEY_PASSWORD: ${{ secrets.GLASSTUBE_KEY_PASSWORD }}
         run: ./gradlew testDebugUnitTest assembleRelease --no-daemon --console=plain
 
       - name: Attach the APK to the tag

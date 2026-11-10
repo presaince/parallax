@@ -91,7 +91,7 @@ function connection() {
   const password = accounts[`${cfg.account}.password`]
   if (!host || !user || !password) throw new Error(`no ${cfg.account} credentials in ~/.ftp`)
   // upload.php writes beside the app's folder, one level up from remoteDir.
-  const reportsDir = `${cfg.remoteDir.replace(/\/+$/, '').split('/').slice(0, -1).join('/')}/parallax_reports`
+  const reportsDir = `${cfg.remoteDir.replace(/\/+$/, '').split('/').slice(0, -1).join('/')}/glasstube_reports`
   return { host, user, password, reportsDir }
 }
 

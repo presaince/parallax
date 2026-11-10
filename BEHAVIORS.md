@@ -1,4 +1,4 @@
-# Behaviours — Parallax
+# Behaviours — GlassTube
 
 The rules the product obeys, by surface. Each one says what happens, where it breaks, and the file
 that makes it true. Structure and tradeoffs are in `ARCHITECTURE.md`.
@@ -15,7 +15,7 @@ and shows the mini card.
 **Edge.** The mini card and the full player are never bound at once. Tapping the mini reopens the
 player for the same session, so nothing restarts. Back from the player is a backflip, not a stop.
 
-**Enforced by** `playback/PlaybackController.kt`, `ui/nav/ParallaxNav.kt`, `ui/component/MiniPlayer.kt`.
+**Enforced by** `playback/PlaybackController.kt`, `ui/nav/GlassTubeNav.kt`, `ui/component/MiniPlayer.kt`.
 
 **Rule.** Resume seeks only after the player reports `STATE_READY`; a seek before the duration is
 known clamps to zero.
@@ -203,7 +203,7 @@ the first frame, so the picture never loses bandwidth to the words beneath it.
 **Rule.** The channel name under the title is a door: tapping it opens the channel page. The video's
 facts (views, age) sit on the right of the same line.
 
-**Enforced by** `PlayerScreen.kt` (`item(key = "titles")`), `ui/nav/ParallaxNav.kt`.
+**Enforced by** `PlayerScreen.kt` (`item(key = "titles")`), `ui/nav/GlassTubeNav.kt`.
 
 **Rule.** A seek that moved more than two seconds offers an undo on the picture for a few seconds.
 
@@ -250,7 +250,7 @@ run past the end.
 **Edge.** The focus clears when the reader taps either way out. The toast names the
 clip range; the bar is the durable mark.
 
-**Enforced by** `PlayerScreen.kt`, `ParallaxNav.kt` (`Route.Player`), `PlaybackController.kt`
+**Enforced by** `PlayerScreen.kt`, `GlassTubeNav.kt` (`Route.Player`), `PlaybackController.kt`
 (`SharedVideo`), `data/source/VideoSource.kt` (`shareClipFrom`).
 
 ---
@@ -263,27 +263,27 @@ bug) draw over it, so going back never refetches and never loses scroll.
 **Edge.** The pager is not swipeable while anything is on top. A page change only rewrites the stack
 when the stack is a single tab, and only once the pager has settled.
 
-**Enforced by** `ui/nav/ParallaxNav.kt`.
+**Enforced by** `ui/nav/GlassTubeNav.kt`.
 
 **Rule.** There are three destinations — Feed, Library, Bored — and a pushed Search screen.
 
 **Edge.** A channel page keeps the navigation bar (Library selected). The player hides the bar and
 the top bar.
 
-**Enforced by** `ParallaxNav.kt`, `ui/component/ParallaxScaffold.kt`.
+**Enforced by** `GlassTubeNav.kt`, `ui/component/GlassTubeScaffold.kt`.
 
 **Rule.** Back pops one route; back on a tab leaves the app.
 
 **Edge.** A bug screen, a settings section and a channel are all one press from where they were
 opened.
 
-**Enforced by** `ParallaxNav.kt`.
+**Enforced by** `GlassTubeNav.kt`.
 
 **Rule.** History is a mode inside Feed, reached by the clock icon, not a destination.
 
 **Edge.** The icon in either tab raises a request counter that Feed observes and opens History.
 
-**Enforced by** `feature/feed/FeedScreen.kt`, `ParallaxNav.kt`.
+**Enforced by** `feature/feed/FeedScreen.kt`, `GlassTubeNav.kt`.
 
 ---
 
@@ -294,13 +294,27 @@ stored.
 
 **Edge.** Pull to refresh; automatic refresh about every four hours, jittered by up to thirty
 minutes, as one-time work that reschedules itself. A refresh where every channel failed returns
-`Result.retry()` with exponential backoff. Tapping the Feed tab always refreshes, even when the feed
-is already the screen on view.
+`Result.retry()` with exponential backoff. Tapping the Feed tab switches the list; it does not
+fetch. An import or restore that added channels asks for one refresh, because the feed is a
+database view and would otherwise show nothing until a pull.
 
 **Rule.** Changing the sort never moves the reader. A change made while the header is on screen
 returns to the top; a change made further down keeps the video that was at the top at the top.
 
 **Enforced by** `data/library/ContentRepository.kt`, `data/library/FeedWorker.kt`.
+
+**Rule.** An empty feed has two states and says two different things. Nothing subscribed is a setup
+problem: the screen offers the import picker and "Try Bored", because Bored is the only destination
+that needs nothing from the reader. Subscribed but nothing fetched is a fetch problem: the screen
+says to pull down.
+
+**Edge.** "Try Bored" starts Short rather than opening on the four names; if that built-in has been
+renamed away, any recipe beats a menu. The request is one-shot and travels with the navigation, so
+the next visit to Bored is a normal visit. Importing from the empty feed asks for one refresh, the
+same as an import from Settings or the wizard.
+
+**Enforced by** `feature/feed/FeedScreen.kt` (`EmptyFeed`), `feature/discover/DiscoverScreen.kt`,
+`data/discover/Recipe.kt` (`firstPickName`).
 
 **Rule.** A live badge that has been seen stays for three hours even if a later listing says the
 stream ended.
@@ -337,7 +351,7 @@ watched time past the user's threshold stamps the same row watched. Refreshing w
 re-read its own record, so the pull therefore changes mode before it fetches.
 
 **Enforced by** `feature/feed/FeedScreen.kt` (`HistoryList`), `playback/PlaybackController.kt`
-(`HistoryPhase`), `data/db/ParallaxDb.kt` (`HistoryDao`).
+(`HistoryPhase`), `data/db/GlassTubeDb.kt` (`HistoryDao`).
 
 **Enforced by** `ui/component/CardStyle.kt`, `ui/component/VideoRow.kt`,
 `feature/feed/FeedScreen.kt`, `feature/library/LibraryScreen.kt`.
@@ -372,7 +386,9 @@ without reopening the app.
 **Edge.** Before the first walk the screen explains itself: the river, one line saying that Bored
 picks from YouTube and from videos already on the phone, and each mode with its `describe` sentence,
 tappable. A row of four names nobody has met yet is not a choice, so the empty screen is the
-explanation rather than an invitation to guess.
+explanation rather than an invitation to guess. The one exception is a reader arriving from an
+empty feed's "Try Bored", which starts a mode on the way in: pictures are the better first
+impression when there is nothing subscribed to explain.
 
 **Enforced by** `feature/discover/DiscoverScreen.kt`, `data/discover/RecipeRepository.kt`.
 
@@ -463,7 +479,12 @@ editor has a cancel button: a draft with words in it asks before it is thrown aw
 **Edge.** Categories are stored as a string set; the player skips a segment only if its category is
 in that set.
 
-**Enforced by** `data/sponsorblock/*`, `PlaybackController.kt`.
+**Edge.** A block longer than the forward buffer is warmed before the skip: the first 15 s after it
+are fetched into the shared stream cache up to two minutes ahead, so the seek lands on bytes
+instead of a spinner. Blocks under 30 s, and a far side already buffered or already fetched, are
+left alone; disabling skipping cancels the fetch.
+
+**Enforced by** `data/sponsorblock/*`, `PlaybackController.kt`, `SponsorPrefetch.kt`.
 
 ---
 
@@ -543,7 +564,7 @@ is Settings' job. Notification permission is asked there, once, with context.
 
 **Enforced by** `feature/onboarding/OnboardingFlow.kt` (`OnboardingPage`, `shouldShowOnboarding`,
 `sponsorBlockAfterAdsAnswer`), `feature/onboarding/OnboardingScreen.kt`,
-`feature/onboarding/WelcomeHero.kt`, `drawable-nodpi/onboarding_feed.webp`, `ui/nav/ParallaxNav.kt`,
+`feature/onboarding/WelcomeHero.kt`, `drawable-nodpi/onboarding_feed.webp`, `ui/nav/GlassTubeNav.kt`,
 `data/importer/SubscriptionImport.kt`.
 
 ---
@@ -612,7 +633,7 @@ titles 15/17/23. Line heights move with the sizes.
 **Edge.** This is a deliberate default, not a substitute for the system font scale; `sp` still
 follows the phone's setting. The smallest labels were the ones that read as a squint at 11 sp.
 
-**Enforced by** `ui/theme/Theme.kt` (`AppTypography`, `ParallaxTheme`).
+**Enforced by** `ui/theme/Theme.kt` (`AppTypography`, `GlassTubeTheme`).
 
 **Rule.** Glass draws a static aurora behind translucent surfaces; it is not a blur of the video.
 
@@ -662,7 +683,7 @@ leaves one `bug: filed <name>` line in the log, so Diagnostics is the history of
 
 **Enforced by** `feature/settings/BugScreen.kt`, `core/BugReport.kt`, `core/BugUpload.kt`.
 
-**Rule.** Sending POSTs one JSON bundle with a `parallax.bug/1` schema marker to the drop box; a 2xx
+**Rule.** Sending POSTs one JSON bundle with a `glasstube.bug/1` schema marker to the drop box; a 2xx
 that is not the endpoint's own `{"ok":true}` is a failure.
 
 **Edge.** Keys and tokens are redacted before the body is built. A 429 disables the button until the
@@ -685,7 +706,7 @@ minutes of successful requests. `HttpTrace` is the rule.
 
 **Rule.** Importing adds; it never replaces or deletes.
 
-**Edge.** One button reads every file this app knows: a `parallax-backup.json`, a settings object on
+**Edge.** One button reads every file this app knows: a `glasstube-backup.json`, a settings object on
 its own, a NewPipe `subscriptions.json` or `.zip`, LibreTube JSON, a Takeout `subscriptions.csv`, or
 a single Bored recipe. The file is recognised by what is inside it, not by its name, so a renamed
 file or a wrong extension still lands. Duplicates are ignored by URL, and a file that is none of
@@ -693,13 +714,22 @@ these says so in a sentence.
 
 **Enforced by** `data/importer/*`, `data/backup/BackupReader.kt`, `feature/settings/SettingsViewModel.kt`.
 
-**Rule.** Export writes one file: subscriptions in the NewPipe shape, every stored setting, and the
-recipes the reader wrote.
+**Rule.** Export writes one file: subscriptions in the NewPipe shape, every setting — including the
+ones left at their factory default — the recipes the reader wrote, their notes, watch history, and
+the position each video stopped at.
 
 **Edge.** No key or token is in the file, and a file cannot put one on the device: the restore walks
-the same table as the export and ignores every key it does not know. Settings merge rather than
-wipe, and apply live. The AI switch returns only when a Resync key is already in the Keystore; the
-endpoint and model return regardless. Watch history and notes are not in the backup.
+the same table as the export and ignores every key it does not know. Settings overwrite what the
+file names; a list is added to, never cleared. The AI switch returns only when a Resync key is
+already in the Keystore; the endpoint and model return regardless. A resume point replaces one on
+this phone only when it is newer, so a restore never rewinds a video watched after the file was
+written.
+
+**Edge.** A restore applies live. The theme, the player's skip switch, categories, speed and watch
+threshold, the card style and the content region are all re-read through one effect on the Data
+page, because they are held once by composed screens and a write underneath them is invisible. A
+restore that added channels asks the feed for one fetch: the feed is a database view and does not
+fetch on its own.
 
 **Edge.** The page also lists the files it can see: the backups in a folder chosen once through the
 system picker, plus the last few files this app wrote, deduplicated by URI, folder first then
@@ -708,7 +738,8 @@ through the same path as the picker. Discovery is a SAF tree grant; the app neve
 storage access.
 
 **Enforced by** `data/backup/Backup.kt`, `data/backup/SettingsSchema.kt`,
-`data/backup/SettingsImport.kt`, `data/importer/SubscriptionExporter.kt`.
+`data/backup/SettingsExport.kt`, `data/backup/SettingsImport.kt`,
+`data/importer/SubscriptionExporter.kt`.
 
 ---
 

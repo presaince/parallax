@@ -28,13 +28,13 @@ Step 'assemble' { .\gradlew.bat :app:assembleRelease }
 Step 'sign' {
     $propsPath = Join-Path $root 'app\keystore.properties'
     if (-not (Test-Path $propsPath)) {
-        throw "No app\keystore.properties. Release signing reads PARALLAX_KEYSTORE* from it or the environment."
+        throw "No app\keystore.properties. Release signing reads GLASSTUBE_KEYSTORE* from it or the environment."
     }
     $p = @{}
     Get-Content $propsPath | ForEach-Object {
         if ($_ -match '^\s*([^#=]+?)\s*=\s*(.*)$') { $p[$matches[1]] = $matches[2].Trim() }
     }
-    $ks = $p['PARALLAX_KEYSTORE']
+    $ks = $p['GLASSTUBE_KEYSTORE']
     if (-not [System.IO.Path]::IsPathRooted($ks)) {
         $ks = Join-Path (Split-Path -Parent $propsPath) $ks
     }
@@ -44,9 +44,9 @@ Step 'sign' {
         Select-Object -First 1).FullName + '\apksigner.bat'
     & $apksigner sign `
         --ks $ks `
-        --ks-key-alias $p['PARALLAX_KEY_ALIAS'] `
-        --ks-pass ("pass:" + $p['PARALLAX_KEYSTORE_PASSWORD']) `
-        --key-pass ("pass:" + $p['PARALLAX_KEY_PASSWORD']) `
+        --ks-key-alias $p['GLASSTUBE_KEY_ALIAS'] `
+        --ks-pass ("pass:" + $p['GLASSTUBE_KEYSTORE_PASSWORD']) `
+        --key-pass ("pass:" + $p['GLASSTUBE_KEY_PASSWORD']) `
         --out app\build\outputs\apk\release\app-release.apk `
         app\build\outputs\apk\release\app-release-unsigned.apk
 }

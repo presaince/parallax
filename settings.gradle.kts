@@ -15,5 +15,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Parallax"
+rootProject.name = "GlassTube"
 include(":app")

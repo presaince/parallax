@@ -1,12 +1,12 @@
 <?php
 /**
- * Parallax bug drop box.
+ * GlassTube bug drop box.
  *
  * The app POSTs one JSON bundle per human tap to this endpoint. It is written into a directory
  * beside this one, so a report is never served as a file at a guessable URL: you read these over
  * the same FTP account the site is deployed with, and nothing else can.
  *
- * Setup: upload this file to other_apps/parallax/upload.php. Nothing else — the report directory
+ * Setup: upload this file to other_apps/glasstube/upload.php. Nothing else — the report directory
  * is created on first upload, along with an .htaccess that denies HTTP access to it.
  *
  * NO SHARED SECRET, ON PURPOSE. A token baked into the APK is extractable by anyone who unpacks
@@ -17,11 +17,11 @@
  *   - an age-based prune of the directory, so total disk use is bounded without ever touching
  *     a recent report
  *
- * Reports land at other_apps/parallax_reports/<device>_<versionCode>_<timestamp>.json and are
+ * Reports land at other_apps/glasstube_reports/<device>_<versionCode>_<timestamp>.json and are
  * never overwritten: a second report from the same phone is a second file.
  */
 
-const REPORT_DIR = __DIR__ . '/../parallax_reports';
+const REPORT_DIR = __DIR__ . '/../glasstube_reports';
 const MAX_BYTES = 8 * 1024 * 1024;
 
 // Per-IP budget: one upload every 3s, ten a minute, then a stop. Filing several reports in a row
@@ -77,13 +77,13 @@ function rate_ok(string $file, int $now): bool {
 
 try {
     if (!is_writable(sys_get_temp_dir())) {
-        error_log('parallax upload.php: rate-limit dir not writable');
+        error_log('glasstube upload.php: rate-limit dir not writable');
         fail('rate limiting unavailable', 503);
     }
 
     $ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
     $now = time();
-    $slot = rtrim(sys_get_temp_dir(), '/') . '/parallax_reports_rate_'
+    $slot = rtrim(sys_get_temp_dir(), '/') . '/glasstube_reports_rate_'
         . substr(sha1((string) $ip), 0, 16) . '.json';
     if (!rate_ok($slot, $now)) {
         header('Retry-After: ' . BURST_SEC);
@@ -102,8 +102,8 @@ try {
     if (!is_array($decoded) || !isset($decoded['schema'])) {
         fail('not a report bundle', 400);
     }
-    if (strpos((string) $decoded['schema'], 'parallax.bug') !== 0) {
-        fail('not a parallax report', 400);
+    if (strpos((string) $decoded['schema'], 'glasstube.bug') !== 0) {
+        fail('not a glasstube report', 400);
     }
 
     // Never trust the client with a path. Keep a flat safe charset with no separators.
@@ -151,6 +151,6 @@ try {
         'bytes' => strlen($body),
     ]);
 } catch (Throwable $e) {
-    error_log('parallax upload.php: ' . $e->getMessage());
+    error_log('glasstube upload.php: ' . $e->getMessage());
     fail('server error', 500);
 }

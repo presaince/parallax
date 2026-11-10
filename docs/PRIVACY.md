@@ -1,6 +1,6 @@
-# Parallax privacy policy
+# GlassTube privacy policy
 
-Parallax runs entirely on your device. There is no Parallax account and no Parallax server.
+GlassTube runs entirely on your device. There is no GlassTube account and no GlassTube server.
 
 ## What is stored, and where
 
@@ -34,7 +34,7 @@ kind in this app.
 - `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MEDIA_PLAYBACK`, `POST_NOTIFICATIONS` — background
   playback and its notification.
 - `RECORD_AUDIO` — only while you hold Dictate on a note. Speech is transcribed by the phone's
-  speech service to text; Parallax never writes an audio file.
+  speech service to text; GlassTube never writes an audio file.
 
 ## Contact
 

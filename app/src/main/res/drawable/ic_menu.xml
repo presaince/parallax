@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The Settings entry: three lines in the brand ramp, not the retired P.
+  Each stroke shares one ramp, so the top line is pale and the bottom is brand cyan.
+  Untinted, because the ramp is the mark; a tint flattens it to one colour.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="32dp"
+    android:height="32dp"
+    android:viewportWidth="32"
+    android:viewportHeight="32">
+    <path
+        android:pathData="M9,10 L23,10"
+        android:strokeWidth="3.2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:type="linear"
+                android:startX="9"
+                android:startY="7"
+                android:endX="19"
+                android:endY="26">
+                <item android:offset="0" android:color="#FFF8FAFC" />
+                <item android:offset="0.52" android:color="#FFA5E4F5" />
+                <item android:offset="1" android:color="#FF4CC2E8" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <path
+        android:pathData="M9,16 L23,16"
+        android:strokeWidth="3.2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:type="linear"
+                android:startX="9"
+                android:startY="7"
+                android:endX="19"
+                android:endY="26">
+                <item android:offset="0" android:color="#FFF8FAFC" />
+                <item android:offset="0.52" android:color="#FFA5E4F5" />
+                <item android:offset="1" android:color="#FF4CC2E8" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <path
+        android:pathData="M9,22 L23,22"
+        android:strokeWidth="3.2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:type="linear"
+                android:startX="9"
+                android:startY="7"
+                android:endX="19"
+                android:endY="26">
+                <item android:offset="0" android:color="#FFF8FAFC" />
+                <item android:offset="0.52" android:color="#FFA5E4F5" />
+                <item android:offset="1" android:color="#FF4CC2E8" />
+            </gradient>
+        </aapt:attr>
+    </path>
+</vector>

@@ -19,10 +19,10 @@ const NOW = new Date('2026-11-09T21:00:00Z').getTime()
 test('a report filename carries its own timestamp', () => {
   // The app names a report with the phone's wall clock, so the parser reads it the same way.
   assert.equal(
-    stampFromName('parallax_Google_Pixel_7_10_20261109-210000.json'),
+    stampFromName('glasstube_Google_Pixel_7_10_20261109-210000.json'),
     new Date(2026, 10, 9, 21, 0, 0).getTime(),
   )
-  assert.equal(stampFromName('parallax_test_0_notatime.json'), null)
+  assert.equal(stampFromName('glasstube_test_0_notatime.json'), null)
 })
 
 test('the window keeps the last three hours and nothing older', () => {

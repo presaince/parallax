@@ -1,6 +1,6 @@
-# Parallax
+# GlassTube
 
-A YouTube client for Android that keeps your subscriptions, history, notes and settings on your phone. No account, no tracking, no server in the middle.
+A YouTube client for Android that keeps your subscriptions, history, notes and settings on your phone. No account, no tracking, no server in the middle. Locking the screen does not stop it.
 
 Free and open source under GPLv3. Android 13 or newer.
 
@@ -25,6 +25,7 @@ Captured on a Pixel 7.
 
 ## What you get
 
+- **Listening with the phone put away.** Lock the screen and the audio keeps going: the lock screen shows the video's thumbnail, its title and the controls, and leaving the app instead leaves the mini card. The screen does not have to stay on for a long video, and no ad is played between them.
 - **Feed and Library.** Subscriptions feed, Library with Grid / By channel / Collections, History grouped by video.
 - **Player.** Controls on the picture, vertical swipe for volume and brightness, horizontal swipe to seek, drag down to minimise. A small player stays under the bar while audio keeps playing.
 - **Chapters.** Timestamps from the description, or generated when there are none. Tap to jump.
@@ -34,7 +35,7 @@ Captured on a Pixel 7.
 
 ## Improved over NewPipe and LibreTube
 
-| | NewPipe | LibreTube | Parallax |
+| | NewPipe | LibreTube | GlassTube |
 |---|---|---|---|
 | When YouTube changes something | Stops working until an update ships. Empty feeds and error popups. | Depends on a Piped server. When it goes down or gets blocked, nothing loads until you switch servers. | Tries to repair itself and retry on its own. No server in the path, nothing for you to switch. |
 | Starting a video | Blank spinner, or a hang, especially on long videos. | Waits on the server first, so a slow server feels like a slow app. | Thumbnail shows straight away and is the progress. Video starts first, chapters and comments fill in after. |
@@ -44,7 +45,7 @@ Captured on a Pixel 7.
 
 ## Private by design
 
-No analytics, no account, no Parallax server. Your data stays in a local database on your phone. See `docs/PRIVACY.md`.
+No analytics, no account, no GlassTube server. Your data stays in a local database on your phone. See `docs/PRIVACY.md`.
 
 ## Get it
 

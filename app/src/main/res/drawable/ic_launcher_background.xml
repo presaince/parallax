@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  GlassTube's tile: the app's aurora, the same three blobs at the same three positions as
+  glassBlobs() in ui/theme/Theme.kt — cyan upper left, violet right, teal bottom — on the Tile
+  colour. The mark's sheen runs down its left edge to agree with the brightest blob.
+
+  A flat @color/tile would disappear on a dark wallpaper and would make the play hole read as a
+  hole in a black square. The light is the point.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <path
+        android:pathData="M0,0 H108 V108 H0 Z"
+        android:fillColor="@color/tile" />
+
+    <path android:pathData="M0,0 H108 V108 H0 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="radial"
+                android:centerX="19.4"
+                android:centerY="17.3"
+                android:gradientRadius="67">
+                <item android:offset="0" android:color="#8C4CC2E8" />
+                <item android:offset="1" android:color="#004CC2E8" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <path android:pathData="M0,0 H108 V108 H0 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="radial"
+                android:centerX="95"
+                android:centerY="45.4"
+                android:gradientRadius="59">
+                <item android:offset="0" android:color="#6B7D6CF0" />
+                <item android:offset="1" android:color="#007D6CF0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <path android:pathData="M0,0 H108 V108 H0 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="radial"
+                android:centerX="36.7"
+                android:centerY="99.4"
+                android:gradientRadius="65">
+                <item android:offset="0" android:color="#523FD6A8" />
+                <item android:offset="1" android:color="#003FD6A8" />
+            </gradient>
+        </aapt:attr>
+    </path>
+</vector>

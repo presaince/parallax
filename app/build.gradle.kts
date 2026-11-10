@@ -9,11 +9,11 @@ plugins {
 // validates and never applies, so it only made assembleRelease look signed when it was not.
 
 android {
-    namespace = "com.presaince.parallax"
+    namespace = "com.presaince.glasstube"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.presaince.parallax"
+        applicationId = "com.presaince.glasstube"
         // API 33 is the floor because NewPipeExtractor calls JDK methods that only exist from
         // Android 13. Desugaring is deliberately not used; modern devices only.
         minSdk = 33
@@ -21,8 +21,8 @@ android {
         // Both numbers move together, with scripts/bump-version.mjs --apply. Never hand-edit one:
         // the page names the version and the updater compares versionCode, so a build that keeps
         // code 3 is a build that nobody is offered.
-        versionCode = 12
-        versionName = "0.3.9"
+        versionCode = 13
+        versionName = "0.3.10"
     }
 
     buildFeatures {
@@ -74,8 +74,8 @@ android {
 }
 
 tasks.withType<Test>().configureEach {
-    // The canary is opt-in; pass -Dparallax.canary=true to the Gradle invocation.
-    systemProperty("parallax.canary", System.getProperty("parallax.canary") ?: "false")
+    // The canary is opt-in; pass -Dglasstube.canary=true to the Gradle invocation.
+    systemProperty("glasstube.canary", System.getProperty("glasstube.canary") ?: "false")
 }
 
 dependencies {

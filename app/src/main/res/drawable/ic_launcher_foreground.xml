@@ -1,10 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  The launcher icon: the echo. Two objects, one in front of the other.
-  The near P sits at full size; the far P is at 0.625 and displaced 5.3 back, which is the same
-  relationship the window mark uses, without the sheet around it. At 48dp the far P still reads as
-  a second letter, which is why this one ships before the window does.
-  The 32-unit mark is scaled 2.25 into the 72dp safe zone and nudged 1.4/1.0 so the pair is centred.
+  GlassTube, the launcher mark: a glass tube with the play punched out of it, so the aurora behind
+  the icon is the glyph. Geometry is the same as assets/glasstube/glasstube-icon.svg — capsule
+  x 43..65, y 27..81, radius 11, play apex (61.3, 54), 11 wide and 13.8 tall, on its centroid.
+  Change one, change both.
+
+  The play is a hole because the fill is one path with fillType evenOdd, not a second shape on top.
+  The sheen runs down the left edge, because the cyan blob in ic_launcher_background is upper left.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:aapt="http://schemas.android.com/aapt"
@@ -13,63 +15,55 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <group
-        android:translateX="18"
-        android:translateY="18"
-        android:scaleX="2.25"
-        android:scaleY="2.25">
-        <group
-            android:translateX="1.4"
-            android:translateY="1.0">
+    <!-- The glass: capsule minus the play. -->
+    <path
+        android:fillType="evenOdd"
+        android:pathData="M43,38 A11,11 0 0 1 65,38 V70 A11,11 0 0 1 43,70 Z
+                          M50.3,47.1 L61.3,54 L50.3,60.9 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="54"
+                android:startY="27"
+                android:endX="54"
+                android:endY="81">
+                <item android:offset="0" android:color="#38FFFFFF" />
+                <item android:offset="1" android:color="#0DFFFFFF" />
+            </gradient>
+        </aapt:attr>
+    </path>
 
-            <!-- the far object: same path, smaller, further back -->
-            <group
-                android:translateX="-5.3"
-                android:translateY="-5.3"
-                android:pivotX="16"
-                android:pivotY="16"
-                android:scaleX="0.625"
-                android:scaleY="0.625">
-                <path
-                    android:pathData="M11.5,23.5 L11.5,8.5 L16.7,8.5 A4.1,4.1 0 0 1 16.7,16.7 L11.5,16.7"
-                    android:strokeWidth="3.2"
-                    android:strokeAlpha="0.55"
-                    android:strokeLineCap="round"
-                    android:strokeLineJoin="round">
-                    <aapt:attr name="android:strokeColor">
-                        <gradient
-                            android:type="linear"
-                            android:startX="0"
-                            android:startY="0"
-                            android:endX="32"
-                            android:endY="32">
-                            <item android:offset="0" android:color="#FFF8FAFC" />
-                            <item android:offset="0.52" android:color="#FFA5E4F5" />
-                            <item android:offset="1" android:color="#FF4CC2E8" />
-                        </gradient>
-                    </aapt:attr>
-                </path>
-            </group>
+    <!-- The sheen. Kept inside the straight part of the capsule, so it needs no clip. -->
+    <path android:pathData="M46,31.7 A1.7,1.7 0 0 1 47.7,30 H48.6 A1.7,1.7 0 0 1 50.3,31.7 V74.3 A1.7,1.7 0 0 1 48.6,76 H47.7 A1.7,1.7 0 0 1 46,74.3 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="48"
+                android:startY="30"
+                android:endX="48"
+                android:endY="76">
+                <item android:offset="0" android:color="#8CFFFFFF" />
+                <item android:offset="1" android:color="#0FFFFFFF" />
+            </gradient>
+        </aapt:attr>
+    </path>
 
-            <!-- the near object -->
-            <path
-                android:pathData="M11.5,23.5 L11.5,8.5 L16.7,8.5 A4.1,4.1 0 0 1 16.7,16.7 L11.5,16.7"
-                android:strokeWidth="3.2"
-                android:strokeLineCap="round"
-                android:strokeLineJoin="round">
-                <aapt:attr name="android:strokeColor">
-                    <gradient
-                        android:type="linear"
-                        android:startX="0"
-                        android:startY="0"
-                        android:endX="32"
-                        android:endY="32">
-                        <item android:offset="0" android:color="#FFF8FAFC" />
-                        <item android:offset="0.52" android:color="#FFA5E4F5" />
-                        <item android:offset="1" android:color="#FF4CC2E8" />
-                    </gradient>
-                </aapt:attr>
-            </path>
-        </group>
-    </group>
+    <!-- The rim: lit at the top left, closing to a hairline at the bottom right. -->
+    <path
+        android:pathData="M43,38 A11,11 0 0 1 65,38 V70 A11,11 0 0 1 43,70 Z"
+        android:strokeWidth="1.2"
+        android:strokeLineCap="round">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:type="linear"
+                android:startX="43"
+                android:startY="27"
+                android:endX="65"
+                android:endY="81">
+                <item android:offset="0" android:color="#9EF8FAFC" />
+                <item android:offset="0.55" android:color="#38A5E4F5" />
+                <item android:offset="1" android:color="#1FFFFFFF" />
+            </gradient>
+        </aapt:attr>
+    </path>
 </vector>

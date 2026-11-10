@@ -1,7 +1,7 @@
-# Parallax — project rules
+# GlassTube — project rules
 
 Native Android YouTube client. Kotlin, Compose, Material 3, Media3, Room, WorkManager.
-Local-first, GPLv3. Package `com.presaince.parallax`.
+Local-first, GPLv3. Package `com.presaince.glasstube`.
 
 State lives in `ROADMAP.md`; the design is `C:\Users\Bodi\.opencode\plan\parallax-plan.md`.
 Structure is `ARCHITECTURE.md`; the product's rules are `BEHAVIORS.md`. Where any of them disagree
@@ -91,13 +91,13 @@ runs on the JVM; anything touching `Context`, SharedPreferences or Room runs und
 
 ## Layout
 
-The shell is `ParallaxScaffold`: top app bar with the screen title, a hamburger menu (Settings,
+The shell is `GlassTubeScaffold`: top app bar with the screen title, a hamburger menu (Settings,
 About), and a bottom `NavigationBar` with four destinations — Feed, Search, Library, Bored. Every
 screen renders inside it and receives the scaffold padding. Do not add per-screen headers or
 "Back" text; the top bar owns both.
 
 ```
-app/src/main/java/com/presaince/parallax/
+app/src/main/java/com/presaince/glasstube/
   core/        AppResult, time formatting
   data/        model, source (extractor boundary), db, library (feed), resync, discover,
                auth, secure, cache
@@ -108,7 +108,7 @@ app/src/main/java/com/presaince/parallax/
 
 ## Bug reports
 
-Reports are filed from the app to `other_apps/parallax_reports/` on the FTP host and are readable
+Reports are filed from the app to `other_apps/glasstube_reports/` on the FTP host and are readable
 only over FTP. Never read a bundle whole: they are up to 40KB of HTTP chatter each.
 
 ```
@@ -134,7 +134,7 @@ attempted. `HttpTrace` is where the HTTP shape of that rule lives.
 adb install -r app\build\outputs\apk\debug\app-debug.apk
 ```
 
-Canary (network, opt-in): `.\gradlew.bat :app:testDebugUnitTest --tests '*ExtractorCanaryTest*' -Dparallax.canary=true`
+Canary (network, opt-in): `.\gradlew.bat :app:testDebugUnitTest --tests '*ExtractorCanaryTest*' -Dglasstube.canary=true`
 
 "Deploy" in this project means install the debug build on the phone. It does not mean an upload.
 The public release goes up only when a release upload is asked for by name.

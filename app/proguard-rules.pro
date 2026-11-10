@@ -1,4 +1,4 @@
-# Parallax release rules. Minification is off for now; this file exists so enabling it later
+# GlassTube release rules. Minification is off for now; this file exists so enabling it later
 # does not also require guessing which reflection the extractor needs.
 #
 # NewPipeExtractor parses JSON into models with nanojson, not reflection, so it should survive R8.

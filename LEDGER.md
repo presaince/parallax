@@ -234,6 +234,7 @@ Rules:
   only, no separate Post screen.
 - Parallax — one video surface at a time (full player or mini), never two bound to one player.
 - Parallax — no `material-icons-extended`; copy the vectors we need.
+- GlassTube — the Settings entry is three lines in the brand ramp; the PBurger is retired.
 - Parallax — the layered P (pburger1) is the app mark; the Presaince wordmark on About stays on the
   brand ramp.
 - Parallax — descriptions and notes are one column; no tabs.

@@ -1,1 +1,1 @@
-A local-first YouTube client: no account, no server, timestamped notes.
+Local-first YouTube: no account, plays with the screen off.

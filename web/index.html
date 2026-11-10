@@ -1,6 +1,6 @@
 <!doctype html>
 <!--
-  Parallax downloads: https://odesaplay.com.ua/other_apps/parallax/
+  GlassTube downloads: https://odesaplay.com.ua/other_apps/glasstube/
 
   Ships with the APK (extra= line in deploy-apk.properties) and alone through
   deploy-page.properties, so a copy edit does not need a signed release on disk.
@@ -16,15 +16,37 @@
   One release is published at a time: app-release.apk is overwritten. The builds
   list is a list anyway, so keeping older APKs later is a data change, not a
   rewrite.
+
+  The name changed to GlassTube on 2026-11-10 and everything lives here now: this
+  page, the APK, version.json and the bug upload.
 -->
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Parallax — a YouTube client that does the things YouTube won't</title>
+    <title>GlassTube — a YouTube client that does the things YouTube won't</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#07070b" />
     <meta name="robots" content="noindex" />
-    <meta name="description" content="Direct APK downloads for Parallax, a local-first YouTube client for Android 13 and newer. No account, no server, no analytics." />
+    <meta name="description" content="Direct APK downloads for GlassTube, a local-first YouTube client for Android 13 and newer. No account, no server, no analytics, and it plays with the screen off." />
+    <link rel="icon" href="img/favicon.svg" type="image/svg+xml" />
+
+    <!-- The card chat clients draw for the shared link. og.png is the GlassTube mark and name,
+         hosted here rather than borrowed from the portfolio, so the preview cannot drift back to
+         the old Parallax card. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://odesaplay.com.ua/other_apps/glasstube/" />
+    <meta property="og:title" content="GlassTube — a YouTube client that does the things YouTube won't" />
+    <meta property="og:description" content="No account, no server, no analytics, and it plays with the screen off. Subscriptions, history, progress and notes stay on the phone. Android 13 and newer, GPLv3. Install the APK directly." />
+    <meta property="og:image" content="https://odesaplay.com.ua/other_apps/glasstube/img/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="GlassTube, a YouTube client without the account" />
+    <meta property="og:locale" content="en_US" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="GlassTube — a YouTube client that does the things YouTube won't" />
+    <meta name="twitter:description" content="No account, no server, no analytics. Plays with the screen off. Android 13 and newer, GPLv3." />
+    <meta name="twitter:image" content="https://odesaplay.com.ua/other_apps/glasstube/img/og.png" />
     <style>
       :root {
         color-scheme: dark;
@@ -212,7 +234,7 @@
       .showcase > div { display: grid; gap: 1.5rem; align-items: center; }
       @media (min-width: 768px) {
         .showcase > div { grid-template-columns: 1fr 1fr; gap: 3rem; }
-        .showcase > div:nth-child(even) .mock { order: 2; }
+        .showcase > div:nth-child(even) :is(.mock, .phone) { order: 2; }
       }
       .showcase h3 { margin: 0.5rem 0 0; font-size: 1.125rem; font-weight: 600; }
       .showcase p { margin: 0.5rem 0 0; max-width: 34rem; font-size: var(--sm); line-height: 1.65; color: var(--text-muted); text-wrap: pretty; }
@@ -291,6 +313,160 @@
         color: var(--text-muted);
       }
       .mock-foot b { color: var(--accent); font-weight: 500; }
+
+      /* The Appearance row is a working demo rather than three rows of chips: the theme buttons set
+         one attribute on the widget and the accent buttons set one custom property, and the card is
+         styled from those two alone. There is no second copy of the colours to keep in step. */
+      .aw { --acc: #4cc2e8; --aw-pad: 0.75rem; --aw-thumb: 40%; --aw-title: var(--2xs); --aw-sub: 0.6875rem; }
+      /* The showcase's own paragraph rule is more specific than one class, and it would repaint
+         the preview's text with the page's muted colour. Inside the widget the card owns its
+         colour and its type sizes. */
+      .aw p { margin: 0; max-width: none; color: inherit; font-size: inherit; }
+      .aw[data-size='s'] { --aw-pad: 0.5rem; --aw-thumb: 34%; --aw-title: 0.6875rem; --aw-sub: 0.625rem; }
+      .aw[data-size='l'] { --aw-pad: 1rem; --aw-thumb: 46%; --aw-title: 0.875rem; --aw-sub: 0.75rem; }
+      .aw .chip { background: none; cursor: pointer; font-family: inherit; }
+      .aw .chip:hover { border-color: var(--border-hi); }
+      .aw .chip[aria-pressed='true'] {
+        background: rgb(255 255 255 / 0.06);
+        border-color: var(--acc);
+        color: var(--acc);
+      }
+      .aw-swatches { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+      .aw-swatch {
+        width: 1.25rem;
+        height: 1.25rem;
+        padding: 0;
+        border: 0;
+        border-radius: 999px;
+        background: var(--s);
+        cursor: pointer;
+        box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.3);
+      }
+      .aw-swatch[aria-pressed='true'] { outline: 2px solid var(--s); outline-offset: 2px; }
+      .aw-switches { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem 1rem; }
+      .aw-switch {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0;
+        border: 0;
+        background: none;
+        font-family: inherit;
+        font-size: var(--2xs);
+        color: var(--text-muted);
+        text-align: left;
+        cursor: pointer;
+      }
+      .aw-switch[aria-pressed='true'] { color: var(--text); }
+      .aw-knob {
+        position: relative;
+        flex-shrink: 0;
+        width: 1.9rem;
+        height: 1.1rem;
+        border-radius: 999px;
+        background: rgb(255 255 255 / 0.14);
+        transition: background-color 120ms;
+      }
+      .aw-knob::after {
+        content: '';
+        position: absolute;
+        top: 0.15rem;
+        left: 0.15rem;
+        width: 0.8rem;
+        height: 0.8rem;
+        border-radius: 999px;
+        background: #b0bcc6;
+        transition: transform 120ms, background-color 120ms;
+      }
+      .aw-switch[aria-pressed='true'] .aw-knob { background: var(--acc); }
+      .aw-switch[aria-pressed='true'] .aw-knob::after { transform: translateX(0.8rem); background: #0a0e14; }
+      .aw-card {
+        overflow: hidden;
+        border: 1px solid;
+        border-radius: 0.85rem;
+        transition: background-color 140ms, border-color 140ms, color 140ms;
+      }
+      .aw-inner { display: flex; gap: 0.75rem; padding: var(--aw-pad); }
+      .aw[data-theme='system'] .aw-card,
+      .aw[data-theme='dark'] .aw-card { background: #10161e; border-color: rgb(255 255 255 / 0.1); color: #e9f0f5; }
+      .aw[data-theme='light'] .aw-card { background: #eef2f6; border-color: rgb(0 0 0 / 0.12); color: #0d131a; }
+      .aw[data-theme='glass'] .aw-card {
+        background: rgb(10 14 20 / 0.42);
+        border-color: rgb(255 255 255 / 0.22);
+        color: #e9f0f5;
+        -webkit-backdrop-filter: blur(14px) saturate(140%);
+        backdrop-filter: blur(14px) saturate(140%);
+      }
+      .aw-thumb {
+        position: relative;
+        flex: 0 0 var(--aw-thumb);
+        aspect-ratio: 16 / 10;
+        border-radius: 0.5rem;
+        background: linear-gradient(135deg, var(--acc), rgb(18 24 32 / 0.9));
+      }
+      .aw-dur {
+        position: absolute;
+        right: 0.25rem;
+        bottom: 0.25rem;
+        padding: 0.05rem 0.25rem;
+        border-radius: 0.25rem;
+        background: rgb(0 0 0 / 0.62);
+        color: #fff;
+        font-size: 0.625rem;
+        font-weight: 500;
+      }
+      .aw-meta { display: grid; align-content: start; gap: 0.15rem; min-width: 0; }
+      .aw .aw-title {
+        margin: 0;
+        overflow: hidden;
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        font-size: var(--aw-title);
+        font-weight: 600;
+        line-height: 1.35;
+      }
+      .aw .aw-sub { margin: 0; font-size: var(--aw-sub); line-height: 1.45; opacity: 0.72; }
+      .aw .aw-facts { margin: 0; font-size: var(--aw-sub); line-height: 1.45; opacity: 0.5; }
+      .aw[data-duration='off'] .aw-dur,
+      .aw[data-channel='off'] .aw-sub,
+      .aw[data-facts='off'] .aw-facts,
+      .aw[data-progress='off'] .aw-track { display: none; }
+      .aw-track { height: 0.125rem; background: rgb(255 255 255 / 0.14); }
+      .aw[data-theme='light'] .aw-track { background: rgb(0 0 0 / 0.12); }
+      .aw-fill { width: 42%; height: 100%; background: var(--acc); }
+      .aw .aw-caption { margin: 0; font-size: var(--2xs); color: var(--text-muted); }
+
+      /* The lock-screen card: the phone is asleep and the media notification is all that is left of
+         the app. Markup rather than a capture, so it stays sharp and shows only what the app puts
+         there: the video's artwork, its title, a seek bar and the transport controls. */
+      .lock-list { display: flex; align-items: center; gap: 0.75rem; margin-top: 1rem; }
+      .lock-art {
+        flex-shrink: 0;
+        width: 3rem;
+        height: 3rem;
+        border-radius: 0.5rem;
+        background: linear-gradient(135deg, rgb(var(--aurora-1) / 0.9), rgb(var(--aurora-2) / 0.8));
+        box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.35);
+      }
+      .lock-meta { min-width: 0; }
+      .lock-title { margin: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: var(--sm); font-weight: 600; }
+      .lock-sub { margin: 0.125rem 0 0; font-size: var(--2xs); color: var(--text-muted); }
+      .lock-bar { height: 0.25rem; margin-top: 1rem; overflow: hidden; border-radius: 999px; background: rgb(255 255 255 / 0.16); }
+      .lock-bar span { display: block; width: 34%; height: 100%; border-radius: 999px; background: var(--accent); }
+      .lock-controls { display: flex; align-items: center; justify-content: center; gap: 1.75rem; margin-top: 1rem; color: var(--text-muted); }
+      .lock-controls svg { width: 1.25rem; height: 1.25rem; }
+      .lock-play {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 2.5rem;
+        height: 2.5rem;
+        border-radius: 999px;
+        background: var(--text);
+        color: #0a0e14;
+      }
+      .lock-play svg { width: 1rem; height: 1rem; }
 
       .features { display: grid; gap: 1.75rem 2.5rem; margin-top: 1.5rem; }
       @media (min-width: 640px) { .features { grid-template-columns: 1fr 1fr; } }
@@ -409,7 +585,7 @@
               <span class="brand">does the things YouTube won't</span>
             </h1>
             <p class="sub">
-              Parallax plays YouTube without a Google account. Subscriptions, history, progress and notes live in a database on the phone, so nothing about what you watch leaves it. SponsorBlock, gestures on the picture, speed in 0.1 steps, notes dictated at the playhead, and a mode for when you cannot decide what to watch.
+              GlassTube plays YouTube without a Google account. Subscriptions, history, progress and notes live in a database on the phone, so nothing about what you watch leaves it. Lock the screen and the audio keeps going — the phone stays in your pocket, with no ads in the way. SponsorBlock, gestures on the picture, speed in 0.1 steps, notes dictated at the playhead, and a mode for when you cannot decide what to watch.
             </p>
             <a class="cta" href="app-release.apk">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -417,7 +593,7 @@
                 <path d="M7 10l5 5 5-5" />
                 <path d="M12 15V3" />
               </svg>
-              <span id="cta-label">Download Parallax</span>
+              <span id="cta-label">Download GlassTube</span>
             </a>
             <p class="fine">
               Android will ask once whether this source can install apps.
@@ -426,7 +602,7 @@
           <div class="phone">
             <img
               src="img/feed.webp"
-              alt="The Parallax feed: a subscription feed of video cards"
+              alt="The GlassTube feed: a subscription feed of video cards"
               loading="eager"
             />
           </div>
@@ -452,7 +628,7 @@
             <li>
               <span class="num">3</span>
               <div>
-                <h3>Open Parallax</h3>
+                <h3>Open GlassTube</h3>
                 <p>First start asks for nothing. No sign-in, no permissions, no account.</p>
               </div>
             </li>
@@ -462,6 +638,51 @@
         <section class="block" aria-labelledby="showcase">
           <h2 class="section" id="showcase">What it does differently</h2>
           <div class="showcase">
+            <div>
+              <div class="mock" aria-hidden="true">
+                <div class="mock-head">
+                  <span class="mock-title">21:40</span>
+                  <span class="mock-title" style="opacity: 0.55">Tue 10 Nov</span>
+                </div>
+                <div class="lock-list">
+                  <span class="lock-art"></span>
+                  <div class="lock-meta">
+                    <p class="lock-title">Lecture 4 — the history of writing</p>
+                    <p class="lock-sub">Playing · 41:07</p>
+                  </div>
+                </div>
+                <div class="lock-bar">
+                  <span></span>
+                </div>
+                <div class="lock-controls">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                    <path d="M3 3v5h5" />
+                  </svg>
+                  <span class="lock-play">
+                    <svg viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M8 5v14l11-7z" />
+                    </svg>
+                  </span>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 12a9 9 0 1 1-9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
+                    <path d="M21 3v5h-5" />
+                  </svg>
+                </div>
+                <p class="mock-copy">The screen is off. The audio is not.</p>
+              </div>
+              <div>
+                <p class="eyebrow">Listening</p>
+                <h3>The phone goes in your pocket</h3>
+                <p>
+                  The lecture, the long talk, the album you are not watching: lock the screen and the
+                  audio carries on, with the video's thumbnail, its title and the controls on the lock
+                  screen. Leave the app instead and the mini player does the same. Nothing has to stay
+                  lit to keep it playing.
+                </p>
+                <p class="note">Plays with the screen off · Lock-screen artwork and controls · Mini player</p>
+              </div>
+            </div>
             <div>
               <div class="mock" aria-hidden="true">
                 <div class="mock-head">
@@ -498,38 +719,73 @@
               </div>
             </div>
             <div>
-              <div class="mock" aria-hidden="true">
+              <div class="mock aw" data-theme="glass" data-size="m" data-duration="on" data-channel="on" data-facts="on" data-progress="on" role="group" aria-label="Appearance preview">
                 <div class="mock-rows">
                   <div class="mock-row">
-                    <p class="mock-label">Theme</p>
-                    <div class="chips">
-                      <span class="chip">System</span>
-                      <span class="chip">Dark</span>
-                      <span class="chip">Light</span>
-                      <span class="chip on">Glass</span>
+                    <p class="mock-label" id="aw-theme-label">Theme</p>
+                    <div class="chips" role="group" aria-labelledby="aw-theme-label">
+                      <button type="button" class="chip" data-theme="system" aria-pressed="false">System</button>
+                      <button type="button" class="chip" data-theme="dark" aria-pressed="false">Dark</button>
+                      <button type="button" class="chip" data-theme="light" aria-pressed="false">Light</button>
+                      <button type="button" class="chip" data-theme="glass" aria-pressed="true">Glass</button>
                     </div>
                   </div>
                   <div class="mock-row">
-                    <p class="mock-label">Accent shuffle</p>
-                    <div class="chips">
-                      <span class="chip on">Daily</span>
-                      <span class="chip">Hourly</span>
-                      <span class="chip">Focus</span>
+                    <p class="mock-label" id="aw-accent-label">Accent</p>
+                    <div class="aw-swatches" role="group" aria-labelledby="aw-accent-label">
+                      <button type="button" class="aw-swatch" style="--s: #4cc2e8" data-accent="#4cc2e8" aria-label="Cyan" aria-pressed="true"></button>
+                      <button type="button" class="aw-swatch" style="--s: #8f86e4" data-accent="#8f86e4" aria-label="Violet" aria-pressed="false"></button>
+                      <button type="button" class="aw-swatch" style="--s: #8be4b8" data-accent="#8be4b8" aria-label="Mint" aria-pressed="false"></button>
+                      <button type="button" class="aw-swatch" style="--s: #e8b34c" data-accent="#e8b34c" aria-label="Amber" aria-pressed="false"></button>
+                      <button type="button" class="aw-swatch" style="--s: #e8739a" data-accent="#e8739a" aria-label="Rose" aria-pressed="false"></button>
+                      <button type="button" class="aw-swatch" style="--s: #6aa8ff" data-accent="#6aa8ff" aria-label="Blue" aria-pressed="false"></button>
+                      <button type="button" class="aw-swatch" style="--s: #b6e34c" data-accent="#b6e34c" aria-label="Lime" aria-pressed="false"></button>
+                      <button type="button" class="aw-swatch" style="--s: #e8934c" data-accent="#e8934c" aria-label="Orange" aria-pressed="false"></button>
+                    </div>
+                  </div>
+                  <div class="mock-row">
+                    <p class="mock-label" id="aw-size-label">Size</p>
+                    <div class="chips" role="group" aria-labelledby="aw-size-label">
+                      <button type="button" class="chip" data-size="s" aria-pressed="false">Small</button>
+                      <button type="button" class="chip" data-size="m" aria-pressed="true">Medium</button>
+                      <button type="button" class="chip" data-size="l" aria-pressed="false">Large</button>
                     </div>
                   </div>
                   <div class="mock-row">
                     <p class="mock-label">Card preview</p>
-                    <div class="chips">
-                      <span class="chip">Classic</span>
-                      <span class="chip">Side</span>
-                      <span class="chip on">Minimal</span>
+                    <div class="aw-card" aria-hidden="true">
+                      <div class="aw-inner">
+                        <div class="aw-thumb">
+                          <span class="aw-dur">1:42:16</span>
+                        </div>
+                        <div class="aw-meta">
+                          <p class="aw-title">Lecture 4 — the history of writing</p>
+                          <p class="aw-sub">Open Lectures</p>
+                          <p class="aw-facts">1.2M views · 3 years ago</p>
+                        </div>
+                      </div>
+                      <div class="aw-track"><div class="aw-fill"></div></div>
+                    </div>
+                  </div>
+                  <div class="mock-row">
+                    <p class="mock-label">Shown on the card</p>
+                    <div class="aw-switches">
+                      <button type="button" class="aw-switch" data-toggle="duration" aria-pressed="true">
+                        <span class="aw-knob" aria-hidden="true"></span>Duration
+                      </button>
+                      <button type="button" class="aw-switch" data-toggle="channel" aria-pressed="true">
+                        <span class="aw-knob" aria-hidden="true"></span>Channel
+                      </button>
+                      <button type="button" class="aw-switch" data-toggle="facts" aria-pressed="true">
+                        <span class="aw-knob" aria-hidden="true"></span>Views and age
+                      </button>
+                      <button type="button" class="aw-switch" data-toggle="progress" aria-pressed="true">
+                        <span class="aw-knob" aria-hidden="true"></span>Progress
+                      </button>
                     </div>
                   </div>
                 </div>
-                <div class="mock-foot">
-                  <span>Contrast 7.0:1 — holds</span>
-                  <b>Shuffle off by default</b>
-                </div>
+                <p class="aw-caption">Change anything here; the card repaints.</p>
               </div>
               <div>
                 <p class="eyebrow">Appearance</p>
@@ -662,7 +918,7 @@
                 </svg>
               </span>
               <h3>When a stream stalls</h3>
-              <p>If a stream errors or goes quiet for 20 seconds, Parallax fetches fresh streams and retries twice. A disk cache you size in Settings holds what you have watched.</p>
+              <p>If a stream errors or goes quiet for 20 seconds, GlassTube fetches fresh streams and retries twice. A disk cache you size in Settings holds what you have watched.</p>
             </div>
             <div>
               <span class="icon" aria-hidden="true">
@@ -742,15 +998,15 @@
         </section>
 
         <footer>
-          <a href="https://odesaplay.com.ua/other_apps/portfolio/?app=parallax">More about the app</a>
-          <a href="https://github.com/presaince/parallax" rel="noopener" aria-label="Parallax on GitHub">
+          <a href="https://odesaplay.com.ua/other_apps/portfolio/?app=glasstube">More about the app</a>
+          <a href="https://github.com/presaince/parallax" rel="noopener" aria-label="GlassTube on GitHub">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" style="vertical-align: -2px; margin-right: 0.35rem">
               <path d="M12 .5C5.73.5 .5 5.73 .5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.56 0-.27-.01-1.15-.02-2.09-3.2.69-3.88-1.37-3.88-1.37-.52-1.33-1.27-1.68-1.27-1.68-1.04-.71.08-.69.08-.69 1.15.08 1.75 1.18 1.75 1.18 1.02 1.75 2.68 1.24 3.34.95.1-.74.4-1.24.72-1.53-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.28 1.18-3.09-.12-.29-.51-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11.05 11.05 0 0 1 5.79 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.24 2.76.12 3.05.74.81 1.18 1.83 1.18 3.09 0 4.42-2.7 5.39-5.27 5.68.41.36.78 1.06.78 2.14 0 1.55-.01 2.8-.01 3.18 0 .31.21.68.8.56A10.52 10.52 0 0 0 23.5 12C23.5 5.73 18.27 .5 12 .5z" />
             </svg>
             GitHub
           </a>
           <span style="color: var(--text-muted); font-size: var(--3xs); letter-spacing: 0.16em; text-transform: uppercase">
-            Parallax · GPLv3 · Kotlin and Compose
+            GlassTube · GPLv3 · Kotlin and Compose
           </span>
           <span style="color: var(--text-muted); font-size: var(--3xs); letter-spacing: 0.16em; text-transform: uppercase">
             Made by <span class="brand-gradient" style="text-transform: none; letter-spacing: 0; font-size: var(--sm); vertical-align: baseline">Presaince</span>
@@ -758,6 +1014,49 @@
         </footer>
       </main>
     </div>
+
+    <script>
+      /* The Appearance demo. The widget's own attributes say which theme, size and facts the card
+         wears, and one custom property says which accent; the buttons only set those. Nothing here
+         knows a colour, so the card cannot drift from the swatch that set it. */
+      ;(() => {
+        const widget = document.querySelector('.aw')
+        if (!widget) return
+
+        const press = (button) => {
+          for (const peer of button.parentElement.querySelectorAll('button[aria-pressed]')) {
+            peer.setAttribute('aria-pressed', String(peer === button))
+          }
+        }
+
+        widget.addEventListener('click', (event) => {
+          const theme = event.target.closest('button[data-theme]')
+          if (theme) {
+            widget.setAttribute('data-theme', theme.dataset.theme)
+            press(theme)
+            return
+          }
+          const size = event.target.closest('button[data-size]')
+          if (size) {
+            widget.setAttribute('data-size', size.dataset.size)
+            press(size)
+            return
+          }
+          const accent = event.target.closest('button[data-accent]')
+          if (accent) {
+            widget.style.setProperty('--acc', accent.dataset.accent)
+            press(accent)
+            return
+          }
+          const toggle = event.target.closest('button[data-toggle]')
+          if (toggle) {
+            const on = toggle.getAttribute('aria-pressed') !== 'true'
+            toggle.setAttribute('aria-pressed', String(on))
+            widget.setAttribute('data-' + toggle.dataset.toggle, on ? 'on' : 'off')
+          }
+        })
+      })()
+    </script>
 
     <script>
       const esc = (s) =>
@@ -775,7 +1074,7 @@
         })
         .then((v) => {
           const notes = v.notes && v.notes.en ? v.notes.en : ''
-          if (v.versionName) label.textContent = 'Download Parallax ' + v.versionName
+          if (v.versionName) label.textContent = 'Download GlassTube ' + v.versionName
           list.innerHTML = `
             <li>
               <div class="build-row">

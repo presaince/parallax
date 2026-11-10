@@ -1,4 +1,4 @@
-﻿# Parallax roadmap
+﻿# GlassTube roadmap
 
 Native Android client for YouTube, GPLv3, local-first. The full build plan is
 `C:\Users\Bodi\.opencode\plan\parallax-plan.md`; this file tracks state.
@@ -7,6 +7,166 @@ Status: M0 gated; M1–M5 built, no gate run yet. M6 scaffolded, needs an OAuth 
 place. The shell and the second UI pass landed 2026-11-05 (bottom navigation, thumbnails,
 inline comments, mini-player, pull-to-refresh); the device check for that pass is still pending.
 No git repo — Bodi tests a build for a few days first.
+
+## A first screen with something on it, 2026-11-10
+
+- **A fresh install landed on a dead end.** With nothing subscribed the wizard's last button was
+  "Start with nothing", and that landed on an empty Feed whose only action was a trip to an equally
+  empty Library ("0 subscriptions", no import control there). Import lived in the wizard and in
+  Settings only.
+- **The empty feed is two states, not one.** Nothing subscribed now gets the import picker inline
+  and a "Try Bored" button; subscribed-but-empty says the fetch found nothing and to pull down. The
+  count is the live subscription table, so the import flips the sentence without a restart.
+- **"Try Bored" starts a mode.** Bored is the only destination that works with nothing subscribed,
+  so the button does not open on four names the reader has not met: the first visit starts Short
+  (`firstPickName`, `FirstPickTest`), and a renamed built-in falls back to whatever the row holds.
+  The request is one-shot in the nav, cleared by the screen that honours it.
+- **The shared link previewed the old portfolio card.** og:image was
+  `/other_apps/portfolio/screenshots/parallax-og.png`, the pre-rename Parallax card, on both stubs.
+  `web/img/og.png` is new (1200x630, the GlassTube tile and wordmark on the glass field), the app
+  page and both stubs point at it, and the app page now has an Open Graph card and a favicon of its
+  own for the first time. The stubs redirect to `/other_apps/glasstube/` instead of the portfolio
+  view.
+- **`/glasstube` without the slash is still the portfolio.** The OdesaPlay Express app answers every
+  unknown path with its SPA, so the short URL a chat drops the slash from previews that site. The
+  fix is one route in `odesaplay/server.js`; see Queued.
+
+## A restore that restores, a feed that fetches, a skip that does not rebuffer, 2026-11-10
+
+- **The imported file was telling the truth.** `/sdcard/Download/Newpipe/parallax-backup (1).json`
+  says `"cards": {"layout": "MINIMAL"}` and the phone's prefs said the same, alongside the file's
+  accent h220, speed 1.1 and threshold 25%. The export predated the switch to Classic; the restore
+  wrote exactly what it was given. The fault was the age of the file, not the code.
+- **The export only carried choices that had been written.** `SettingsExport` returned null for a
+  BOOL/INT/FLOAT whose key was absent, so every setting left at its factory default was missing,
+  and a restore kept the new phone's own value — a wizard pick could survive the thing meant to
+  replace it. `SettingsSchema` now holds a default per field, taken from the literal each reader
+  uses, and the export always writes it. Lists stay additive: an empty search history is left out
+  rather than clearing the new phone's terms.
+- **Watch history and notes were missing from those files, not from the code.** Both are written by
+  `Backup.json` and were added after the Nov 9 export. Resume position (`progress`) was genuinely
+  absent and is now in the file; a row replaces one here only when it is newer, so a restore cannot
+  rewind a video watched since.
+- **`speed_presets` was in no table at all**, so a reader's custom speeds never travelled.
+- **The feed never heard about an import.** Its only triggers were the first composition and the
+  pull, and Settings stays on top of a composed feed. `ContentRepository` now carries a refresh
+  counter, an import that added channels raises it, and `FeedViewModel` collects it; a request that
+  lands during a running refresh re-arms rather than being dropped.
+- **A restore now repaints.** Only the theme was told about the write, while the player's skip
+  switch, categories, speed and threshold, the card style and the extractor's country were read
+  once and kept. One effect on the Data page calls `reload()` on each and re-initialises the
+  region.
+- **A long SponsorBlock block rebuffered at its far side.** The skip is a seek past the ~60 s the
+  player holds. `SponsorPrefetch` warms 15 s after the block through a throwaway player on the same
+  media source and the same `SimpleCache`, started up to two minutes ahead and cancelled when the
+  video closes or skipping is turned off. The decision is a pure function with a test; the fetch
+  itself needs the Pixel.
+- **A swipe out of recents left the process playing.** `PlaybackService` had no `onTaskRemoved`, so
+  the mediaPlayback service outlived its task and only a force-stop ended it. It now stops playback
+  (which also clears the notification and the service) and calls `stopSelf`.
+- **“Found” listed one backup twice.** The folder row is a tree-document URI and the remembered
+  export is a plain document URI; the merge keyed on the whole URI. It now keys on the SAF document
+  id, so one file is one row and two same-named files in two folders stay two. `BackupFilesTest`
+  builds both URI shapes.
+- **The update path had nothing on it.** FTP `other_apps/glasstube/` holds `index.html` and `img/`
+  only: no `app-release.apk`, no `version.json`. The download page is still served, so the directory
+  is live; a missing file falls through to the portfolio's SPA and answers 200 with a 2 848-byte web
+  page, which the app was parsing as JSON. The release config is correct (`remoteDir`, APK first,
+  manifest deferred, verify on), so the fix is a release run, not a code change. The updater now
+  refuses a body that is not JSON and says “No version.json at … — the server answered with a web
+  page”. Published as 0.3.10 (code 13) on 2026-11-10 — see *The rename* below.
+- **The Settings entry is three lines.** The PBurger is retired: `ic_menu.xml` draws three rounded
+  strokes on the same brand ramp (`#f8fafc → #a5e4f5 52% → #4cc2e8`), untinted, and the removed
+  drawable had no other caller. The wordmark is unchanged.
+
+## Screen off, as the sentence that sells it, 2026-11-10
+
+- **The claim was checked before it was written.** `PlaybackService` is a `mediaPlayback` foreground
+  service, the manifest holds `WAKE_LOCK` and `FOREGROUND_SERVICE_MEDIA_PLAYBACK`, and nothing on the
+  activity's stop path calls `pause()`, so a locked phone is just an activity that went away. The
+  lock-screen card is media3's own, built from the item's metadata, which already carries the video's
+  thumbnail (`PlaybackController` `setMediaMetadata`).
+- **Every page that sells it says it.** `web/index.html` (hero, the new first showcase row, meta
+  description), the portfolio's `glasstubeCopy.ts` plus `GlassTubeBeta.tsx` (`LockMock`) and the
+  GlassTube row's `why` in `apps.ts`, the `/glasstube` share stub's Open Graph card, `README.md`, and
+  the two fastlane files. Hero and showcase carry the same sentences on both pages, because the two
+  are meant to say the same words.
+- **The row is first, not last.** Clip sharing, Appearance and Bored Mode moved down one place and
+  the portfolio roadmap's "leads with three things" is now four.
+- **The frame is the client's own, not the paywall.** The first draft wrote "YouTube's own app only
+  does this with Premium", which the owner cut: it measures the app against a subscription instead of
+  saying what it is. The people this is for already live with the workaround — in the official app
+  you leave the screen on to keep the audio, or you let the ads play — so the copy names that
+  experience plainly ("the screen does not have to stay on"), and the listing says "listening with
+  the phone put away". Same claim, no opponent in the sentence.
+- **The Appearance row is a working demo now.** The three rows of chips became a small widget: four
+  theme buttons set one attribute on it, eight accent buttons set one custom property, three size
+  chips (Small, Medium, Large) set the card's padding, thumbnail share and type sizes, and four
+  switches (Duration, Channel, Views and age, Progress) hide the matching part of the card. The card
+  is styled from those alone, so there is no second copy of a colour to drift. The same shape lives
+  on the download page (plain markup and one listener) and in `AppearanceWidget` on the portfolio
+  page. The card uses the app's own colours inline rather than the site's tokens, because the point
+  is to show the app, not the page.
+- **The showcase's paragraph rule leaks into the widget unless it is fenced off.**
+  `.showcase p` is `(0,1,1)`, so it repainted the preview's title with the page's muted colour and
+  its 15px size — in the Light theme the title would have been light grey on a light card. The
+  widget's text rules are now `.aw p` resets plus `.aw .aw-title`-style scoping, verified by reading
+  the computed colour in both themes.
+- **Not claimed: battery saving, and not "audio only".** The player still decodes video with the
+  screen off, so the pages say the audio keeps going, not that the video stops. If an audio-only
+  mode is built later, this is the paragraph to revise.
+- Verified, live: the download page (6/6), the portfolio on both hosts (3/3 each, old bundles
+  pruned) and the stub earlier. The two pages were then driven in a browser against the live URLs:
+  every theme repaints the card (`#10161e` dark, `#eef2f6` light, `rgba(10,14,20,0.42)` glass),
+  every accent moves the thumb gradient, the progress fill and the pressed ring, Small/Medium/Large
+  change the padding (8/12/16px), the thumbnail share (34/40/46%) and the type (10.5/12/14px), and
+  each switch hides its part of the card; neither page logs an error. Read back over HTTPS: the hero
+  carries "no ads in the way", the mock ends on "The screen is off. The audio is not.", and the
+  widget's markup and script are in the served page. The app itself did not change, so no APK was
+  rebuilt or uploaded.
+
+## The rename, 2026-11-10
+
+The tree was renamed to GlassTube while this copy was being written: package
+`com.presaince.glasstube`, app label `GlassTube`, AGENTS.md, and the deploy configs already pointed at
+`other_apps/glasstube/`. The marketing copy now follows:
+
+- **Both pages say GlassTube**: the title, meta description, hero, install steps, the "stream stalls"
+  tile, the footer, the GitHub label and the download button's version label. `README.md`, the
+  fastlane files and the portfolio row *do* agree.
+- **The portfolio's app id is `glasstube`**, so its row links `?app=glasstube`; `?app=parallax` is
+  still accepted and renders the same page, because those links are in chats. The component and its
+  copy file are `GlassTubeBeta.tsx` and `glasstubeCopy.ts`.
+- **The short link is `/glasstube`** (`glasstube-link/`, `deploy-glasstube-link.properties`). The old
+  `/parallax` stub stays, retitled, and forwards to the same page, because a shared link cannot be
+  corrected.
+- **The release went up as 0.3.10 (code 13).** `assembleRelease` clean, signed with the same key as
+  0.3.9 (`CN=Ukraine Drones`), notes "The app is now GlassTube.", sha256 `ff550853d199…`, uploaded to
+  `other_apps/glasstube/` with its `version.json`. The updater finally has a manifest to read; the
+  section above about the empty folder is closed by this upload.
+- **The links followed the binary.** The page's three download links and its manifest are relative
+  again (they resolve inside the glasstube folder), and `APK_URL` and the portfolio's version fetch
+  name `/other_apps/glasstube/`. Read back: manifest 0.3.10/13, APK 33,680,760 bytes,
+  `application/vnd.android.package-archive`.
+- **The old folder is a redirect now.** `web/parallax-retired.html` is uploaded as its `index.html`
+  and forwards to `../glasstube/`, so an old bookmark lands on the current page rather than on 0.3.9.
+  The folder had in fact been emptied when this was checked, so the redirect is the whole of it: no
+  old APK is left there. Delete the folder when the access log goes quiet.
+- **The old folder also carries a tombstone manifest.** `web/parallax-version.json` is uploaded as
+  its `version.json` at code 12 / 0.3.9, the last build under the old name. Without it an installed
+  Parallax reads the host's HTML stub, fails to parse it, and reports "Update check failed" on every
+  About visit. With it, a 0.3.9 install reads its own code and stops asking. An older install would
+  be offered the GlassTube APK and be refused on the package name, which is the honest answer.
+- **Still says the old word, on purpose:** the GitHub URL (`presaince/parallax`, which redirects if
+  the repo is renamed), the `parallax1..5.webp` screenshot filenames, the `/parallax` forwarding
+  stub, and `BackupReader`, which accepts `"app":"parallax"` so a backup written before the rename
+  still imports.
+- Verified: `tsc` clean, both pages driven in a browser, then deployed: the page (6/6), the portfolio
+  to both hosts (2/2 each: the bundle only), the release (2/2), and the old folder's redirect (1/1).
+  Read back over HTTPS: the page and the portfolio button read "Download GlassTube 0.3.10", the
+  manifest's build row shows code 13 and the note, the portfolio bundle carries the glasstube APK URL
+  and no parallax one, both stubs forward to `?app=glasstube`, and no page's visible text contains
+  "Parallax".
 
 ## Brightness handback, 2026-11-10
 
@@ -919,7 +1079,8 @@ feed state. Each is listed in ARCHITECTURE "Known gaps".
 
 - Kotlin, Compose, Material 3, ViewModel + StateFlow, Media3, Room, WorkManager.
 - NewPipeExtractor as a dependency, never vendored. Licence GPLv3. minSdk 33.
-- Package `com.presaince.parallax` (changeable until first publish).
+- Package `com.presaince.glasstube` (was `com.presaince.parallax`; the rename on 2026-11-10 made it
+  a new app id, so an installed Parallax cannot be updated in place).
 - Accent is Presaince brand cyan; the gradient is for wordmark, splash and About only.
 - No debate transport, no clip payload, no P2P sync, no third-party skins, no Slack Circuit.
 - Download is a single simple path and comes last.
@@ -927,7 +1088,14 @@ feed state. Each is listed in ARCHITECTURE "Known gaps".
 
 ## Queued
 
-- **Playlists screen** — the owner asked for it on 2026-11-10 and it is the agreed next feature.
+- **`/glasstube` without the slash** - `odesaplay/server.js` serves `dist/index.html` for every
+  unmatched path, so `https://odesaplay.com.ua/glasstube` (no slash) is the portfolio SPA and
+  previews the portfolio, while `/glasstube/` is the stub. One `app.get('/glasstube', ...)` that
+  redirects to `/glasstube/` fixes it, but it is a second project and a second deploy (OdesaPlay
+  Node app, not this repo). Cost to leave it: a link pasted without the trailing slash still shows
+  the wrong card.
+
+- **Playlists screen** - the owner asked for it on 2026-11-10 and it is the agreed next feature.
   Nothing exists today: no route, no `VideoSource.playlist`, no view. Needed pieces: an extractor
   call for a playlist's items (NewPipe's `PlaylistInfo`/`PlaylistExtractor`), a `Route.Playlist`,
   a list screen with the same `VideoRow` and sort, and two entry points — a Playlists tab on the
