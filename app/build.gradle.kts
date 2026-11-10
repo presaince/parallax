@@ -21,8 +21,8 @@ android {
         // Both numbers move together, with scripts/bump-version.mjs --apply. Never hand-edit one:
         // the page names the version and the updater compares versionCode, so a build that keeps
         // code 3 is a build that nobody is offered.
-        versionCode = 13
-        versionName = "0.3.10"
+        versionCode = 14
+        versionName = "0.3.11"
     }
 
     buildFeatures {

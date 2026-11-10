@@ -8,6 +8,30 @@ place. The shell and the second UI pass landed 2026-11-05 (bottom navigation, th
 inline comments, mini-player, pull-to-refresh); the device check for that pass is still pending.
 No git repo — Bodi tests a build for a few days first.
 
+## Two ladders, and sound with the screen off, 2026-11-10
+
+- **Quality is per connection.** `video_quality` is the Wi-Fi stop and `video_quality_cellular` the
+  mobile-data one; `qualityKey`/`qualityFor` in `core/Quality.kt` are the only rule, and everything
+  not cellular — Wi-Fi, Ethernet, a VPN that reports no transport, no network — reads the Wi-Fi
+  stop. Settings edits one ladder at a time behind a Wi-Fi / Mobile data chip, the player's menu
+  writes the ladder in force and names it in the menu, and the backup carries both fields.
+- **The ladder above 720p was dead, and now it is not.** The old pick came from `videoStreams`, the
+  progressive set, which tops out at 720p — so Full HD, QHD, 4K and AI sim all played the same file
+  on any video with one audio track. `streams()` now takes `videoOnlyStreams` + `audioStreams`
+  whenever both exist, and falls back to muxed only when there is no split set (a live stream).
+- **Split is what makes the screen-off claim real.** `PlaybackController` listens for
+  `ACTION_SCREEN_OFF`/`ACTION_SCREEN_ON` and disables the video track while the screen is dark: the
+  video source stops being read, the audio source is never re-prepared, so the bytes stop and the
+  sound does not gap. The player takes `C.WAKE_MODE_NETWORK` as well, because with no decoder
+  running there is nothing else holding the CPU up between buffers.
+- **The picture freezes for a moment when the screen comes back**, because a video decoder needs a
+  keyframe at or before the playhead. The disk cache holds that keyframe, so it is a local read,
+  but it is not zero and the number has not been measured. The SponsorBlock prefetch warms only the
+  audio source while the screen is off, for the same reason.
+- **Not verified on the phone.** Built and unit-tested only. The gate is a hand check on the Pixel:
+  a 4K pick on an ordinary video (the pill should read 2160p), a quality change on Wi-Fi and again
+  on mobile data, and a locked screen for a minute then unlocked mid-video.
+
 ## A first screen with something on it, 2026-11-10
 
 - **A fresh install landed on a dead end.** With nothing subscribed the wizard's last button was
@@ -148,25 +172,18 @@ The tree was renamed to GlassTube while this copy was being written: package
   again (they resolve inside the glasstube folder), and `APK_URL` and the portfolio's version fetch
   name `/other_apps/glasstube/`. Read back: manifest 0.3.10/13, APK 33,680,760 bytes,
   `application/vnd.android.package-archive`.
-- **The old folder is a redirect now.** `web/parallax-retired.html` is uploaded as its `index.html`
-  and forwards to `../glasstube/`, so an old bookmark lands on the current page rather than on 0.3.9.
-  The folder had in fact been emptied when this was checked, so the redirect is the whole of it: no
-  old APK is left there. Delete the folder when the access log goes quiet.
-- **The old folder also carries a tombstone manifest.** `web/parallax-version.json` is uploaded as
-  its `version.json` at code 12 / 0.3.9, the last build under the old name. Without it an installed
-  Parallax reads the host's HTML stub, fails to parse it, and reports "Update check failed" on every
-  About visit. With it, a 0.3.9 install reads its own code and stops asking. An older install would
-  be offered the GlassTube APK and be refused on the package name, which is the honest answer.
-- **Still says the old word, on purpose:** the GitHub URL (`presaince/parallax`, which redirects if
-  the repo is renamed), the `parallax1..5.webp` screenshot filenames, the `/parallax` forwarding
-  stub, and `BackupReader`, which accepts `"app":"parallax"` so a backup written before the rename
-  still imports.
+- **The old folder is gone, deliberately.** It briefly held a redirect plus a code-12 tombstone
+  `version.json`, so an installed 0.3.9 would stop failing its check. Both were removed on
+  2026-11-10: there is no legacy site to keep alive, `other_apps/parallax/` 404s into the host's
+  stub, and the last Parallax install is expected to be uninstalled rather than updated.
+- **Still says the old word, on purpose:** the GitHub URL (`presaince/parallax`, kept as the repo
+  name), the `parallax1..5.webp` screenshot filenames, and `BackupReader`, which accepts
+  `"app":"parallax"` so a backup written before the rename still imports.
 - Verified: `tsc` clean, both pages driven in a browser, then deployed: the page (6/6), the portfolio
-  to both hosts (2/2 each: the bundle only), the release (2/2), and the old folder's redirect (1/1).
-  Read back over HTTPS: the page and the portfolio button read "Download GlassTube 0.3.10", the
-  manifest's build row shows code 13 and the note, the portfolio bundle carries the glasstube APK URL
-  and no parallax one, both stubs forward to `?app=glasstube`, and no page's visible text contains
-  "Parallax".
+  to both hosts (2/2 each: the bundle only), and the release (2/2). Read back over HTTPS: the page
+  and the portfolio button read "Download GlassTube 0.3.10", the manifest's build row shows code 13
+  and the note, the portfolio bundle carries the glasstube APK URL and no parallax one, and both
+  stubs forward to `?app=glasstube`.
 
 ## Brightness handback, 2026-11-10
 
@@ -1088,6 +1105,11 @@ feed state. Each is listed in ARCHITECTURE "Known gaps".
 
 ## Queued
 
+- **A VPN over mobile data reads the Wi-Fi quality stop** — `activeTransport` sees only
+  `TRANSPORT_VPN`, so `video_quality` (the higher ladder) applies while the bytes are in fact
+  metered. Cost to leave it: a VPN user gets their Wi-Fi ceiling on a phone plan. The fix is to walk
+  `ConnectivityManager.allNetworks` for the underlying transport, which is a binder call per pick.
+
 - **`/glasstube` without the slash** - `odesaplay/server.js` serves `dist/index.html` for every
   unmatched path, so `https://odesaplay.com.ua/glasstube` (no slash) is the portfolio SPA and
   previews the portfolio, while `/glasstube/` is the stub. One `app.get('/glasstube', ...)` that
@@ -1120,7 +1142,6 @@ feed state. Each is listed in ARCHITECTURE "Known gaps".
 - `data/source/SelfRepair.kt` — data-driven extractor (JSON path model) is not built; LLM repair covers search query and region only. Cost of leaving it: field renames still need a code change instead of a model publish.
 - `data/library/ContentRepository.kt` — the feed refresh still opens a videos tab per subscription, although `ChannelFeed` now reads the same latest uploads for free from RSS. Cost: a refresh pays an extractor page per channel when a keyless feed would do; RSS has no duration, and the feed cards show one, which is the reason it was not swapped blind. Found 2026-11-09 while adding the uploads source.
 - `data/discover/DiscoverEngine.kt` — a search recipe reads one page. `VideoSource.search` has no continuation, so `count` above the first page changes nothing and there is no "more" on Bored. Cost: the pool is one page per tap; the fix is a search-page token on the source, not a bigger count. Found 2026-11-09.
-- `ui/component/ScrollToTop.kt` - the button is a stock `SmallFloatingActionButton`, whose container is the `surfaceContainerHigh` role, and `glassScheme` overrides only surface, surfaceVariant, background and outlineVariant. In Glass it is therefore opaque M3 baseline grey, not the accent-tinted pane everything else sits on. Cost: one grey button in a themed app; the fix is `containerColor = MaterialTheme.colorScheme.surface` plus the usual hairline. Found 2026-11-10 while giving the top bar its fill and seam.
 - Google sign-in for subscription import - designed but not built: an app-owned read-only OAuth
   client (`youtube.readonly`), `subscriptions.list(mine=true)` paged 50 at a time into the same
   subscription rows, tokens in `SecurePrefs`. Blocked on a Google Cloud client published to

@@ -9,6 +9,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.material.icons.Icons
@@ -22,6 +24,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import com.presaince.glasstube.ui.theme.accentTextColour
 
@@ -78,12 +81,27 @@ fun ScrollToTopButton(
         exit = fadeOut() + scaleOut(targetScale = 0.8f),
         modifier = modifier,
     ) {
-        SmallFloatingActionButton(onClick = onClick) {
-            Icon(
-                imageVector = Icons.Filled.KeyboardArrowUp,
-                contentDescription = "Back to top",
-                tint = accentTextColour(),
-            )
+        // The stock FAB paints surfaceContainerHigh, a role Glass never overrides, so it landed as
+        // an opaque grey pill on a themed screen. Surface plus a hairline is the same pane every
+        // other card sits on.
+        Box(
+            modifier = Modifier.border(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outlineVariant,
+                shape = MaterialTheme.shapes.large,
+            ),
+        ) {
+            SmallFloatingActionButton(
+                onClick = onClick,
+                containerColor = MaterialTheme.colorScheme.surface,
+                contentColor = accentTextColour(),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.KeyboardArrowUp,
+                    contentDescription = "Back to top",
+                    tint = accentTextColour(),
+                )
+            }
         }
     }
 }
