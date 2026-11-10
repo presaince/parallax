@@ -27,8 +27,6 @@ enum class ContrastPolicy(val stored: String, val ratio: Float, val label: Strin
     /** True when shades may be derived; Off leaves every colour as it was. */
     val enforced: Boolean get() = this != OFF
 
-    val target: String get() = if (this == OFF) "As chosen" else "${trim(ratio)}:1"
-
     companion object {
         val all: List<ContrastPolicy> = listOf(OFF, AA, AAA)
 
@@ -36,9 +34,6 @@ enum class ContrastPolicy(val stored: String, val ratio: Float, val label: Strin
             all.firstOrNull { it.stored == name } ?: AA
     }
 }
-
-private fun trim(value: Float): String =
-    if (value == value.toInt().toFloat()) value.toInt().toString() else value.toString()
 
 /**
  * WCAG 2.2 relative luminance of one colour. Alpha is ignored: callers composite first, because a

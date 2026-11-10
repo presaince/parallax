@@ -23,6 +23,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import kotlinx.coroutines.launch
+import com.presaince.parallax.ui.theme.accentTextColour
 
 /**
  * One control, every long list: it appears once the list has actually travelled, and returns to
@@ -81,7 +82,7 @@ fun ScrollToTopButton(
             Icon(
                 imageVector = Icons.Filled.KeyboardArrowUp,
                 contentDescription = "Back to top",
-                tint = MaterialTheme.colorScheme.primary,
+                tint = accentTextColour(),
             )
         }
     }

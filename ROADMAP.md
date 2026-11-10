@@ -19,7 +19,246 @@ the window attributes alone. Verified: `BrightnessHandbackTest` (the override cl
 survives), `:app:assembleDebug`, installed on the Pixel 7. Whether the shade's slider is free
 again after a gesture-and-back is the owner's check.
 
+## Card meta, section labels, and the second wrap, 2026-11-10
+
+- **The wrap was my layout, not the spacing.** The report's screenshot (`161450`) shows the card
+  meta as `… · 1.2K` / `likes · 164 comments`: the channel name and the facts were two weighted
+  children of one Row, so they split the width down the middle and the facts were squeezed into a
+  narrow column of their own. The card now gives the channel its own line and puts the facts on the
+  line below, right-aligned and full width, which is the arrangement the owner asked for two passes
+  ago and I read as "same row, opposite ends".
+- **`timeAgo` keeps its no-break space**; that part was right and stays.
+- **Player section labels have a setting**: `player_labels_right` (Playback → "Section labels on the
+  right"). Off, which is now the default, puts Description, Chapters, My notes, Comments and Up next
+  on the left in line with the text they name; on, they sit on the right as before. Backed up with
+  the other preferences.
+- Verified: `:app:assembleDebug`, unit suite green, installed on the Pixel 7.
+
+
+## History and the age wrap, 2026-11-10
+
+- **`timeAgo` cannot break any more.** "5h ago" was the last string in the app still built with an
+  ordinary space, so a card that wrapped put "5h" at the end of one line and "ago" at the start of
+  the next — the report `160919` screenshot. Every unit now joins with a no-break space, which fixes
+  the cards, the history rows, the player's facts and the feed's "Updated …" label in one place.
+- **History shows how much was watched, not when.** The row said "watched 5h ago"; it now says
+  "42% watched" (plus the watch count), which is the same question at any video length. The same
+  change went into Library's Continue watching, which showed an elapsed duration.
+- **Both lists are right-aligned**, via a `metaEnd` flag on `VideoRow`: the figures line up in a
+  column instead of ending wherever the channel name happens to stop.
+- Verified: `:app:assembleDebug`, 347 tests, 0 failures, installed on the Pixel 7. `TimeTest` and
+  `FeedUiStateTest` updated for the no-break space.
+
+## The shade's fallback text, 2026-11-10
+
+`110556`: after a mid-stream failure that repaired itself, the notification read "parallax is
+running" — the system's placeholder for a foreground service with nothing to show.
+
+- **The media item was being cleared while the service stayed up.** A recovery calls `play()`
+  again, and `play()` did `player.stop()` then `player.clearMediaItems()` before building the new
+  source. Between those, the media session had no metadata, so media3 posted its fallback
+  notification. `setMediaSource` replaces the item on its own, so the clear is gone: the old title
+  stays until the new one takes over.
+- **The service starts once there is something to show.** `startService()` used to be the first line
+  of `play()`; a first load that failed therefore left a foreground service with no item. It now
+  runs immediately before `prepare()`, after the metadata is attached.
+- **An explicit close stops the service**, not only the player: `stop()` cleared the item and left
+  the service foreground, which is the same fallback text after pressing the mini-player's X.
+- Verified: `:app:assembleDebug`, unit suite green, installed on the Pixel 7. No unit test: the
+  behaviour lives in one `ExoPlayer` call sequence that needs a device to observe (the session, the
+  notification and the service lifecycle all have to be real), and there is no seam for it in
+  `PlaybackRecoveryTest`, which covers the retry predicates.
+- **Needs the phone**: a mid-stream failure followed by a recovery, and a deliberate close, both
+  without the placeholder text appearing.
+
+## Seventh pass: seek chip, dot, Keep going, Up next, 2026-11-10
+
+- **The undo chip names the distance only**: "Seeked +12s", not "Seeked +12s to 1:00". The reader
+  is already on the picture at the new time; the target was restating the screen.
+- **The playhead is a dot again.** The handle was `GlassTube`, the brand mark with a play glyph in
+  it, which read as decoration on a control that is dragged a hundred times a session. 14dp circle
+  in the accent colour.
+- **"Keep going" starts the video** when the clip banner is dismissed and the picture is paused.
+- **Up next's refresh was instant and looped.** It rotated a ten-video window over the *cached*
+  pool, so a pool of twelve showed the same twelve in a circle, with no fetch. `relatedFresh()` is
+  new on `VideoSource` (default: no cache bypass, so test fakes did not change); the button now
+  makes a real call and shuffles what comes back, and says "Only N suggestions exist" when the pool
+  is no bigger than the window.
+- Verified: `:app:assembleDebug` and the unit suite green, with `TimeTest` updated to the shorter
+  chip. Installed on the Pixel 7 on the owner's `adb` (data kept).
+
+
+- **The player's facts line cannot split a fact.** "4h ago" was arriving as "4h" then "ago" because
+  the line was built with ordinary spaces and allowed to wrap. Each fact now holds together with
+  no-break spaces, the line is one line with an ellipsis, right-aligned, and the age is last so the
+  far right always answers "when". The channel name keeps the left, ellipsised.
+- **A subscribed channel's name is the accent colour on every card**; a channel you do not follow
+  stays in the ordinary text colour. `subscribedChannels(db)` matches by name, because a listing and
+  a subscription can write the same channel three ways (`/c/`, `/channel/`, a handle). Wired through
+  feed, history, search, Bored, library, collections, channel and Up next.
+- **Bored cards lost the repeated `Search: "…"` line** — the recipe says it once. A card now shows
+  only the hop that led to it, or its ordinary facts when there was no hop. The panel is called
+  **"How these were picked"** instead of "Why these?".
+- **Comments are items of the player's list, not one tall block.** Appending a page used to re-sort
+  everything inside a single non-lazy item, so rows could land above the one being read with nothing
+  to hold the place. Keyed items (`comment-<id>`) mean Compose keeps what is on screen where it was.
+  This is the fix for "tapping more comments loses my place".
+- **A reply page that fails now says so on the card that asked**, not in a notice at the top of a
+  section the reader is far below. An empty reply page says YouTube counted replies and sent none,
+  which is the honest answer for a comment whose replies are held or hidden.
+- Queued, not built: **a playlists screen** (the owner asked for it; it is the next feature) and
+  **chapter thumbnails from the storyboard** (see Queued for the approach).
+- Verified: `:app:assembleDebug`, the unit suite green, installed on the Pixel 7.
+- **Needs the phone**: the two-line title block, whether the subscription colour is findable, the
+  lazy comments keeping their place across "More comments", and the reworded panel title.
+
+
+The owner's reading of the fourth install, plus `110003`. Open reports: 8 → 7.
+
+- **Replies are never truncated.** A reply that hides its last clause hides the answer, so the six
+  line cap is gone from `ReplyRow`.
+- **The chevron belongs to comments that need one, bottom left.** It appears only when the words
+  run past six lines, sits before the reply count, and survives opening so the card can close
+  again — `onOverflow` only updates while folded.
+- **Replies the page came without a token for say "N replies · YouTube"** and go there. The count
+  is no longer a control that looks local and behaves like a link.
+- **The player's fact row lost the comment count and the length**: the comments section says how
+  many and the picture shows how long. Views, likes, age and the watch count stay.
+- **The channel header is two lines**: the name on its own with a "Subscribed" word beside it, then
+  the subscriber count and the Subscribe button underneath. The name no longer competes with a
+  button for the same row.
+- **`110003`**: a lost network is `SourceError.NetworkFailure`, which `withSourceRepair` was logging
+  as a repair warning on every call — 203 lines in one report for what was a DNS drop. It is now one
+  info line, and the pill reads **"No connection — playing will retry"** instead of "Stream broken",
+  which sent the reader looking for a fault in the app.
+- Verified: `:app:assembleDebug`, 348 tests, 0 failures, installed on the Pixel 7. New test: a lost
+  network is `Offline`, not `Broken`.
+- **Needs the phone**: whether the 14-reply comment's YouTube hop is acceptable as the answer, the
+  two-line channel header, and whether the chevron's arrival on long comments is where the eye goes.
+
+
+Batch 3, plus the four things the owner found after the third install. Open reports: 10 → 8.
+
+- **The channel page is a page now.** Header with avatar, name, subscriber count and a working
+  subscribe button (`SubscriptionDao`, so it is a row on this phone, not an account). Chips for the
+  tabs the channel actually has — `ChannelTab` reads the extractor's own filter names, so a channel
+  with no Shorts never offers Shorts — then Sort by date, views or length, and two local tabs:
+  **Watched**, this channel's videos from the history table, and **About**, its description. The bare
+  name label that made `131926` a duplicate is gone; the header replaces it with facts.
+- **`VideoSource.channelTab(url, filter, page)`** is new with a default that serves uploads, so a
+  source that cannot switch tabs still answers and the fakes in tests did not change.
+  `channelUploads` is now one call to it, and its cache is keyed by tab.
+- **The YouTube mark is gone from comments entirely.** Replies without a token — the pinned comment
+  with fourteen of them — keep their count and carry a small "opens elsewhere" arrow instead of the
+  brand, and the expanded detail row no longer offers the mark at all.
+- **A reply's name is its own control**, primary-coloured and wired to the commenter's channel; the
+  card's expand click no longer swallows it.
+- **The reply count moved to the left of the footer line**, likes and age to the right: three facts
+  in one column crowded the row.
+- **Up next reshuffles.** One `related()` call per video returns the same set, so the button now
+  slides a ten-video window over the pool the source did give, and says "This video only has N
+  suggestions." when there is nothing to slide. Pinned comments stay first under either comments
+  sort, which is what the owner asked to confirm.
+- Not built, deliberately: a Playlists tab. There is no playlist route to land on, and a chip that
+  opens nothing is worse than an absent one. The extractor's playlists tab is already reported in
+  `Channel.tabs`, so the day a playlist page exists the chip is one line.
+- Verified: `:app:assembleDebug`, 347 tests, 0 failures, installed on the Pixel 7. New tests:
+  `ChannelPageTest` (which chips a channel gets, and the three sorts).
+- **Needs the phone**: the header's proportions, whether the sub count reads right for a channel
+  that hides it, the tab chips wrapping on a narrow screen, and the subscribe button's round trip.
+
+
+Everything the owner found after the second install, plus `114655` once he explained it. Open
+reports: 11 → 10.
+
+- **The comments sort was the cache, not the code.** A comment date and a commenter URL both exist
+  in the extractor — the new canary test prints them and requires at least one real date per page —
+  but every page written before this build was stored without a date, so sorting by date reordered
+  nothing. `CommentCodec` now writes `"v": 2` and refuses a page of any other version.
+- **A comment with replies but no continuation token is not a dead end.** That is the pinned comment
+  with fourteen replies: the extractor gives a count and no token, so the app could not fetch them.
+  The footer now shows the YouTube mark in place of the chevron for exactly those comments and
+  opens them in the app, where replies do expand.
+- **A comment that has nothing to reveal no longer expands.** Short text, no replies, no posting:
+  tapping did nothing but unfold a lone YouTube mark. Expansion now needs a reply count, a Reply
+  button, or text running past the six lines — the last is why `LinkifiedText` grew `onOverflow`.
+- **Names are primary-coloured and open the channel** (`Comment.authorUrl`, from `uploaderUrl`, and
+  cached with the page). The app has no profile screen, so it leaves for the browser.
+- **Up next collapses**, keeping the app's header idiom: title, spinner while fetching, refresh,
+  chevron. **The refresh says when it has nothing to add** — one `related()` call per video returns
+  the same set, so "Nothing new from this source." is the honest answer instead of a dead button.
+- **Chapter titles get three lines** in the horizontal card; the description keeps its own
+  timestamps, which are full-length and the reason the list is there.
+- **A channel name on a video card is a control**, not a word in the meta line: its own `Text`, in
+  the primary role, wired through `onOpenChannel` from feed, search, Bored, library and Up next.
+- **A fact cannot split across lines.** `metaFor` builds "50\u00A0comments" with a no-break space and
+  joins facts with a no-break dot, so a count never ends a line with its noun on the next.
+- **History rows swipe over their own shape**: the dismiss backdrop was a plain `Box` filling the
+  row, which squared off the card's rounded corners. Same radius, same inset.
+- **"My notes" is right-aligned with the microphone to its left**, matching the comments header.
+- **`114655`** — a pushed screen never owned the window: layout does not block touches, so a tap in
+  the gap between the bug screen's rows fell through to the list underneath, and the screenshot
+  itself passed taps too. The overlay `Box` now consumes what no child claims. This fixes every
+  pushed screen, not just Bug.
+- Verified: `:app:assembleDebug`, 343 tests, 0 failures (3 skipped), installed on the Pixel 7. New
+  tests: a page of another version is ignored, the commenter's channel survives the cache, and a
+  canary case that fails the night comments stop carrying a date.
+- **Still needs the phone**: whether the date sort now visibly reorders, the tokenless-replies
+  YouTube hop, the collapse and refresh on Up next, and channel names in the card grid.
+
+
+The owner read the first comments pass on the phone and asked for changes, then the batch that was
+queued behind it. Open reports: 20 → 11.
+
+- **Comments are a footer line now.** Likes and age moved out of the expanded detail row and onto
+  the one line that is always visible, with the reply count and the chevron at its end: the same
+  facts, once, in the place the eye already is. The chevron exists only when `replyCount > 0` and it
+  belongs to the replies, not to the card — which is also the fix for "tapping to open sub replies
+  does not work": the thing that looked like an opener was the chevron, and it was opening the
+  comment's text instead. Replies now open from the folded card as well.
+- **Reply author names are on the right** like the comment's, and the reply row is its own
+  `ReplyRow` rather than a second copy of the layout.
+- **Comments sort by date or likes**, above the first comment, on the left, using the app's existing
+  `SortRow`: two chips and the direction arrow pinned at the start. Tapping the chip already in use
+  flips the direction; picking the other one starts newest-first. A pinned comment stays on top of
+  both orders, and the ordering is only ever over the pages already loaded.
+- **Sorting needed a date, so comments carry one.** `Comment.publishedAtMs` is read from the
+  extractor's `uploadDate`, encoded in the comment cache (a page written before this reads as null
+  and sorts last), and never shown: the card still says "2 days ago".
+- **`111135`** — the chapter time came off the frame, where white text over a bright thumbnail was
+  unreadable. It is part of the caption now ("1:23 · The middle part"), and a new Playback switch,
+  **Chapter timestamps**, drops it there and in the plain list. The description keeps its own
+  timestamps either way. The switch is in `SettingsSchema`, so a backup carries it.
+- **`114709`** — Up next renders whenever the list exists, not only in the last second of the video.
+  One `related()` call per video is still the whole cost; it now happens when the comments settle
+  instead of at three quarters through.
+- **`112116`** — `ic_bug.xml` was a mangled `bug_report` path (the legs spliced into the body and
+  ending in garbage). Replaced with the stock Material vector.
+- **`114820`** — the card border hugged the picture and the words: `padding(vertical = …)` had no
+  horizontal half. 8dp inside the border on Classic and Side, 6dp on Minimal.
+- **`112225`** — the card switches say "My notes", matching the player's section.
+- **`114655` stays open**: "bug screen has space near toggles that touch the video player" has no
+  screenshot in the bundle and no obvious fault in the layout, so it needs the owner's words or a
+  picture rather than a guess. The owner explained it the same evening; the fix is in the third pass.
+- Verified: `:app:assembleDebug`, the whole suite green (340 tests, 2 skipped), installed on the
+  Pixel 7. New tests: `CommentSortTest` (five cases, pinned stays first, an undated comment sorts
+  last), `ChapterCaption`, and the codec's "a page cached before comments carried a date still
+  reads". `ResyncPromptTest` failed first on a stale compiled class, not on code: `--rerun-tasks`
+  cleared it, which is worth knowing the next time a model gains a field.
+- **Not checked on the phone**: the footer line's density, the sort chips under the comments header,
+  whether Up next appearing early feels like clutter, and the redrawn bug icon.
+
+The first comments pass, before the owner's second reading, is where the linkified bodies and the
+long-press reload came from: `101720` (comment and reply bodies open links, and a tap anywhere else
+still opens the comment), `102432` (author right, the per-reply YouTube mark gone) and `134240`
+(`ContentRepository.comments` takes `refresh`, which skips a cache page still inside its hour;
+`refreshComments()` keeps the list on screen while it fetches and the header shows a 14dp spinner).
+`LinkifiedText` gained `style`, `colour`, `onOverflow` and `onTapElsewhere` for it; the description
+keeps the defaults it already had.
+
 ## Bored sources, 2026-11-09 (eighth)
+
+
 
 Bored was capped at one `related()` call per seed, about twelve candidates each, so the pool was
 the same videos in a different order. Three sources now feed it, and the built-ins use the two new
@@ -605,10 +844,9 @@ The per-report record is `docs/reports.md`: one line per filed report, with a st
   pushed screen showed through its cards; `ThemeBackdrop` paints the aurora (or the theme background)
   as the floor of every overlay.
 - **The direct build.** A signed release APK for handing to people, built with the release key via
-  `apksigner` (32 MB, minification still off). Under AGP 9.4.1 the release signing config in
-  `app/build.gradle.kts` is not applied: `assembleRelease` writes an unsigned APK even with the
-  `PARALLAX_*` variables set. Packaging plus a manual `apksigner` pass is the working path; worth
-  fixing before the build is automated.
+  `apksigner` (32 MB, minification still off). The Gradle signing config is gone: under AGP 9.4.1 it
+  validated and never applied, so it only made the build look signed. `scripts/release.ps1` is the
+  one path — bump, assemble, sign, manifest, deploy, verify.
 - **Live pill** is sticky for three hours (`liveSeenAt`, DB v10): two listings that disagree can no
   longer make it blink.
 
@@ -641,8 +879,9 @@ The per-report record is `docs/reports.md`: one line per filed report, with a st
 - **Importer now counts skips.** Entries without a URL are counted and reported as
   "N skipped (no URL)" in both Library and Settings, so a 39-entry file landing 38 rows names the
   missing entry. No longer silent.
-- **Release signing reads `app/keystore.properties`.** Env vars win; the untracked properties file
-  is the local fallback. Unsigned without either, which is the documented path.
+- **Release signing has one path.** `scripts/release.ps1` runs bump → assembleRelease → apksigner
+  → version.json → deploy → verify. It reads `app/keystore.properties`; there is no Gradle signing
+  config, because AGP 9.4.1 validated it and never applied it.
 - **Room schema v11 exported.** `exportSchema = true`, schemas committed under `app/schemas/`,
   KSP wired with `room.schemaLocation`. Migration tests still need instrumentation.
 - **`plural` handles the regular rules.** Sibilants take -es, consonant+y takes -ies; `"3 watchs"`
@@ -688,6 +927,22 @@ feed state. Each is listed in ARCHITECTURE "Known gaps".
 
 ## Queued
 
+- **Playlists screen** — the owner asked for it on 2026-11-10 and it is the agreed next feature.
+  Nothing exists today: no route, no `VideoSource.playlist`, no view. Needed pieces: an extractor
+  call for a playlist's items (NewPipe's `PlaylistInfo`/`PlaylistExtractor`), a `Route.Playlist`,
+  a list screen with the same `VideoRow` and sort, and two entry points — a Playlists tab on the
+  channel page (the extractor already reports that filter in `Channel.tabs`) and any saved playlist
+  later. Cost of leaving it: the channel page cannot show a channel's playlists at all, which is one
+  of the things `102750` asked for.
+- **Chapter thumbnails from the storyboard** — every chapter shows the video's one thumbnail
+  (`PlayerScreen`, `fun frame(index: Int): String = thumb`) because a chapter has no frame of its
+  own. `StreamInfo.getPreviewFrames()` gives `Frameset`s: sprite-sheet urls, `durationPerFrame`,
+  `framesPerPageX/Y` and `getFrameBoundsAt(millis)`. The fix is to carry a small storyboard model on
+  `VideoDetail` (tile urls plus the geometry), draw the tile covering a chapter's start with a
+  `Canvas` crop (`drawImage` with a source rect), and fall back to the video thumbnail when a video
+  has no frames. Cost of leaving it: twelve chapters, one picture, which is what `111049` reported.
+  Not a one-liner: it is a model field, an extractor mapping and a drawing composable.
+
 - `data/backup/Backup.kt` - the file carries subscriptions, settings and the reader's recipes, but
   not notes or watch history. Cost of leaving it: moving phones loses the deck and every resume
   point, which are the two things this app made itself. Found 2026-11-09 while writing the backup;
@@ -697,12 +952,7 @@ feed state. Each is listed in ARCHITECTURE "Known gaps".
 - `data/source/SelfRepair.kt` — data-driven extractor (JSON path model) is not built; LLM repair covers search query and region only. Cost of leaving it: field renames still need a code change instead of a model publish.
 - `data/library/ContentRepository.kt` — the feed refresh still opens a videos tab per subscription, although `ChannelFeed` now reads the same latest uploads for free from RSS. Cost: a refresh pays an extractor page per channel when a keyless feed would do; RSS has no duration, and the feed cards show one, which is the reason it was not swapped blind. Found 2026-11-09 while adding the uploads source.
 - `data/discover/DiscoverEngine.kt` — a search recipe reads one page. `VideoSource.search` has no continuation, so `count` above the first page changes nothing and there is no "more" on Bored. Cost: the pool is one page per tap; the fix is a search-page token on the source, not a bigger count. Found 2026-11-09.
-- `feature/**` - about thirty call sites still paint accent *text* with `colorScheme.primary` instead of `accentTextColour()`/`LocalAccentInk` (nav labels, chips and Settings are converted; feed, player, comments, library are not). Cost of leaving it: at AA and AAA those labels keep their raw accent, so a magenta or blue accent still sits near its own tinted surface. Found 2026-11-09 while adding the Contrast card.
 - `ui/component/ScrollToTop.kt` - the button is a stock `SmallFloatingActionButton`, whose container is the `surfaceContainerHigh` role, and `glassScheme` overrides only surface, surfaceVariant, background and outlineVariant. In Glass it is therefore opaque M3 baseline grey, not the accent-tinted pane everything else sits on. Cost: one grey button in a themed app; the fix is `containerColor = MaterialTheme.colorScheme.surface` plus the usual hairline. Found 2026-11-10 while giving the top bar its fill and seam.
-- `app/build.gradle.kts` - `assembleRelease` fails `validateSigningRelease` with "Keystore file not
-  set" even when `keystore.properties` is present and `signingConfigs.release.storeFile` resolves to
-  the file. Packaging works with `-x validateSigningRelease` followed by `apksigner sign`. Cost:
-  every release needs a manual signing step. Found 2026-11-09 while installing the wizard build.
 - Google sign-in for subscription import - designed but not built: an app-owned read-only OAuth
   client (`youtube.readonly`), `subscriptions.list(mine=true)` paged 50 at a time into the same
   subscription rows, tokens in `SecurePrefs`. Blocked on a Google Cloud client published to

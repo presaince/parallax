@@ -70,6 +70,7 @@ import com.presaince.parallax.core.SortOption
 import com.presaince.parallax.core.SortRow
 import com.presaince.parallax.core.SortState
 import com.presaince.parallax.core.timeAgo
+import kotlin.math.roundToInt
 import com.presaince.parallax.data.db.ParallaxDb
 import com.presaince.parallax.data.db.VideoEntity
 import com.presaince.parallax.data.library.ContentRepository
@@ -78,6 +79,7 @@ import com.presaince.parallax.data.model.VideoSummary
 import com.presaince.parallax.ui.component.CardLayout
 import com.presaince.parallax.ui.component.CardStyle
 import com.presaince.parallax.ui.component.NoteCountBadge
+import com.presaince.parallax.ui.component.subscribedChannels
 import com.presaince.parallax.ui.component.ScrollToTopButton
 import com.presaince.parallax.ui.component.VideoRow
 import com.presaince.parallax.ui.component.VideoTile
@@ -89,6 +91,7 @@ fun FeedScreen(
     content: ContentRepository,
     db: ParallaxDb,
     onOpenVideo: (VideoSummary) -> Unit,
+    onOpenChannel: (String, String) -> Unit = { _, _ -> },
     onOpenLibrary: () -> Unit,
     openHistorySignal: Int = 0,
     showFeedSignal: Int = 0,
@@ -119,6 +122,7 @@ fun FeedScreen(
     // the scroll-to-top button brings them back. History is a mode of the same list.
     val cardRevision = CardStyle.revision
     val cardStyle = remember(cardRevision) { CardStyle.read(context) }
+    val subscribed = subscribedChannels(db)
     val pictureOnly = cardStyle.layout == CardLayout.MINIMAL &&
         !cardStyle.title && !cardStyle.channel && !cardStyle.age &&
         !cardStyle.views && !cardStyle.likes &&
@@ -132,6 +136,8 @@ fun FeedScreen(
             onSwitchTab = { viewModel.selectTab(FeedTab.FEED) },
             onRefresh = viewModel::refresh,
             onOpenVideo = onOpenVideo,
+            onOpenChannel = onOpenChannel,
+            subscribed = subscribed,
             onRemove = viewModel::removeHistory,
             onUndo = viewModel::undoRemove,
             onClear = viewModel::clearHistory,
@@ -143,6 +149,8 @@ fun FeedScreen(
             onSortState = viewModel::setSortFeed,
             onSwitchTab = { viewModel.selectTab(FeedTab.HISTORY) },
             onOpenVideo = onOpenVideo,
+            onOpenChannel = onOpenChannel,
+            subscribed = subscribed,
             onOpenLibrary = onOpenLibrary,
             onRefresh = viewModel::refresh,
             onDismissMessage = viewModel::dismissMessage,
@@ -205,6 +213,8 @@ private fun FeedList(
     onSortState: (SortState) -> Unit,
     onSwitchTab: () -> Unit,
     onOpenVideo: (VideoSummary) -> Unit,
+    onOpenChannel: (String, String) -> Unit,
+    subscribed: Set<String>,
     onOpenLibrary: () -> Unit,
     onRefresh: () -> Unit,
     onDismissMessage: () -> Unit,
@@ -351,6 +361,8 @@ private fun FeedList(
                                 watches = watchCounts[video.id],
                                 onClick = { onOpenVideo(video.toSummary()) },
                                 badge = noteBadge(video.id),
+                                onChannel = onOpenChannel,
+                                subscribed = video.channelName.lowercase() in subscribed,
                             )
                         }
                         if (state.refreshing && state.videos.isEmpty()) {
@@ -378,6 +390,8 @@ private fun HistoryList(
     onSwitchTab: () -> Unit,
     onRefresh: () -> Unit,
     onOpenVideo: (VideoSummary) -> Unit,
+    onOpenChannel: (String, String) -> Unit,
+    subscribed: Set<String>,
     onRemove: (String) -> Unit,
     onUndo: () -> Unit,
     onClear: (FeedViewModel.ClearPeriod) -> Unit,
@@ -499,23 +513,34 @@ private fun HistoryList(
                         state = dismissState,
                         backgroundContent = {
                             // The swipe is the whole gesture: no icon, no word behind the row.
+                            // The backdrop is the card's own shape, or the row's rounded corners
+                            // sit inside a grey square while it moves.
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                                    .padding(vertical = 5.dp)
+                                    .background(
+                                        MaterialTheme.colorScheme.surfaceVariant,
+                                        RoundedCornerShape(8.dp),
+                                    ),
                             )
                         },
                         enableDismissFromStartToEnd = false,
                     ) {
+                        val percent = state.watchedFraction(entry.videoId)
+                            ?.let { (it * 100).roundToInt() }
                         VideoRow(
                             video = summary,
                             watched = state.watchedFraction(entry.videoId),
                             meta = buildString {
                                 append(entry.channelName)
-                                append(" · watched ${timeAgo(entry.watchedAt)}")
+                                if (percent != null) append(" · $percent% watched")
                                 if (cardStyle.watches && entry.watches > 1) append(" · ${entry.watches} times")
                             },
+                            metaEnd = true,
                             onClick = { onOpenVideo(summary) },
+                            onChannel = onOpenChannel,
+                            subscribed = summary.channelName.lowercase() in subscribed,
                             badge = state.noteCounts[entry.videoId]?.takeIf { it > 0 }?.takeIf { cardStyle.notes }?.let { n ->
                                 { NoteCountBadge(count = n) }
                             },

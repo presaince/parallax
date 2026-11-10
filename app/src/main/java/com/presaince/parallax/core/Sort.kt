@@ -34,6 +34,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import com.presaince.parallax.R
 import com.presaince.parallax.ui.theme.parallaxFilterChipColors
+import com.presaince.parallax.ui.theme.accentTextColour
 
 /** The sorts a video list can offer. Likes are only known for videos the app has extracted. */
 enum class SortOption(val label: String) {
@@ -111,14 +112,14 @@ fun SortControl(
             Text(
                 text = state.option.label,
                 style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary,
+                color = accentTextColour(),
             )
             Icon(
                 painter = painterResource(
                     if (state.ascending) R.drawable.ic_arrow_up else R.drawable.ic_arrow_down,
                 ),
                 contentDescription = if (state.ascending) "Ascending" else "Descending",
-                tint = MaterialTheme.colorScheme.primary,
+                tint = accentTextColour(),
                 modifier = Modifier.size(18.dp),
             )
         }

@@ -83,6 +83,7 @@ import com.presaince.parallax.data.db.NoteEntity
 import com.presaince.parallax.data.db.ParallaxDb
 import com.presaince.parallax.playback.PlaybackController
 import kotlin.math.sin
+import com.presaince.parallax.ui.theme.accentTextColour
 
 /**
  * The deck as one card above the comments. The microphone is the only record control: hold it and
@@ -301,7 +302,7 @@ fun NotesTab(
                         Icon(
                             painter = painterResource(R.drawable.ic_check),
                             contentDescription = "Save note",
-                            tint = MaterialTheme.colorScheme.primary,
+                            tint = accentTextColour(),
                         )
                     }
                 }
@@ -595,7 +596,7 @@ private fun NoteRow(
             Text(
                 text = formatDuration(note.atSec),
                 style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
+                color = accentTextColour(),
                 modifier = Modifier
                     .clickable(onClick = onSeek)
                     .padding(end = 6.dp),

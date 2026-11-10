@@ -88,9 +88,13 @@ data class Page<T>(
 data class Comment(
     val id: String,
     val author: String,
+    /** The commenter's channel, when the extractor gives one. Null for a comment carved from a post. */
+    val authorUrl: String? = null,
     val text: String,
     val likeCount: Int,
     val publishedText: String,
+    /** The same moment as [publishedText] in millis, so comments can be sorted by age. */
+    val publishedAtMs: Long? = null,
     /** The position the commenter pointed at, in seconds. Null when the extractor gave none. */
     val timestampSec: Long?,
     val pinned: Boolean,
@@ -104,6 +108,10 @@ data class Channel(
     val name: String,
     val avatarUrl: String?,
     val subscriberCount: Long,
+    /** The channel's own about text, when the extractor gives one. */
+    val description: String? = null,
+    /** The extractor's filter names for this channel's tabs: "videos", "shorts", "livestreams". */
+    val tabs: List<String> = emptyList(),
 )
 
 /** One subtitle cue. Seconds are floats because VTT timestamps carry milliseconds. */

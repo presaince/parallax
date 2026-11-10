@@ -79,7 +79,7 @@ fun ParallaxScaffold(
                                 Text(
                                     text = title,
                                     style = MaterialTheme.typography.titleLarge,
-                                    color = MaterialTheme.colorScheme.primary,
+                                    color = accentTextColour(),
                                 )
                             }
                         },
@@ -120,7 +120,7 @@ fun ParallaxScaffold(
                         // straight on the aurora. The bar and the nav bar are one chrome now.
                         colors = TopAppBarDefaults.topAppBarColors(
                             containerColor = MaterialTheme.colorScheme.surface,
-                            titleContentColor = MaterialTheme.colorScheme.primary,
+                            titleContentColor = accentTextColour(),
                         ),
                     )
                     // The same seam the bottom bar wears. A pane with no edge reads as the page

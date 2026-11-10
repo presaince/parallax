@@ -77,6 +77,8 @@ internal object SettingsSchema {
             PrefField("pipOnLeave", "pip_on_leave", PrefKind.BOOL),
             PrefField("restartButton", "notification_restart", PrefKind.BOOL),
             PrefField("chaptersHorizontal", "chapters_horizontal", PrefKind.BOOL),
+            PrefField("chapterTimestamps", "chapter_timestamps", PrefKind.BOOL),
+            PrefField("playerLabelsRight", "player_labels_right", PrefKind.BOOL),
             PrefField("endRelated", "end_related_enabled", PrefKind.BOOL),
             PrefField("hideLive", "hide_live", PrefKind.BOOL),
         ),

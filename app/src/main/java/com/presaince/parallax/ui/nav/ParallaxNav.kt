@@ -5,6 +5,8 @@
 package com.presaince.parallax.ui.nav
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.pager.HorizontalPager
@@ -31,7 +33,6 @@ import com.presaince.parallax.feature.onboarding.shouldShowOnboarding
 import com.presaince.parallax.data.model.VideoSummary
 import com.presaince.parallax.di.AppContainer
 import com.presaince.parallax.feature.channel.ChannelScreen
-import com.presaince.parallax.feature.comments.CommentsSection
 import com.presaince.parallax.feature.discover.DiscoverScreen
 import com.presaince.parallax.feature.feed.FeedScreen
 import com.presaince.parallax.feature.library.LibraryScreen
@@ -359,6 +360,7 @@ fun ParallaxNav(container: AppContainer, theme: ThemeController) {
                             content = container.content,
                             db = container.db,
                             onOpenVideo = { push(Route.Player(it)) },
+                            onOpenChannel = { url, name -> push(Route.Channel(url, name)) },
                             onOpenLibrary = { stack = listOf(Route.Library) },
                             openHistorySignal = historyRequest,
                             showFeedSignal = showFeedSignal,
@@ -378,6 +380,7 @@ fun ParallaxNav(container: AppContainer, theme: ThemeController) {
                             engine = container.discover,
                             db = container.db,
                             onOpenVideo = { push(Route.Player(it)) },
+                            onOpenChannel = { url, name -> push(Route.Channel(url, name)) },
                         )
                         else -> Unit
                     }
@@ -385,7 +388,17 @@ fun ParallaxNav(container: AppContainer, theme: ThemeController) {
             }
 
             if (!isTab) {
-                Box(modifier = Modifier.fillMaxSize()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        // A pushed screen owns the window. Layout alone does not block touches,
+                        // so a tap in the gap between two rows fell through to the list underneath
+                        // and opened whatever was there. This eats what no child claimed.
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                        ) {},
+                ) {
                     // The floor: a pushed screen must not let the pager underneath show through.
                     ThemeBackdrop(modifier = Modifier.fillMaxSize())
                     when (current) {
@@ -395,6 +408,7 @@ fun ParallaxNav(container: AppContainer, theme: ThemeController) {
                             db = container.db,
                             preferences = container.preferences,
                             onOpenVideo = { push(Route.Player(it)) },
+                            onOpenChannel = { url, name -> push(Route.Channel(url, name)) },
                         )
                         Route.Settings -> {
                             val section = settingsSection

@@ -397,7 +397,6 @@ class PlaybackController(
         streams: StreamSet,
         resumeAtMs: Long? = null,
     ) {
-        startService()
         playStartedAtMs = System.currentTimeMillis()
         readyLogged = false
         historyPhase = HistoryPhase.Fresh
@@ -451,9 +450,13 @@ class PlaybackController(
 
         // stop() and clearMediaItems() both report IDLE. That is us doing it, not a stream that
         // died, so the warning below is suppressed until the new media is prepared.
+        //
+        // The media item is deliberately NOT cleared here. Clearing it left the media session with
+        // no metadata for a moment — exactly the moment a mid-stream recovery replaces the source —
+        // and media3 then posted its fallback notification, which the shade shows as
+        // "parallax is running". setMediaSource replaces the item anyway.
         preparing = true
         player.stop()
-        player.clearMediaItems()
 
         // Start at the resume position so the first buffering is at the right place. A seek
         // after READY would buffer at zero first and seek again.
@@ -521,6 +524,10 @@ class PlaybackController(
         stallLogged = false
         player.playWhenReady = true
         player.setPlaybackSpeed(normalSpeed)
+        // The service goes foreground only now, with an item that carries a title: starting it at
+        // the top of play() meant a failed first load left a foreground service with nothing to
+        // show, and the system filled the gap with "parallax is running".
+        startService()
         player.prepare()
         preparing = false
         _state.update {
@@ -553,6 +560,9 @@ class PlaybackController(
         player.stop()
         player.clearMediaItems()
         preparing = false
+        // With the item gone the session has no metadata, and a service still in the foreground
+        // is exactly what the shade renders as "parallax is running". A close means no service.
+        runCatching { appContext.stopService(Intent(appContext, PlaybackService::class.java)) }
         segments = emptyList()
         segmentsJob?.cancel()
         recoveryJob?.cancel()

@@ -26,9 +26,9 @@ fun seekDelta(seconds: Long): String = when {
     else -> "0s"
 }
 
-/** The undo chip's sentence, built from the two positions the seek moved between. */
+/** The undo chip's sentence: how far the seek moved, and nothing else. */
 fun seekUndoLabel(beforeMs: Long, afterMs: Long): String =
-    "Seeked ${seekDelta((afterMs - beforeMs) / 1000)} to ${formatDuration(afterMs / 1000)}"
+    "Seeked ${seekDelta((afterMs - beforeMs) / 1000)}"
 
 /** Singular and plural in one place. "1 replies" is not an output the app may produce. */
 fun plural(count: Long, singular: String, plural: String = defaultPlural(singular)): String =
@@ -53,12 +53,14 @@ private fun defaultPlural(singular: String): String {
 /** "3h ago", "12d ago". Takes [now] so it can be tested without a clock. */
 fun timeAgo(epochMs: Long, now: Long = System.currentTimeMillis()): String {
     val minutes = ((now - epochMs).coerceAtLeast(0)) / 60_000
+    // No-break space: "5h" must never end a line with "ago" on the next one. Every card, every
+    // header and the player's facts line put this string in a wrapping context.
     return when {
         minutes < 1 -> "now"
-        minutes < 60 -> "${minutes}m ago"
-        minutes < 24 * 60 -> "${minutes / 60}h ago"
-        minutes < 30 * 24 * 60 -> "${minutes / (24 * 60)}d ago"
-        minutes < 365 * 24 * 60 -> "${minutes / (30 * 24 * 60)}mo ago"
-        else -> "${minutes / (365 * 24 * 60)}y ago"
+        minutes < 60 -> "${minutes}m\u00A0ago"
+        minutes < 24 * 60 -> "${minutes / 60}h\u00A0ago"
+        minutes < 30 * 24 * 60 -> "${minutes / (24 * 60)}d\u00A0ago"
+        minutes < 365 * 24 * 60 -> "${minutes / (30 * 24 * 60)}mo\u00A0ago"
+        else -> "${minutes / (365 * 24 * 60)}y\u00A0ago"
     }
 }

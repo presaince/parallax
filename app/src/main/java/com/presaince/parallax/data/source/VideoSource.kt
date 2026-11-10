@@ -28,9 +28,26 @@ interface VideoSource {
     suspend fun streams(id: String): AppResult<StreamSet>
     suspend fun comments(id: String, page: String? = null): AppResult<Page<Comment>>
     suspend fun related(id: String): AppResult<List<VideoSummary>>
+
+    /**
+     * The same list, with the cache skipped. Up next's reshuffle is the only caller: asking the
+     * same id twice inside the cache window returns the same videos, which made the button look
+     * like it did nothing.
+     */
+    suspend fun relatedFresh(id: String): AppResult<List<VideoSummary>> = related(id)
     suspend fun channelUploads(channelUrl: String, page: String? = null): AppResult<Page<VideoSummary>>
     suspend fun channelInfo(channelUrl: String): AppResult<Channel>
     suspend fun subtitles(id: String): AppResult<SubtitleTrack>
+
+    /**
+     * One of a channel's tabs by its filter name: "videos", "shorts", "livestreams". Sources that
+     * cannot switch tabs serve their uploads, so the channel page still has something to show.
+     */
+    suspend fun channelTab(
+        channelUrl: String,
+        filter: String,
+        page: String? = null,
+    ): AppResult<Page<VideoSummary>> = channelUploads(channelUrl, page)
 
     /** Drops any cached streams for [id], so the next [streams] call fetches fresh signed URLs. */
     suspend fun invalidateStreams(id: String) { /* default no-op */ }

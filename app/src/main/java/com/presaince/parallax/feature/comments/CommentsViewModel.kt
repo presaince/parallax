@@ -7,6 +7,8 @@ package com.presaince.parallax.feature.comments
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.presaince.parallax.core.AppResult
+import com.presaince.parallax.core.SortOption
+import com.presaince.parallax.core.SortState
 import com.presaince.parallax.data.auth.PostingManager
 import com.presaince.parallax.data.library.ContentRepository
 import com.presaince.parallax.data.model.Comment
@@ -45,6 +47,10 @@ data class CommentsUiState(
     val commentsDisabled: Boolean = false,
     /** True once the first comments page has settled, success or failure. */
     val firstPageLoaded: Boolean = false,
+    /** Newest first until the reader says otherwise. */
+    val sort: SortState = SortState(option = SortOption.DATE, ascending = false),
+    /** Why replies for one comment did not arrive, shown on that comment. */
+    val replyErrors: Map<String, String> = emptyMap(),
 )
 
 class CommentsViewModel(
@@ -92,6 +98,17 @@ class CommentsViewModel(
         fetch(page = next, append = true)
     }
 
+    /**
+     * The reader's own reload: the cached page is dropped and fetched again even inside its hour.
+     * The list stays on screen while it does, so a long press does not blank the section.
+     */
+    fun refreshComments() {
+        if (_state.value.loading) return
+        firstPageRequested = true
+        _state.update { it.copy(loading = true, error = null, message = null, replies = emptyMap()) }
+        fetch(page = null, append = false, refresh = true)
+    }
+
     fun onDraftChange(text: String) {
         _state.update { it.copy(draft = text) }
     }
@@ -108,6 +125,11 @@ class CommentsViewModel(
 
     fun replyTo(comment: Comment?) {
         _state.update { it.copy(replyTo = comment) }
+    }
+
+    /** Tapping the sort already in use flips the direction; picking the other one starts newest. */
+    fun setSort(state: SortState) {
+        _state.update { it.copy(sort = state) }
     }
 
     /** Replies load on demand: a page of comments can carry hundreds of them. */
@@ -129,18 +151,37 @@ class CommentsViewModel(
         if (comment.id in current.loadingReplies) return
 
         viewModelScope.launch {
-            _state.update { it.copy(loadingReplies = it.loadingReplies + comment.id) }
+            _state.update {
+                it.copy(
+                    loadingReplies = it.loadingReplies + comment.id,
+                    replyErrors = it.replyErrors - comment.id,
+                )
+            }
             when (val result = content.comments(videoId, page)) {
                 is AppResult.Ok -> _state.update {
+                    // A reply page that comes back empty is not an error, but it is worth saying:
+                    // YouTube counted replies and then handed none over.
+                    val empty = result.value.items.isEmpty()
                     it.copy(
                         replies = it.replies + (comment.id to result.value.items),
                         loadingReplies = it.loadingReplies - comment.id,
+                        replyErrors = if (empty) {
+                            it.replyErrors + (comment.id to "No replies came back for this comment.")
+                        } else {
+                            it.replyErrors - comment.id
+                        },
+                        message = if (empty) {
+                            "YouTube says ${comment.author} has ${comment.replyCount} replies and " +
+                                "sent none of them."
+                        } else {
+                            it.message
+                        },
                     )
                 }
                 is AppResult.Err -> _state.update {
                     it.copy(
                         loadingReplies = it.loadingReplies - comment.id,
-                        message = result.message,
+                        replyErrors = it.replyErrors + (comment.id to result.message),
                     )
                 }
             }
@@ -217,10 +258,10 @@ class CommentsViewModel(
         }
     }
 
-    private fun fetch(page: String?, append: Boolean) {
+    private fun fetch(page: String?, append: Boolean, refresh: Boolean = false) {
         viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
-            when (val result = content.comments(videoId, page)) {
+            when (val result = content.comments(videoId, page, refresh)) {
                 is AppResult.Ok -> _state.update {
                     it.copy(
                         items = if (append) it.items + result.value.items else result.value.items,

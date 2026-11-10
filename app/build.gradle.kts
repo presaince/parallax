@@ -4,25 +4,9 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
-import java.util.Properties
-
-// Release signing comes from the environment or an untracked keystore.properties, so no key
-// material lives in the repo. CI sets the env vars from Actions secrets; a local release build
-// reads the properties file. A build with neither stays unsigned and still compiles.
-val keystoreProps = Properties().also { props: Properties ->
-    val f = file("keystore.properties")
-    if (f.exists()) f.inputStream().use(props::load)
-}
-fun envOrProp(name: String): String? =
-    System.getenv(name)?.takeIf { it.isNotBlank() }
-        ?: keystoreProps.getProperty(name)?.takeIf { it.isNotBlank() }
-
-val keystorePath: String? = envOrProp("PARALLAX_KEYSTORE")
-val keystorePassword: String? = envOrProp("PARALLAX_KEYSTORE_PASSWORD")
-val keyAliasName: String? = envOrProp("PARALLAX_KEY_ALIAS")
-val keyPassword: String? = envOrProp("PARALLAX_KEY_PASSWORD")
-val hasReleaseKey = listOf(keystorePath, keystorePassword, keyAliasName, keyPassword)
-    .all { !it.isNullOrBlank() }
+// The release APK is signed by apksigner in scripts/release.ps1, which reads
+// app/keystore.properties. There is deliberately no signingConfig here: under AGP 9.4.1 it
+// validates and never applies, so it only made assembleRelease look signed when it was not.
 
 android {
     namespace = "com.presaince.parallax"
@@ -37,8 +21,8 @@ android {
         // Both numbers move together, with scripts/bump-version.mjs --apply. Never hand-edit one:
         // the page names the version and the updater compares versionCode, so a build that keeps
         // code 3 is a build that nobody is offered.
-        versionCode = 10
-        versionName = "0.3.7"
+        versionCode = 12
+        versionName = "0.3.9"
     }
 
     buildFeatures {
@@ -71,16 +55,10 @@ android {
         }
     }
 
-    if (hasReleaseKey) {
-        signingConfigs {
-            create("release") {
-                storeFile = file(requireNotNull(keystorePath))
-                storePassword = keystorePassword
-                keyAlias = keyAliasName
-                keyPassword = keyPassword
-            }
-        }
-    }
+    // Signing is a separate apksigner pass in scripts/release.ps1, not an AGP signing config:
+    // under AGP 9.4.1 this block is half-applied — validateSigningRelease fails while
+    // assembleRelease still writes an unsigned APK — so the config made the build lie about
+    // what it produced. One signing path, at the end, on the file that is uploaded.
 
     buildTypes {
         release {
@@ -91,7 +69,6 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
-            if (hasReleaseKey) signingConfig = signingConfigs.getByName("release")
         }
     }
 }

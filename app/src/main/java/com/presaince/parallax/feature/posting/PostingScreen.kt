@@ -36,6 +36,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.presaince.parallax.data.auth.PostingManager
 import com.presaince.parallax.data.auth.YouTubeAuth
+import com.presaince.parallax.ui.theme.accentTextColour
 
 /**
  * Optional posting. It is off by default and needs a Google OAuth client of the user's own, which
@@ -79,7 +80,7 @@ fun PostingScreen(
                 "Client saved. Sign in to turn posting on."
             },
             style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.primary,
+            color = accentTextColour(),
         )
 
         Text(

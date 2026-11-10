@@ -147,6 +147,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.media3.ui.PlayerView
 import com.presaince.parallax.R
 import com.presaince.parallax.core.AppLog
+import com.presaince.parallax.core.SourceError
 import com.presaince.parallax.core.formatDuration
 import com.presaince.parallax.core.timeAgo
 import com.presaince.parallax.data.auth.PostingManager
@@ -157,8 +158,8 @@ import com.presaince.parallax.data.resync.ResyncEngine
 import com.presaince.parallax.data.resync.ResyncStore
 import com.presaince.parallax.data.source.Thumbnails
 import com.presaince.parallax.data.source.VideoSource
-import com.presaince.parallax.feature.comments.CommentsSection
 import com.presaince.parallax.feature.comments.CommentsViewModel
+import com.presaince.parallax.feature.comments.commentsItems
 import com.presaince.parallax.feature.notes.NotesTab
 import com.presaince.parallax.feature.player.gesture.SeekRate
 import com.presaince.parallax.feature.player.gesture.Zone
@@ -182,10 +183,14 @@ import kotlin.random.Random
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import com.presaince.parallax.ui.theme.accentTextColour
 
 private const val CONTROLS_TIMEOUT_MS = 3_000L
 private const val UNDO_VISIBLE_MS = 4_500L
 private const val UNDO_MIN_MS = 2_000L
+
+/** How many suggestions Up next shows at once; a reshuffle slides this window over the pool. */
+private const val RELATED_WINDOW = 10
 
 /**
  * The video page. Controls live on the video and hide themselves: one tap anywhere on the picture
@@ -288,6 +293,15 @@ fun PlayerScreen(
     val chaptersHorizontal = remember {
         context.getSharedPreferences("parallax", Context.MODE_PRIVATE)
             .getBoolean("chapters_horizontal", true)
+    }
+    val chapterTimestamps = remember {
+        context.getSharedPreferences("parallax", Context.MODE_PRIVATE)
+            .getBoolean("chapter_timestamps", true)
+    }
+    // Section labels: left, in line with the text they name; or right, as a margin rail.
+    val labelsRight = remember {
+        context.getSharedPreferences("parallax", Context.MODE_PRIVATE)
+            .getBoolean("player_labels_right", false)
     }
     var dictateSignal by remember { mutableIntStateOf(0) }
     var dragDown by remember { mutableStateOf(0f) }
@@ -501,10 +515,13 @@ fun PlayerScreen(
                 buffering = playbackState.isBuffering,
                 firstFrameReady = playbackState.firstFrameReady,
                 stalledForMs = playbackState.stalledForMs,
-            )
+                // A phone with no network cannot be repaired, and calling it a broken stream
+                // sends the reader looking for a fault in the app. The load state knows the kind.
+                networkDown = loadState.errorKind == SourceError.NetworkFailure,            )
             val tappable = playbackState.recoveryAttempts >= STALL_RETRY_LIMIT &&
                 (status == PlayerStatus.Stalled || status == PlayerStatus.Broken)
             val statusLine = when (status) {
+                PlayerStatus.Offline -> "No connection — playing will retry"
                 PlayerStatus.Broken ->
                     if (tappable) "Stream broken — tap to retry" else "Stream broken — retrying"
                 PlayerStatus.Stalled ->
@@ -916,18 +933,18 @@ fun PlayerScreen(
                 }
             }
             if (duration > 0L) {
-                // The handle is the GlassTube mark, not a plain dot: the tube with the play in it.
-                // It sits on the bar rather than through it, so the track crosses its foot and the
-                // rest peeks into the strip's lower margin — a small T, not a cross.
-                val handleHeight = 18.dp
-                val handleWidth = handleHeight * (22f / 54f)
-                val dotX = (barWidth * progressFraction - handleWidth / 2)
-                    .coerceIn(0.dp, (barWidth - handleWidth).coerceAtLeast(0.dp))
-                GlassTube(
+                // A dot, the shape every player uses for the playhead. The tube-with-a-play-mark
+                // it replaced read as decoration, and a control nobody recognises is not a control.
+                val handleSize = 14.dp
+                val dotX = (barWidth * progressFraction - handleSize / 2)
+                    .coerceIn(0.dp, (barWidth - handleSize).coerceAtLeast(0.dp))
+                Box(
                     modifier = Modifier
                         .align(Alignment.BottomStart)
                         .offset(x = dotX, y = -4.dp)
-                        .height(handleHeight),
+                        .size(handleSize)
+                        .clip(CircleShape)
+                        .background(primary),
                 )
             }
         }
@@ -1064,10 +1081,15 @@ fun PlayerScreen(
                     ) {
                         Text(label, style = MaterialTheme.typography.labelMedium, color = Color.White)
                         TextButton(onClick = { clipFocused = false; userSeek(0) }) {
-                            Text("Before", color = MaterialTheme.colorScheme.primary)
+                            Text("Before", color = accentTextColour())
                         }
-                        TextButton(onClick = { clipFocused = false }) {
-                            Text("Keep going", color = MaterialTheme.colorScheme.primary)
+                        TextButton(onClick = {
+                            clipFocused = false
+                            // "Keep going" means carry on watching: if the clip took the picture
+                            // out of the frame and the player is paused, start it.
+                            if (!playbackState.isPlaying) playback.togglePlayPause()
+                        }) {
+                            Text("Keep going", color = accentTextColour())
                         }
                     }
                 }
@@ -1147,31 +1169,57 @@ fun PlayerScreen(
         var relatedToShow by remember(video.id) {
             mutableStateOf<List<com.presaince.parallax.data.model.VideoSummary>>(emptyList())
         }
-        // What the refresh asks for, and what the source last answered. Zero runs on its own once
-        // the list is due; every tap adds one, so asking twice fetches twice and a recomposition
-        // that changes nothing never fetches at all.
-        var relatedRound by remember(video.id) { mutableIntStateOf(0) }
+        // What the source last answered: -1 until the first fetch, then 1. Kept as a plain flag so
+        // the automatic fetch runs once per video and a manual refresh is never swallowed by it.
         var relatedAnswered by remember(video.id) { mutableIntStateOf(-1) }
-        val atEnd = playbackState.durationMs > 0 &&
-            playbackState.positionMs >= playbackState.durationMs - 500
-        // The last stage of the load order: prefetched once comments have settled, or at
-        // three quarters through if a slow comments fetch would otherwise stall the end
-        // screen. It is only ever shown at the end.
-        val pastThreeQuarters = playbackState.durationMs > 0 &&
-            playbackState.positionMs >= playbackState.durationMs * 3 / 4
-        LaunchedEffect(stage, pastThreeQuarters, endEnabled, relatedRound) {
-            if (!endEnabled || (stage != PlayerLoadStage.UpNext && !pastThreeQuarters)) {
-                return@LaunchedEffect
-            }
-            if (relatedAnswered == relatedRound) return@LaunchedEffect
-            val asked = relatedRound
+        // The first stage of the load order reaches Up next once, so the list is there to read
+        // whenever the reader scrolls to it, not only in the seconds after the video ends.
+        LaunchedEffect(stage, endEnabled, video.id) {
+            if (!endEnabled) return@LaunchedEffect
+            if (stage != PlayerLoadStage.UpNext) return@LaunchedEffect
+            if (relatedAnswered >= 0) return@LaunchedEffect
             when (val result = source.related(video.id)) {
-                is com.presaince.parallax.core.AppResult.Ok -> relatedToShow = result.value.take(10)
-                // A refresh that fails keeps the list that is already there: an empty Up next
-                // reads as "nothing follows this video", which is a worse lie than a stale row.
+                is com.presaince.parallax.core.AppResult.Ok -> relatedToShow = result.value.take(RELATED_WINDOW)
+                // A failed first fetch keeps whatever is there: an empty Up next reads as "nothing
+                // follows this video", which is a worse lie than a stale row.
                 is com.presaince.parallax.core.AppResult.Err -> Unit
             }
-            relatedAnswered = asked
+            relatedAnswered = 1
+        }
+
+        val relatedScope = rememberCoroutineScope()
+        var relatedRefreshing by remember(video.id) { mutableStateOf(false) }
+        var relatedNote by remember(video.id) { mutableStateOf<String?>(null) }
+        var relatedExpanded by remember(video.id) { mutableStateOf(true) }
+
+        /**
+         * The button refetches and reshuffles. The first version rotated a window over a cached
+         * pool, so a small pool looped the same videos and the cache made the tap instant. Now the
+         * cache is bypassed and the order is shuffled, so each tap is a real fetch and a visibly
+         * different list.
+         */
+        fun refreshRelated() {
+            if (relatedRefreshing) return
+            relatedRefreshing = true
+            relatedNote = null
+            relatedScope.launch {
+                when (val result = source.relatedFresh(video.id)) {
+                    is com.presaince.parallax.core.AppResult.Ok -> {
+                        val fresh = result.value.distinctBy { it.id }
+                        if (fresh.isEmpty()) {
+                            relatedNote = "This video has no suggestions."
+                        } else {
+                            relatedToShow = fresh.shuffled().take(RELATED_WINDOW)
+                            if (fresh.size <= RELATED_WINDOW) {
+                                relatedNote = "Only ${fresh.size} suggestions exist, so this is all of them."
+                            }
+                        }
+                    }
+                    is com.presaince.parallax.core.AppResult.Err ->
+                        relatedNote = result.message
+                }
+                relatedRefreshing = false
+            }
         }
 
         LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth()) {
@@ -1226,8 +1274,6 @@ fun PlayerScreen(
                             (loadState.views ?: video.viewCount)?.let { if (cardStyle.views) add(it) }
                             (loadState.likes ?: video.likeCount)?.let { if (cardStyle.likes) add(it) }
                             if (cardStyle.age) video.publishedAtMs?.let { add(it) }
-                            if (cardStyle.duration) add(video.durationSec)
-                            if (cardStyle.comments) video.commentCount?.let { add(it) }
                             if (cardStyle.watches) watches[video.id]?.let { add(it) }
                         }.isNotEmpty()) {
                         // The detail's uploader URL lands after the first load; when a listing
@@ -1248,7 +1294,7 @@ fun PlayerScreen(
                             Text(
                                 text = channelName,
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.primary,
+                                color = accentTextColour(),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier
@@ -1268,25 +1314,31 @@ fun PlayerScreen(
                         val facts = buildList {
                             if (cardStyle.views) {
                                 (loadState.views ?: video.viewCount)?.let {
-                                    add("${compactCount(it)} views")
+                                    add("${compactCount(it)}\u00A0views")
                                 }
                             }
                             if (cardStyle.likes) {
                                 (loadState.likes ?: video.likeCount)?.let {
-                                    add("${compactCount(it)} likes")
+                                    add("${compactCount(it)}\u00A0likes")
                                 }
                             }
+                            if (cardStyle.watches) watches[video.id]?.takeIf { it > 1 }?.let { add("watched\u00A0$it\u00A0times") }
+                            // The age is last so it sits at the far right of the line: when a
+                            // reader glances at that corner, it is always "when".
                             if (cardStyle.age) video.publishedAtMs?.let { add(timeAgo(it)) }
-                            if (cardStyle.duration) add(formatDuration(video.durationSec))
-                            if (cardStyle.comments) video.commentCount?.let { add("${compactCount(it)} comments") }
-                            if (cardStyle.watches) watches[video.id]?.takeIf { it > 1 }?.let { add("watched $it times") }
-                        }.joinToString(" · ")
+                            // The comment count and the length are already on the page: the
+                            // comments section says how many, the picture shows how long.
+                        }.joinToString("\u00A0·\u00A0")
                         if (facts.isNotBlank()) {
+                            // One line, ellipsised, right-aligned: the facts never wrap, so "4h"
+                            // cannot end up on one line and "ago" on the next.
                             Text(
                                 text = facts,
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                textAlign = TextAlign.End,
                             )
                         }
                     }
@@ -1373,6 +1425,8 @@ fun PlayerScreen(
                         videoId = video.id,
                         thumbnailUrl = video.thumbnailUrl,
                         horizontal = chaptersHorizontal,
+                        showTimestamps = chapterTimestamps,
+                        labelsRight = labelsRight,
                         expanded = chaptersExpanded,
                         // The chapter the playhead is inside. Before the first mark there is
                         // none, which is honest: an intro is not the first chapter yet.
@@ -1406,6 +1460,7 @@ fun PlayerScreen(
                     DescriptionBlock(
                         description = descriptionBody,
                         expanded = descriptionExpanded,
+                        labelsRight = labelsRight,
                         onToggle = { descriptionExpanded = !descriptionExpanded },
                         onSeek = { seconds -> userSeek(seconds * 1000) },
                     )
@@ -1425,13 +1480,10 @@ fun PlayerScreen(
                         .heightIn(min = 44.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(
-                        text = if (notesCount > 0) "My notes ($notesCount)" else "My notes",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.weight(1f),
-                    )
+                    Spacer(Modifier.weight(1f))
                     // The record button lives in the card once expanded: one microphone, not two.
+                    // It sits left of the title, so the header reads the same way the comments
+                    // header does, right-aligned against the chevron.
                     if (!notesExpanded) {
                         Box(
                             modifier = Modifier
@@ -1451,7 +1503,14 @@ fun PlayerScreen(
                                 modifier = Modifier.size(18.dp),
                             )
                         }
+                        Spacer(Modifier.width(6.dp))
                     }
+                    Text(
+                        text = if (notesCount > 0) "My notes ($notesCount)" else "My notes",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = accentTextColour(),
+                    )
+                    if (!labelsRight) Spacer(Modifier.weight(1f))
                     Icon(
                         imageVector = if (notesExpanded) {
                             Icons.Default.KeyboardArrowUp
@@ -1484,41 +1543,74 @@ fun PlayerScreen(
                 }
             }
 
-            item(key = "comments") {
-                CommentsSection(
-                    viewModel = commentsViewModel,
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                )
-            }
+            commentsItems(
+                state = commentsState,
+                viewModel = commentsViewModel,
+                labelsRight = labelsRight,
+            )
 
-            if (endEnabled && atEnd) {
+            if (endEnabled && relatedToShow.isNotEmpty()) {
                 item(key = "related") {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { relatedExpanded = !relatedExpanded }
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            if (labelsRight) Spacer(Modifier.weight(1f))
                             Text(
                                 text = "Up next",
                                 style = MaterialTheme.typography.titleSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.weight(1f),
+                                color = accentTextColour(),
+                                modifier = if (labelsRight) Modifier else Modifier.weight(1f),
                             )
-                            // Another page from the same source, on demand: the automatic fetch is
-                            // one call per video and the end screen is where a second opinion is
-                            // wanted, not on the way there.
-                            IconButton(onClick = { relatedRound++ }) {
+                            if (relatedRefreshing) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(14.dp),
+                                    strokeWidth = 2.dp,
+                                    color = accentTextColour(),
+                                )
+                                Spacer(Modifier.width(8.dp))
+                            }
+                            // Another page from the same source, on demand. One related() call per
+                            // video returns the same set, so the answer is often "nothing new" —
+                            // and that is what the line under the header says.
+                            IconButton(onClick = { refreshRelated() }, enabled = !relatedRefreshing) {
                                 Icon(
                                     imageVector = Icons.Default.Refresh,
                                     contentDescription = "Refresh up next",
-                                    tint = MaterialTheme.colorScheme.primary,
+                                    tint = accentTextColour(),
                                     modifier = Modifier.size(18.dp),
                                 )
                             }
-                        }
-                        relatedToShow.forEach { next ->
-                            com.presaince.parallax.ui.component.VideoRow(
-                                video = next,
-                                watches = watches[next.id],
-                                onClick = { onOpenVideo(next) },
+                            Icon(
+                                imageVector = if (relatedExpanded) {
+                                    Icons.Filled.KeyboardArrowUp
+                                } else {
+                                    Icons.Filled.KeyboardArrowDown
+                                },
+                                contentDescription = if (relatedExpanded) "Hide up next" else "Show up next",
+                                tint = accentTextColour(),
                             )
+                        }
+                        relatedNote?.let { note ->
+                            Text(
+                                text = note,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        if (relatedExpanded) {
+                            relatedToShow.forEach { next ->
+                                com.presaince.parallax.ui.component.VideoRow(
+                                    video = next,
+                                    watches = watches[next.id],
+                                    onClick = { onOpenVideo(next) },
+                                    onChannel = onOpenChannel,
+                                )
+                            }
                         }
                     }
                 }
@@ -1538,6 +1630,7 @@ fun PlayerScreen(
 private fun DescriptionBlock(
     description: String,
     expanded: Boolean,
+    labelsRight: Boolean,
     onToggle: () -> Unit,
     onSeek: (Long) -> Unit,
 ) {
@@ -1557,11 +1650,12 @@ private fun DescriptionBlock(
                 .clickable(onClick = onToggle),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Spacer(modifier = Modifier.weight(1f))
+            Spacer(modifier = Modifier.weight(if (labelsRight) 1f else 0f))
             Text(
                 text = "Description",
                 style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
+                color = accentTextColour(),
+                modifier = if (labelsRight) Modifier else Modifier.weight(1f),
             )
             Icon(
                 imageVector = if (expanded) {
@@ -1574,7 +1668,7 @@ private fun DescriptionBlock(
                 } else {
                     "Expand description"
                 },
-                tint = MaterialTheme.colorScheme.primary,
+                tint = accentTextColour(),
             )
         }
         if (expanded) {
@@ -1606,7 +1700,7 @@ private fun DescriptionLine(line: String, onSeek: (Long) -> Unit) {
                 Text(
                     text = formatDuration(seconds),
                     style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
+                    color = accentTextColour(),
                     modifier = Modifier.width(56.dp),
                 )
                 Text(
@@ -1730,13 +1824,13 @@ private fun SponsorSegmentsBlock(
             Text(
                 text = "SponsorBlock (${segments.size})",
                 style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
+                color = accentTextColour(),
                 modifier = Modifier.weight(1f),
             )
             Icon(
                 imageVector = if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
                 contentDescription = if (expanded) "Hide sponsor segments" else "Show sponsor segments",
-                tint = MaterialTheme.colorScheme.primary,
+                tint = accentTextColour(),
             )
         }
         if (expanded) {
@@ -1896,6 +1990,8 @@ private fun ChaptersBlock(
     videoId: String,
     thumbnailUrl: String?,
     horizontal: Boolean,
+    showTimestamps: Boolean,
+    labelsRight: Boolean,
     expanded: Boolean,
     activeIndex: Int,
     onToggle: () -> Unit,
@@ -1917,16 +2013,17 @@ private fun ChaptersBlock(
                 .padding(horizontal = 16.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            if (labelsRight) Spacer(Modifier.weight(1f))
             Text(
                 text = "Chapters (${chapters.size})",
                 style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.weight(1f),
+                color = accentTextColour(),
+                modifier = if (labelsRight) Modifier else Modifier.weight(1f),
             )
             Icon(
                 imageVector = if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
                 contentDescription = if (expanded) "Hide chapters" else "Show chapters",
-                tint = MaterialTheme.colorScheme.primary,
+                tint = accentTextColour(),
             )
         }
         if (expanded && horizontal) {
@@ -1963,24 +2060,23 @@ private fun ChaptersBlock(
                                         },
                                     ),
                             )
-                            Text(
-                                text = formatDuration(chapter.atSec),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = Color.White,
-                                modifier = Modifier
-                                    .align(Alignment.BottomStart)
-                                    .padding(4.dp),
-                            )
+                            // The time used to sit on the frame in white, which is unreadable
+                            // over half of YouTube's thumbnails. It is part of the caption now,
+                            // and can be switched off entirely.
                         }
                         Text(
-                            text = chapter.title,
+                            text = chapterCaption(
+                                chapter,
+                                showTimestamps,
+                                formatDuration(chapter.atSec),
+                            ),
                             style = MaterialTheme.typography.bodySmall,
                             color = if (active) {
                                 MaterialTheme.colorScheme.primary
                             } else {
                                 MaterialTheme.colorScheme.onSurface
                             },
-                            maxLines = 2,
+                            maxLines = 3,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.padding(top = 4.dp),
                         )
@@ -2012,12 +2108,16 @@ private fun ChaptersBlock(
                             .size(width = 64.dp, height = 36.dp)
                             .clip(RoundedCornerShape(4.dp)),
                     )
-                    Text(
-                        text = formatDuration(chapter.atSec),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(horizontal = 10.dp).width(48.dp),
-                    )
+                    if (showTimestamps) {
+                        Text(
+                            text = formatDuration(chapter.atSec),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = accentTextColour(),
+                            modifier = Modifier.padding(horizontal = 10.dp).width(48.dp),
+                        )
+                    } else {
+                        Spacer(Modifier.width(10.dp))
+                    }
                     Text(
                         text = chapter.title,
                         style = MaterialTheme.typography.bodyMedium,
@@ -2126,7 +2226,7 @@ private fun SeekUndoChip(undo: SeekUndo, onUndo: () -> Unit, modifier: Modifier 
             color = Color.White,
         )
         TextButton(onClick = onUndo) {
-            Text("Undo", color = MaterialTheme.colorScheme.primary)
+            Text("Undo", color = accentTextColour())
         }
     }
 }

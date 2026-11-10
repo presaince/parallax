@@ -274,11 +274,17 @@ class NewPipeSource(
             }
         }
 
-    override suspend fun related(id: String): AppResult<List<VideoSummary>> =
+    override suspend fun related(id: String): AppResult<List<VideoSummary>> = related(id, false)
+
+    override suspend fun relatedFresh(id: String): AppResult<List<VideoSummary>> = related(id, true)
+
+    private suspend fun related(id: String, fresh: Boolean): AppResult<List<VideoSummary>> =
         withContext(Dispatchers.IO) {
             val now = System.currentTimeMillis()
-            relatedCache[id]?.takeIf { now - it.first < relatedTTL }?.let {
-                return@withContext AppResult.Ok(it.second)
+            if (!fresh) {
+                relatedCache[id]?.takeIf { now - it.first < relatedTTL }?.let {
+                    return@withContext AppResult.Ok(it.second)
+                }
             }
             ambiguousSeen = 0
             withSourceRepair(log, "related", { resetMainRegion() }) {
@@ -297,18 +303,30 @@ class NewPipeSource(
     override suspend fun channelUploads(
         channelUrl: String,
         page: String?,
+    ): AppResult<Page<VideoSummary>> = channelTab(channelUrl, "videos", page)
+
+    /**
+     * A channel tab by filter name. The channel's own tab list is what decides whether the filter
+     * exists: asking a channel with no Shorts for its shorts tab is an answerable failure, not an
+     * empty page that reads as a channel with nothing on it.
+     */
+    override suspend fun channelTab(
+        channelUrl: String,
+        filter: String,
+        page: String?,
     ): AppResult<Page<VideoSummary>> = withContext(Dispatchers.IO) {
+        val cacheKey = "$channelUrl#$filter"
         if (page.isNullOrBlank()) {
             val now = System.currentTimeMillis()
-            uploadsCache[channelUrl]?.takeIf { now - it.first < uploadsTTL }?.let {
+            uploadsCache[cacheKey]?.takeIf { now - it.first < uploadsTTL }?.let {
                 return@withContext AppResult.Ok(it.second)
             }
         }
         ambiguousSeen = 0
-        withSourceRepair(log, "channelUploads", { resetMainRegion() }) {
-            val tab = ChannelInfo.getInfo(service, channelUrl).tabs
-                .firstOrNull { "videos" in it.contentFilters }
-                ?: throw IllegalStateException("channel has no videos tab: $channelUrl")
+        withSourceRepair(log, "channelTab:$filter", { resetMainRegion() }) {
+            val tabs = ChannelInfo.getInfo(service, channelUrl).tabs
+            val tab = tabs.firstOrNull { filter in it.contentFilters }
+                ?: throw IllegalStateException("this channel has no $filter tab")
 
             val extractor = service.getChannelTabExtractor(tab)
             extractor.fetchPage()
@@ -325,13 +343,13 @@ class NewPipeSource(
                 next = itemsPage.nextPage?.id,
             )
             if (page.isNullOrBlank()) {
-                uploadsCache[channelUrl] = System.currentTimeMillis() to result
+                uploadsCache[cacheKey] = System.currentTimeMillis() to result
             }
             result
         }
     }
 
-    /** Channel name and avatar, for the Library grid. */
+    /** Channel name, avatar, subscribers, the about text and which tabs exist. */
     override suspend fun channelInfo(channelUrl: String): AppResult<Channel> =
         withContext(Dispatchers.IO) {
             withSourceRepair(log, "channelInfo", { resetMainRegion() }) {
@@ -342,6 +360,8 @@ class NewPipeSource(
                     avatarUrl = runCatching { info.avatars.maxByOrNull { it.width }?.url }
                         .getOrNull(),
                     subscriberCount = info.subscriberCount,
+                    description = info.description?.takeIf { it.isNotBlank() },
+                    tabs = info.tabs.flatMap { it.contentFilters }.distinct(),
                 )
             }
         }
@@ -502,9 +522,11 @@ class NewPipeSource(
         return Comment(
             id = id,
             author = uploaderName.orEmpty(),
+            authorUrl = uploaderUrl?.takeIf { it.isNotBlank() },
             text = cleanHtml(runCatching { commentText?.content() }.getOrNull().orEmpty()),
             likeCount = likeCount,
             publishedText = textualUploadDate.orEmpty(),
+            publishedAtMs = runCatching { uploadDate?.instant?.toEpochMilli() }.getOrNull(),
             timestampSec = streamPosition
                 .takeIf { it != CommentsInfoItem.NO_STREAM_POSITION }
                 ?.toLong(),

@@ -147,7 +147,15 @@ class ContentRepository(
             )
         }
 
-    suspend fun comments(videoId: String, page: String?): AppResult<Page<Comment>> =
+    /**
+     * [refresh] skips the cache even when the stored page is still inside its hour. The reader's
+     * long press on the comments header is the only caller: a stale page has no other way out.
+     */
+    suspend fun comments(
+        videoId: String,
+        page: String?,
+        refresh: Boolean = false,
+    ): AppResult<Page<Comment>> =
         withContext(Dispatchers.IO) {
             val key = page?.takeIf { it.isNotBlank() } ?: FIRST_PAGE
             val cached = runCatching { db.commentCache().find(videoId, key) }.getOrNull()
@@ -158,7 +166,7 @@ class ContentRepository(
             val decoded = cached?.let { CommentCodec.decode(it.json) }?.takeIf { cachedPage ->
                 cachedPage.items.none { it.replyCount > 0 && it.repliesPage.isNullOrBlank() }
             }
-            val isFresh = cached != null && now - cached.fetchedAt < COMMENTS_TTL_MS
+            val isFresh = !refresh && cached != null && now - cached.fetchedAt < COMMENTS_TTL_MS
             if (decoded != null && isFresh) {
                 return@withContext AppResult.Ok(decoded)
             }

@@ -12,6 +12,14 @@ fun activeChapterIndex(chapters: List<Chapter>, positionMs: Long): Int =
     chapters.indexOfLast { it.atSec <= positionMs / 1000 }
 
 /**
+ * What a chapter says under its picture: the time and the title, or the title alone when the
+ * reader has switched timestamps off. The time is never drawn over the frame — it cannot be read
+ * over a bright thumbnail.
+ */
+fun chapterCaption(chapter: Chapter, showTimestamps: Boolean, time: String): String =
+    if (showTimestamps) "$time · ${chapter.title}" else chapter.title
+
+/**
  * YouTube's convention is a line starting with a timestamp. Three or more lines, starting at zero,
  * are chapters; anything less is a person writing times in a paragraph.
  *

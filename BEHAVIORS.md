@@ -571,6 +571,22 @@ names, and nowhere else. Picking a colour by hand restarts the current period. T
 **Enforced by** `ui/theme/Theme.kt`, `ui/theme/ThemeController.kt`,
 `feature/settings/SettingsSections.kt`.
 
+**Rule.** Text contrast is a floor, not a look: Off, Standard (4.5:1) and High (7:1), default
+Standard, and the theme moves only lightness to meet it.
+
+**Edge.** Measured against the composited surface, never the ideal token: in Glass that is the card
+fill over the aurora, in Dark and Light the opaque scheme. Accent text keeps its picked hue and is
+walked darker or lighter; the accent itself and every fill stay as chosen. A stricter policy also
+dims the aurora, never below 35%, and caps the transparency dial at the last level that still
+reads — the stored level is clamped, so the dial never shows a fill it is not using. In Dark and
+most Light accents nothing moves, and the card says so in words. The one pair High cannot fix is
+the label on an accent fill for blue and violet hues (6.3–7.0:1): moving it would change the
+accent, so the card shows the shortfall instead. Shuffle only rolls to accents that clear the
+policy at the current fill, and keeps the current one when none do.
+
+**Enforced by** `ui/theme/Contrast.kt`, `ui/theme/Theme.kt`, `ui/theme/ThemeController.kt`,
+`feature/settings/SettingsSections.kt` (`ContrastCard`), `ui/theme/ThemeContrastTest.kt`.
+
 **Rule.** Preview is the second section, in a card of its own, and every control that changes it is
 inside that card, directly under the card being previewed.
 

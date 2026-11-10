@@ -131,6 +131,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.PI
 import kotlin.math.roundToInt
+import com.presaince.parallax.ui.theme.accentTextColour
 
 /** One page of Settings. The root list decides which; nothing else is on screen. */
 @Composable
@@ -460,17 +461,18 @@ private fun PickChip(
     val accentText = if (ink == Color.Unspecified) MaterialTheme.colorScheme.primary else ink
     val tint = when {
         selected -> accentText
-        muted -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+        // Muted is a container difference, not a faded label: a chip that can still be tapped has
+        // to be readable, and 38% alpha measured 1.9:1 on the glass card.
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(50))
             .background(
-                if (selected) {
-                    MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
-                } else {
-                    MaterialTheme.colorScheme.surfaceVariant.faded(0.35f)
+                when {
+                    selected -> MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+                    muted -> Color.Transparent
+                    else -> MaterialTheme.colorScheme.surfaceVariant.faded(0.35f)
                 },
             )
             .clickable(onClick = onClick)
@@ -717,8 +719,7 @@ private fun FactButtons(style: CardStyle, onChange: (CardStyle) -> Unit) {
         Fact("Watch count", style.watches) { onChange(style.copy(watches = it)) },
         Fact("Comments", style.comments) { onChange(style.copy(comments = it)) },
         Fact("Progress", style.progress) { onChange(style.copy(progress = it)) },
-        Fact("Notes", style.notes) { onChange(style.copy(notes = it)) },
-    )
+        Fact("My notes", style.notes) { onChange(style.copy(notes = it)) },    )
     Column(
         modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -1077,9 +1078,8 @@ private fun SurfaceHalf(
             style = MaterialTheme.typography.labelMedium,
             color = when {
                 active && selected -> tileInk()
-                active -> MaterialTheme.colorScheme.onSurfaceVariant
                 selected -> MaterialTheme.colorScheme.onSurface
-                else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
+                else -> MaterialTheme.colorScheme.onSurfaceVariant
             },
             maxLines = 1,
         )
@@ -1268,7 +1268,7 @@ internal fun AccentGrid(theme: ThemeController) {
                 Icon(
                     imageVector = Icons.Default.Check,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
+                    tint = accentTextColour(),
                 )
             }
         }
@@ -1308,6 +1308,18 @@ private fun PlaybackSection(playback: PlaybackController) {
         mutableStateOf(
             context.getSharedPreferences("parallax", android.content.Context.MODE_PRIVATE)
                 .getBoolean("chapters_horizontal", true),
+        )
+    }
+    var chapterTimestamps by remember {
+        mutableStateOf(
+            context.getSharedPreferences("parallax", android.content.Context.MODE_PRIVATE)
+                .getBoolean("chapter_timestamps", true),
+        )
+    }
+    var labelsRight by remember {
+        mutableStateOf(
+            context.getSharedPreferences("parallax", android.content.Context.MODE_PRIVATE)
+                .getBoolean("player_labels_right", false),
         )
     }
     var endRelated by remember {
@@ -1373,7 +1385,8 @@ private fun PlaybackSection(playback: PlaybackController) {
 
         SwitchRow(
             title = "Related at the end",
-            summary = "Shows Up next when a video finishes. Off means the page simply ends.",
+            summary = "Shows Up next under the comments while the video plays and on the end " +
+                "screen. Off means the page simply ends.",
             checked = endRelated,
             onCheckedChange = { enabled ->
                 endRelated = enabled
@@ -1394,6 +1407,34 @@ private fun PlaybackSection(playback: PlaybackController) {
                 context.getSharedPreferences("parallax", android.content.Context.MODE_PRIVATE)
                     .edit()
                     .putBoolean("chapters_horizontal", enabled)
+                    .apply()
+            },
+        )
+
+        SwitchRow(
+            title = "Chapter timestamps",
+            summary = "The time beside each chapter. Off leaves the titles alone, and the " +
+                "timestamps in the description are untouched either way.",
+            checked = chapterTimestamps,
+            onCheckedChange = { enabled ->
+                chapterTimestamps = enabled
+                context.getSharedPreferences("parallax", android.content.Context.MODE_PRIVATE)
+                    .edit()
+                    .putBoolean("chapter_timestamps", enabled)
+                    .apply()
+            },
+        )
+
+        SwitchRow(
+            title = "Section labels on the right",
+            summary = "Description, Chapters, My notes, Comments and Up next. Off puts them on " +
+                "the left, in line with the text they name, which is where the eye already is.",
+            checked = labelsRight,
+            onCheckedChange = { enabled ->
+                labelsRight = enabled
+                context.getSharedPreferences("parallax", android.content.Context.MODE_PRIVATE)
+                    .edit()
+                    .putBoolean("player_labels_right", enabled)
                     .apply()
             },
         )
@@ -1523,7 +1564,7 @@ private fun PlaybackSection(playback: PlaybackController) {
                 Text(
                     text = qualityStop.label,
                     style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
+                    color = accentTextColour(),
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
                 )
             }
@@ -1563,9 +1604,9 @@ private fun PlaybackSection(playback: PlaybackController) {
                     text = stop.short,
                     style = MaterialTheme.typography.labelSmall,
                     color = if (index == qualityIndex) {
-                        MaterialTheme.colorScheme.primary
+                        accentTextColour()
                     } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        MaterialTheme.colorScheme.onSurfaceVariant
                     },
                     modifier = Modifier
                         .clickable {

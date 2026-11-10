@@ -1,5 +1,5 @@
-﻿/*
- * Parallax â€” Copyright (C) 2026 Bodi
+/*
+ * Parallax — Copyright (C) 2026 Bodi
  * GPLv3: see LICENSE. No warranty.
  */
 package com.presaince.parallax.feature.library
@@ -55,6 +55,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.presaince.parallax.core.formatDuration
 import com.presaince.parallax.core.timeAgo
+import kotlin.math.roundToInt
 import com.presaince.parallax.R
 import com.presaince.parallax.data.db.ParallaxDb
 import com.presaince.parallax.data.db.ProgressEntity
@@ -69,8 +70,10 @@ import com.presaince.parallax.ui.component.NoteCountBadge
 import com.presaince.parallax.ui.component.ScrollToTopButton
 import com.presaince.parallax.ui.component.VideoRow
 import com.presaince.parallax.ui.component.noteCounts
+import com.presaince.parallax.ui.component.subscribedChannels
 import com.presaince.parallax.ui.component.watchCounts
 import com.presaince.parallax.ui.theme.parallaxFilterChipColors
+import com.presaince.parallax.ui.theme.accentTextColour
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -90,6 +93,7 @@ fun LibraryScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val notes = noteCounts(db)
     val watches = watchCounts(db)
+    val subscribed = subscribedChannels(db)
     val cardRevision = CardStyle.revision
     val cardContext = LocalContext.current
     val cardStyle = remember(cardRevision) { CardStyle.read(cardContext) }
@@ -127,7 +131,7 @@ fun LibraryScreen(
                 Icon(
                     painter = painterResource(R.drawable.ic_history),
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
+                    tint = accentTextColour(),
                     modifier = Modifier.size(20.dp),
                 )
             }
@@ -193,6 +197,7 @@ fun LibraryScreen(
                     state = state,
                     notes = notes,
                     watches = watches,
+                    subscribed = subscribed,
                     cardStyle = cardStyle,
                     onOpenChannel = onOpenChannel,
                     onOpenVideo = onOpenVideo,
@@ -203,7 +208,11 @@ fun LibraryScreen(
                 onRefresh = viewModel::refresh,
                 modifier = Modifier.fillMaxSize(),
             ) {
-                CollectionsSection(db = db, onOpenVideo = onOpenVideo)
+                CollectionsSection(
+                    db = db,
+                    onOpenVideo = onOpenVideo,
+                    onOpenChannel = onOpenChannel,
+                )
             }
         }
     }
@@ -241,7 +250,7 @@ private fun ChannelGrid(
                 Text(
                     text = subscription.name,
                     style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
+                    color = accentTextColour(),
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     textAlign = TextAlign.Center,
@@ -262,6 +271,7 @@ private fun ChannelSections(
     state: LibraryUiState,
     notes: Map<String, Int>,
     watches: Map<String, Int>,
+    subscribed: Set<String>,
     cardStyle: CardStyle,
     onOpenChannel: (String, String) -> Unit,
     onOpenVideo: (VideoSummary) -> Unit,
@@ -276,17 +286,27 @@ private fun ChannelSections(
         if (state.continueWatching.isNotEmpty()) {
             item(key = "continue-header") { SectionHeader("Continue watching") }
             items(state.continueWatching, key = { "p-${it.videoId}" }) { progress ->
+                val percent = state.watchedFraction(progress.videoId)
+                    ?.let { (it * 100).roundToInt() }
                 VideoRow(
                     video = progress.toSummary(),
                     watched = state.watchedFraction(progress.videoId),
                     watches = watches[progress.videoId],
-                    meta = "${formatDuration(progress.positionMs / 1000)} watched" +
+                    meta = buildString {
+                        // How much is left is the question on this list, not how many minutes were
+                        // watched: a percentage is the same question at any video length.
+                        if (percent != null) append("$percent% watched")
                         if (cardStyle.watches) {
-                            watches[progress.videoId]?.takeIf { it > 1 }?.let { " · $it times" }.orEmpty()
-                        } else {
-                            ""
-                        },
+                            watches[progress.videoId]?.takeIf { it > 1 }?.let {
+                                if (isNotEmpty()) append(" · ")
+                                append("$it times")
+                            }
+                        }
+                    },
+                    metaEnd = true,
                     onClick = { onOpenVideo(progress.toSummary()) },
+                    onChannel = onOpenChannel,
+                    subscribed = progress.toSummary().channelName.lowercase() in subscribed,
                     badge = notes[progress.videoId]?.takeIf { it > 0 }?.takeIf { cardStyle.notes }?.let { n ->
                         { NoteCountBadge(count = n) }
                     },
@@ -310,6 +330,8 @@ private fun ChannelSections(
                     watched = state.watchedFraction(video.id),
                     watches = watches[video.id],
                     onClick = { onOpenVideo(video.toSummary()) },
+                    onChannel = onOpenChannel,
+                    subscribed = video.toSummary().channelName.lowercase() in subscribed,
                     badge = notes[video.id]?.takeIf { it > 0 }?.takeIf { cardStyle.notes }?.let { n ->
                         { NoteCountBadge(count = n) }
                     },
@@ -351,7 +373,7 @@ private fun SubscriptionHeader(
         Text(
             text = subscription.name,
             style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.primary,
+            color = accentTextColour(),
             modifier = Modifier.padding(start = 10.dp),
         )
     }
@@ -362,7 +384,7 @@ private fun SectionHeader(text: String) {
     Text(
         text = text,
         style = MaterialTheme.typography.titleSmall,
-        color = MaterialTheme.colorScheme.primary,
+        color = accentTextColour(),
         modifier = Modifier.padding(top = 20.dp, bottom = 4.dp),
     )
 }

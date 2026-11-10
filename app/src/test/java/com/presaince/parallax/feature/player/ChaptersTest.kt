@@ -11,6 +11,13 @@ import org.junit.Test
 class ChaptersTest {
 
     @Test
+    fun `the caption carries the time until the reader switches it off`() {
+        val chapter = Chapter(atSec = 83, title = "The middle part")
+        assertEquals("1:23 · The middle part", chapterCaption(chapter, true, "1:23"))
+        assertEquals("The middle part", chapterCaption(chapter, false, "1:23"))
+    }
+
+    @Test
     fun `a list starting at zero is a chapter list`() {
         val description = """
             In this video:

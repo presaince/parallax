@@ -34,6 +34,7 @@ import com.presaince.parallax.data.model.VideoSummary
 import com.presaince.parallax.ui.component.ScrollToTopButton
 import com.presaince.parallax.ui.component.VideoRow
 import com.presaince.parallax.ui.component.watchCounts
+import com.presaince.parallax.ui.component.subscribedChannels
 import com.presaince.parallax.ui.theme.parallaxFilterChipColors
 
 /**
@@ -44,6 +45,7 @@ import com.presaince.parallax.ui.theme.parallaxFilterChipColors
 fun CollectionsSection(
     db: ParallaxDb,
     onOpenVideo: (VideoSummary) -> Unit,
+    onOpenChannel: (String, String) -> Unit = { _, _ -> },
 ) {
     val viewModel: CollectionsViewModel = viewModel(
         factory = viewModelFactory {
@@ -53,6 +55,7 @@ fun CollectionsSection(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val items = state.lists[state.selected].orEmpty()
     val watches = watchCounts(db)
+    val subscribed = subscribedChannels(db)
 
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
@@ -101,6 +104,8 @@ fun CollectionsSection(
                                 video = video,
                                 watches = watches[video.id],
                                 onClick = { onOpenVideo(video) },
+                                onChannel = onOpenChannel,
+                                subscribed = video.channelName.lowercase() in subscribed,
                             )
                         }
                     }

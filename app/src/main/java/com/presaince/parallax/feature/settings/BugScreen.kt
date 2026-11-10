@@ -42,6 +42,7 @@ import com.presaince.parallax.core.BugShot
 import com.presaince.parallax.core.BugUpload
 import com.presaince.parallax.core.BugUploadState
 import kotlinx.coroutines.delay
+import com.presaince.parallax.ui.theme.accentTextColour
 
 /**
  * The bug screen, adapted from oko's feedback sheet: the log, the device, the screenshot the app
@@ -140,7 +141,7 @@ fun BugScreen(log: AppLog) {
                 Text(
                     text = "Sent",
                     style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.primary,
+                    color = accentTextColour(),
                 )
                 Text(
                     text = "Filed as ${done.name}.",

@@ -26,6 +26,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.presaince.parallax.core.AppLog
 import com.presaince.parallax.core.BugUpload
 import com.presaince.parallax.core.BugUploadState
+import com.presaince.parallax.ui.theme.accentTextColour
 
 /**
  * The app's own log, on the device, for the times when something silently does not work. Kept 48
@@ -55,7 +56,7 @@ fun LogsScreen(log: AppLog) {
                 Text(
                     text = "Sent bug report",
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary,
+                    color = accentTextColour(),
                 )
                 Text(
                     text = "Filed as ${done.name}. On FTP, not saved on device.",
@@ -78,7 +79,7 @@ fun LogsScreen(log: AppLog) {
                         Text(
                             text = "${entry.time()} · ${entry.tag}",
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary,
+                            color = accentTextColour(),
                         )
                         Text(
                             text = entry.message,

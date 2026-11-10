@@ -45,6 +45,7 @@ import com.presaince.parallax.BuildConfig
 import com.presaince.parallax.data.update.UPDATE_BASE_URL
 import com.presaince.parallax.data.update.UpdateState
 import com.presaince.parallax.ui.theme.oklch
+import com.presaince.parallax.ui.theme.accentTextColour
 
 /** The Presaince ramp, dark, as defined in the portfolio README. Only the wordmark wears it. */
 private val BrandRampDark = listOf(
@@ -217,7 +218,7 @@ fun AboutScreen() {
         Text(
             text = "Privacy",
             style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.primary,
+            color = accentTextColour(),
         )
         Text(
             text = "Subscriptions, history, progress and notes stay in the app's own database on " +
@@ -231,7 +232,7 @@ fun AboutScreen() {
         Text(
             text = "Licence",
             style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.primary,
+            color = accentTextColour(),
             modifier = Modifier.padding(top = 24.dp),
         )
         Text(

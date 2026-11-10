@@ -20,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.presaince.parallax.core.timeAgo
@@ -44,6 +45,12 @@ fun VideoRow(
     watches: Int? = null,
     trailing: (@Composable () -> Unit)? = null,
     badge: (@Composable () -> Unit)? = null,
+    /** Opens the channel from the card's name, the same call the channel rows use. */
+    onChannel: ((url: String, name: String) -> Unit)? = null,
+    /** True when this phone already follows the channel: the name is drawn in the accent colour. */
+    subscribed: Boolean = false,
+    /** Right-aligns the facts line. History reads as a column of numbers that way. */
+    metaEnd: Boolean = false,
 ) {
     val context = LocalContext.current
     // Read on every style change: the card style is set on another screen, and under layered
@@ -51,6 +58,18 @@ fun VideoRow(
     val revision = CardStyle.revision
     val style = remember(revision) { CardStyle.read(context) }
     val line = meta ?: metaFor(video, watches, style)
+    // A caller that writes its own line owns the whole line: the name is only taken out of the
+    // facts when the facts are ours to take it out of.
+    val channel = if (meta == null && style.channel) {
+        video.channelName.takeIf { it.isNotBlank() }
+    } else {
+        null
+    }
+    val channelClick: (() -> Unit)? = if (channel != null && onChannel != null) {
+        { onChannel(video.channelUrl.orEmpty(), video.channelName) }
+    } else {
+        null
+    }
     // With every word switched off, a minimal row is a thumbnail and a rectangle of empty space.
     // Give the picture the whole row; the feed turns that row into a two-column grid.
     val pictureOnly = style.layout == CardLayout.MINIMAL &&
@@ -67,7 +86,7 @@ fun VideoRow(
                 .clip(RoundedCornerShape(8.dp))
                 .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp))
                 .clickable(onClick = onClick)
-                .padding(vertical = 6.dp),
+                .padding(horizontal = 8.dp, vertical = 6.dp),
         ) {
             Box {
                 Thumbnail(
@@ -87,6 +106,10 @@ fun VideoRow(
             CardWords(
                 title = video.title,
                 line = line,
+                channel = channel,
+                onChannelClick = channelClick,
+                subscribed = subscribed,
+                alignEnd = metaEnd,
                 showTitle = style.title,
                 modifier = Modifier.padding(top = 8.dp),
             )
@@ -99,7 +122,7 @@ fun VideoRow(
                 .clip(RoundedCornerShape(8.dp))
                 .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp))
                 .clickable(onClick = onClick)
-                .padding(vertical = 6.dp),
+                .padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.Top,
         ) {
             Box(modifier = Modifier.weight(0.40f)) {
@@ -120,6 +143,10 @@ fun VideoRow(
             CardWords(
                 title = video.title,
                 line = line,
+                channel = channel,
+                onChannelClick = channelClick,
+                subscribed = subscribed,
+                alignEnd = metaEnd,
                 showTitle = style.title,
                 modifier = Modifier.weight(0.60f).padding(start = 12.dp),
             )
@@ -132,7 +159,7 @@ fun VideoRow(
                 .clip(RoundedCornerShape(8.dp))
                 .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp))
                 .clickable(onClick = onClick)
-                .padding(vertical = 4.dp),
+                .padding(horizontal = 6.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(modifier = if (pictureOnly) Modifier.fillMaxWidth() else Modifier.weight(0.26f)) {
@@ -154,6 +181,10 @@ fun VideoRow(
                 CardWords(
                     title = video.title,
                     line = line,
+                    channel = channel,
+                    onChannelClick = channelClick,
+                    subscribed = subscribed,
+                    alignEnd = metaEnd,
                     showTitle = style.title,
                     modifier = Modifier.weight(0.74f).padding(start = 10.dp),
                 )
@@ -199,6 +230,10 @@ fun VideoTile(
 private fun CardWords(
     title: String,
     line: String,
+    channel: String?,
+    onChannelClick: (() -> Unit)?,
+    subscribed: Boolean,
+    alignEnd: Boolean,
     showTitle: Boolean,
     modifier: Modifier = Modifier,
 ) {
@@ -211,27 +246,68 @@ private fun CardWords(
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        if (line.isNotBlank()) {
-            Text(
-                text = line,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 4,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = if (showTitle) 4.dp else 0.dp),
-            )
+        if (channel != null || line.isNotBlank()) {
+            Column(modifier = Modifier.padding(top = if (showTitle) 4.dp else 0.dp)) {
+                // The name is its own control and its own line: it opens the channel, and the
+                // facts below get the full width instead of half of a shared row, which is what
+                // made "1.2K likes" break across two lines.
+                if (channel != null) {
+                    Text(
+                        text = channel,
+                        style = MaterialTheme.typography.bodySmall,
+                        // A channel you follow is one you chose; the accent says so on every card.
+                        color = if (subscribed) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        },
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = if (onChannelClick != null) {
+                            Modifier.clickable { onChannelClick() }
+                        } else {
+                            Modifier
+                        },
+                    )
+                }
+                if (line.isNotBlank()) {
+                    Text(
+                        text = line,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = if (alignEnd || channel != null) TextAlign.End else TextAlign.Start,
+                        modifier = if (alignEnd || channel != null) {
+                            Modifier.fillMaxWidth()
+                        } else {
+                            Modifier
+                        },
+                    )
+                }
+            }
         }
     }
 }
 
+/** A separator that holds the line together; the facts themselves use no-break spaces. */
+private const val NO_BREAK_DOT = "\u00A0·\u00A0"
+
+/**
+ * One fact, one word: a count and its noun share a no-break space, so "50 comments" can never
+ * arrive as "50" at the end of a line and "comments" at the start of the next.
+ */
+private fun fact(count: String, noun: String): String = "$count\u00A0$noun"
+
 private fun metaFor(video: VideoSummary, watches: Int?, style: CardStyle): String = buildList {
-    if (style.channel && video.channelName.isNotBlank()) add(video.channelName)
     if (style.age) video.publishedAtMs?.let { add(timeAgo(it)) }
-    if (style.views) video.viewCount?.let { add("${compactCount(it)} views") }
-    if (style.likes) video.likeCount?.let { add("${compactCount(it)} likes") }
-    if (style.watches && watches != null && watches > 1) add("watched $watches times")
-    if (style.comments) video.commentCount?.let { add("${compactCount(it)} comments") }
-}.joinToString(" · ")
+    if (style.views) video.viewCount?.let { add(fact(compactCount(it), "views")) }
+    if (style.likes) video.likeCount?.let { add(fact(compactCount(it), "likes")) }
+    if (style.watches && watches != null && watches > 1) {
+        add("watched\u00A0$watches\u00A0times")
+    }
+    if (style.comments) video.commentCount?.let { add(fact(compactCount(it), "comments")) }
+}.joinToString(NO_BREAK_DOT)
 
 /** 1.2M rather than 1200000: a list row has no space to waste. */
 fun compactCount(value: Long): String = when {

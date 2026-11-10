@@ -17,11 +17,15 @@
  *
  * Credentials come from ~/.ftp/accounts.properties through the project's own deploy config. They
  * are never printed, and never written anywhere.
+ *
+ * The pull runs over one FTP session (`./ftp-lib.mjs`): login once, CWD once, then one RETR per
+ * file. A connection per file is what the old curl version did, and this host refuses new
+ * connections after a handful in a row — refusal was read as "server down" when it was not.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { homedir } from 'node:os'
-import { spawnSync } from 'node:child_process'
+import { openSessionWithRetry } from './ftp-lib.mjs'
 import {
   brief,
   mergeIndex,
@@ -91,33 +95,19 @@ function connection() {
   return { host, user, password, reportsDir }
 }
 
-function curl(conn, argv) {
-  const r = spawnSync('curl', argv, { encoding: 'utf-8', maxBuffer: 64 * 1024 * 1024 })
-  const err = String(r.stderr ?? '').split(conn.password).join('***')
-  if (r.status !== 0) throw new Error(`curl ${r.status}: ${err.trim() || 'no detail'}`)
-  return r.stdout ?? ''
+function remoteNames(session, conn) {
+  return session
+    .listNames(conn.reportsDir)
+    .then((names) => names.filter((n) => n.endsWith('.json')))
 }
 
-function remoteNames(conn) {
-  const listing = curl(conn, [
-    '-sS', '--max-time', '120', '--list-only',
-    `ftp://${conn.host}/${conn.reportsDir}/`,
-    '--user', `${conn.user}:${conn.password}`,
-  ])
-  return listing.split(/\r?\n/).map((s) => s.trim()).filter((n) => n.endsWith('.json'))
-}
-
-function fetch(conn, name, refresh) {
-  mkdirSync(CACHE, { recursive: true })
+async function fetch(session, name, refresh) {
   const local = join(CACHE, name)
   if (!refresh && existsSync(local) && statSync(local).size > 0) return local
-  curl(conn, [
-    '-sS', '--max-time', '180',
-    `ftp://${conn.host}/${conn.reportsDir}/${name}`,
-    '--user', `${conn.user}:${conn.password}`,
-    '-o', local,
-  ])
-  if (!existsSync(local) || statSync(local).size === 0) throw new Error(`empty download: ${name}`)
+  const body = await session.download(name)
+  if (!body.length) throw new Error(`empty download: ${name}`)
+  mkdirSync(CACHE, { recursive: true })
+  writeFileSync(local, body)
   return local
 }
 
@@ -130,7 +120,7 @@ function writeIndex(text) {
   writeFileSync(INDEX, text.endsWith('\n') ? text : `${text}\n`, 'utf-8')
 }
 
-function main() {
+async function main() {
   const opt = args()
   if (opt.help) {
     console.log(readFileSync(import.meta.filename, 'utf-8').split('*/')[0].replace(/^#!.*\n/, ''))
@@ -156,53 +146,60 @@ function main() {
 
   const conn = connection()
   const now = Date.now()
-  const names = remoteNames(conn)
-  const wanted = opt.all
-    ? names
-    : names.filter((n) => withinWindow(stampFromName(n), now, opt.hours))
+  const session = await openSessionWithRetry({
+    host: conn.host,
+    user: conn.user,
+    password: conn.password,
+  })
+  try {
+    const names = await remoteNames(session, conn)
+    const wanted = opt.all
+      ? names
+      : names.filter((n) => withinWindow(stampFromName(n), now, opt.hours))
 
-  if (!wanted.length) {
-    console.log(`no reports in the last ${opt.hours}h (${names.length} on the server)`)
-    return
-  }
-
-  const summaries = []
-  for (const name of wanted.sort()) {
-    const local = fetch(conn, name, opt.refresh)
-    let bundle = null
-    try {
-      bundle = JSON.parse(readFileSync(local, 'utf-8'))
-    } catch {
-      console.log(`${name}\n    unreadable JSON, kept at ${local}`)
-      continue
+    if (!wanted.length) {
+      console.log(`no reports in the last ${opt.hours}h (${names.length} on the server)`)
+      return
     }
-    summaries.push(summarise(name, bundle))
-  }
 
-  if (opt.log) {
-    const hits = summaries.filter((s) => s.name.includes(opt.log))
-    if (!hits.length) throw new Error(`no report matched ${opt.log}`)
-    for (const s of hits) {
-      console.log(`${s.name}  ${s.version}/${s.code}  ${s.note}`)
-      if (!s.interesting.length) console.log('    (nothing above info)')
-      for (const line of s.interesting) console.log(`    ${line}`)
+    const summaries = []
+    for (const name of wanted.sort()) {
+      const local = await fetch(session, name, opt.refresh)
+      let bundle = null
+      try {
+        bundle = JSON.parse(readFileSync(local, 'utf-8'))
+      } catch {
+        console.log(`${name}\n    unreadable JSON, kept at ${local}`)
+        continue
+      }
+      summaries.push(summarise(name, bundle))
     }
-    return
+
+    if (opt.log) {
+      const hits = summaries.filter((s) => s.name.includes(opt.log))
+      if (!hits.length) throw new Error(`no report matched ${opt.log}`)
+      for (const s of hits) {
+        console.log(`${s.name}  ${s.version}/${s.code}  ${s.note}`)
+        if (!s.interesting.length) console.log('    (nothing above info)')
+        for (const line of s.interesting) console.log(`    ${line}`)
+      }
+      return
+    }
+
+    for (const s of summaries) console.log(brief(s))
+
+    const { text, added } = mergeIndex(readIndex(), summaries)
+    if (added) writeIndex(text)
+    else if (!existsSync(INDEX)) writeIndex(text)
+    console.log(
+      `\n${summaries.length} report(s), ${added} new in the index · ${pendingCount(text)} open · ${INDEX}`,
+    )
+  } finally {
+    await session.close()
   }
-
-  for (const s of summaries) console.log(brief(s))
-
-  const { text, added } = mergeIndex(readIndex(), summaries)
-  if (added) writeIndex(text)
-  else if (!existsSync(INDEX)) writeIndex(text)
-  console.log(
-    `\n${summaries.length} report(s), ${added} new in the index · ${pendingCount(text)} open · ${INDEX}`,
-  )
 }
 
-try {
-  main()
-} catch (error) {
+main().catch((error) => {
   console.error(`reports failed: ${error.message}`)
   process.exit(1)
-}
+})

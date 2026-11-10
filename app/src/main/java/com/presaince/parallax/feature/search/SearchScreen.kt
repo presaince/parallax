@@ -65,7 +65,9 @@ import com.presaince.parallax.ui.component.NoteCountBadge
 import com.presaince.parallax.ui.component.ScrollToTopButton
 import com.presaince.parallax.ui.component.VideoRow
 import com.presaince.parallax.ui.component.noteCounts
+import com.presaince.parallax.ui.component.subscribedChannels
 import com.presaince.parallax.ui.component.watchCounts
+import com.presaince.parallax.ui.theme.accentTextColour
 
 enum class SearchSort { NONE, DATE, VIEWS, DURATION }
 
@@ -75,6 +77,7 @@ fun SearchScreen(
     db: ParallaxDb,
     preferences: android.content.SharedPreferences,
     onOpenVideo: (VideoSummary) -> Unit,
+    onOpenChannel: (String, String) -> Unit = { _, _ -> },
 ) {
     val viewModel: SearchViewModel = viewModel(
         factory = viewModelFactory {
@@ -84,6 +87,7 @@ fun SearchScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val notes = noteCounts(db)
     val watches = watchCounts(db)
+    val subscribed = subscribedChannels(db)
     val cardRevision = CardStyle.revision
     val cardContext = LocalContext.current
     val cardStyle = remember(cardRevision) { CardStyle.read(cardContext) }
@@ -241,6 +245,8 @@ fun SearchScreen(
                                     video = video,
                                     watches = watches[video.id],
                                     onClick = { onOpenVideo(video) },
+                                    onChannel = onOpenChannel,
+                                    subscribed = video.channelName.lowercase() in subscribed,
                                     badge = notes[video.id]?.takeIf { it > 0 }?.takeIf { cardStyle.notes }?.let { n ->
                                         { NoteCountBadge(count = n) }
                                     },
@@ -330,7 +336,7 @@ private fun HistoryPane(
             Text(
                 text = "Recent searches",
                 style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.primary,
+                color = accentTextColour(),
                 modifier = Modifier.weight(1f),
             )
             TextButton(onClick = onClear) { Text("Clear") }

@@ -35,6 +35,12 @@ suspend fun <T> withSourceRepair(
     if (first is AppResult.Ok) return first
     val error = first as AppResult.Err
     val kind = error.sourceError?.let { it::class.simpleName } ?: "none"
+    // A lost network is not a broken extractor: it is one line at info, not one warning per
+    // channel per refresh. The feed reports its own failure counts; the player reports its own.
+    if (error.sourceError == SourceError.NetworkFailure) {
+        log?.info(REPAIR_TAG, "$op offline: ${error.message.take(120)}")
+        return first
+    }
     log?.warn(REPAIR_TAG, "$op failed kind=$kind msg=${error.message.take(180)}")
     if (error.sourceError != SourceError.ExtractorBroken) return first
     log?.info(REPAIR_TAG, "$op healing: resetting extractor, retrying once")

@@ -21,27 +21,40 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.sp
+import com.presaince.parallax.ui.theme.accentTextColour
 
 private val URL = Regex("""(https?://\S+|www\.\S+)""")
 private val HASHTAG = Regex("""#[\p{L}\p{N}_]+""")
 
+/** The spans that read as links, for the one caller that has to know what a tap would open. */
+internal fun linkRanges(text: String): List<IntRange> = URL.findAll(text).map { it.range }.toList()
+
+/** `www.` alone is not a URL: the platform needs the scheme before it can open it. */
+internal fun absoluteUrl(raw: String): String = if (raw.startsWith("http")) raw else "https://$raw"
+
 /**
- * Description text with live links. `SelectionContainer` around it lets the user select and copy,
- * which a plain `Text` cannot do, and the links open in the browser rather than doing nothing.
+ * Text with live links, for a body the reader can also tap to open or close something else: a tap
+ * that lands on a link opens it, and one that does not is handed back to [onTapElsewhere].
+ * `SelectionContainer` around it still lets the reader select and copy.
  */
 @Composable
 fun LinkifiedText(
     text: String,
     modifier: Modifier = Modifier,
     maxLines: Int = Int.MAX_VALUE,
+    style: TextStyle = MaterialTheme.typography.bodySmall.copy(lineHeight = 18.sp),
+    colour: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    onTapElsewhere: (() -> Unit)? = null,
+    onOverflow: ((Boolean) -> Unit)? = null,
 ) {
     val context = LocalContext.current
-    val linkColor = MaterialTheme.colorScheme.primary
+    val linkColor = accentTextColour()
     val annotated = remember(text, linkColor) {
         val builder = AnnotatedString.Builder(text)
         URL.findAll(text).forEach { match ->
@@ -73,21 +86,25 @@ fun LinkifiedText(
         text = annotated,
         maxLines = maxLines,
         overflow = TextOverflow.Ellipsis,
-        style = MaterialTheme.typography.bodySmall.copy(lineHeight = 18.sp),
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        onTextLayout = { layout = it },
+        style = style,
+        color = colour,
+        onTextLayout = {
+            layout = it
+            onOverflow?.invoke(it.hasVisualOverflow)
+        },
         modifier = modifier.pointerInput(annotated) {
             detectTapGestures { position ->
-                val at = layout?.getOffsetForPosition(position) ?: return@detectTapGestures
-                annotated.getStringAnnotations("URL", at, at).firstOrNull()?.let { annotation ->
-                    val url = if (annotation.item.startsWith("http")) {
-                        annotation.item
-                    } else {
-                        "https://${annotation.item}"
-                    }
-                    runCatching {
-                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                    }
+                val laidOut = layout
+                val offset = laidOut?.getOffsetForPosition(position)
+                val annotation = offset?.let { at ->
+                    annotated.getStringAnnotations("URL", at, at).firstOrNull()
+                }
+                if (annotation == null) {
+                    onTapElsewhere?.invoke()
+                    return@detectTapGestures
+                }
+                runCatching {
+                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(absoluteUrl(annotation.item))))
                 }
             }
         },

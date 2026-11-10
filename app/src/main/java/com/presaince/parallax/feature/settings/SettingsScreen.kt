@@ -60,6 +60,7 @@ import com.presaince.parallax.playback.PlaybackController
 import com.presaince.parallax.ui.theme.ThemeController
 import com.presaince.parallax.ui.theme.ThemeMode
 import com.presaince.parallax.ui.theme.faded
+import com.presaince.parallax.ui.theme.accentTextColour
 
 /**
  * The root of Settings: one search field, then a page per section. Nothing lives directly on this
@@ -249,7 +250,7 @@ private fun SectionCard(
             Icon(
                 painter = painterResource(section.icon),
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
+                tint = accentTextColour(),
                 modifier = Modifier.size(22.dp),
             )
         }
@@ -289,7 +290,7 @@ private fun ResultRow(entry: SettingsEntry, onClick: () -> Unit) {
         Icon(
             painter = painterResource(entry.section.icon),
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
+            tint = accentTextColour(),
             modifier = Modifier.size(20.dp),
         )
         Spacer(Modifier.width(14.dp))

@@ -85,6 +85,7 @@ import com.presaince.parallax.ui.component.SineRiver
 import com.presaince.parallax.ui.component.ScrollToTopButton
 import com.presaince.parallax.ui.component.VideoRow
 import com.presaince.parallax.ui.component.watchCounts
+import com.presaince.parallax.ui.component.subscribedChannels
 import com.presaince.parallax.ui.theme.accentTextColour
 import com.presaince.parallax.ui.theme.faded
 import com.presaince.parallax.ui.theme.parallaxFilterChipColors
@@ -103,6 +104,7 @@ fun DiscoverScreen(
     engine: DiscoverEngine,
     db: com.presaince.parallax.data.db.ParallaxDb,
     onOpenVideo: (VideoSummary) -> Unit,
+    onOpenChannel: (String, String) -> Unit = { _, _ -> },
 ) {
     val viewModel: DiscoverViewModel = viewModel(
         factory = viewModelFactory {
@@ -111,6 +113,7 @@ fun DiscoverScreen(
     )
     val state by viewModel.state.collectAsStateWithLifecycle()
     val watches = watchCounts(db)
+    val subscribed = subscribedChannels(db)
     val cardRevision = CardStyle.revision
     val cardContext = androidx.compose.ui.platform.LocalContext.current
     val cardStyle = remember(cardRevision) { CardStyle.read(cardContext) }
@@ -269,18 +272,26 @@ fun DiscoverScreen(
                     modifier = Modifier.fillMaxSize(),
                 ) {
                     items(state.picks, key = { it.video.id }) { step ->
+                        // The seed line ("Search: \"podcast\"") is the same on every card and the
+                        // recipe already says it once in "How these were picked"; what belongs on
+                        // a card is the hop that led to this video, if there was one.
+                        val hop = step.path.drop(1).joinToString(" · ").trim()
+                        val watchedLine = if (cardStyle.watches) {
+                            watches[step.video.id]?.takeIf { it > 1 }?.let { "watched $it times" }
+                        } else {
+                            null
+                        }
                         VideoRow(
                             video = step.video,
                             watched = null,
                             watches = watches[step.video.id],
-                            meta = step.path.joinToString("\n") +
-                                if (cardStyle.watches) {
-                                    watches[step.video.id]?.takeIf { it > 1 }?.let { "\nwatched $it times" }.orEmpty()
-                                } else {
-                                    ""
-                                },
+                            meta = listOfNotNull(hop.ifBlank { null }, watchedLine)
+                                .joinToString("\n")
+                                .ifBlank { null },
                             badge = { ScoreBadge(step.score) },
                             onClick = { onOpenVideo(step.video) },
+                            onChannel = onOpenChannel,
+                            subscribed = step.video.channelName.lowercase() in subscribed,
                         )
                     }
                 }
@@ -302,7 +313,7 @@ fun DiscoverScreen(
 private fun ScoreBadge(score: Double) {
     Surface(
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
-        contentColor = MaterialTheme.colorScheme.primary,
+        contentColor = accentTextColour(),
         shape = RoundedCornerShape(7.dp),
         shadowElevation = 2.dp,
     ) {
@@ -316,7 +327,7 @@ private fun ScoreBadge(score: Double) {
 }
 
 /**
- * "Why these?" — the recipe in plain words, and the controls that change it. Tuning is a session
+ * "How these were picked" - the recipe in plain words, and the controls that change it. Tuning is a session
  * override: it applies to the next fetch and is forgotten on restart, which keeps a built-in
  * recipe a recipe rather than a settings screen in disguise.
  */
@@ -344,9 +355,9 @@ private fun RecipeWhy(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "Why these?",
+                    text = "How these were picked",
                     style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.primary,
+                    color = accentTextColour(),
                     modifier = Modifier.weight(1f),
                 )
                 Icon(
@@ -356,7 +367,7 @@ private fun RecipeWhy(
                         Icons.Default.KeyboardArrowDown
                     },
                     contentDescription = if (open) "Hide the tuning" else "Show the tuning",
-                    tint = MaterialTheme.colorScheme.primary,
+                    tint = accentTextColour(),
                     modifier = Modifier.size(20.dp),
                 )
             }

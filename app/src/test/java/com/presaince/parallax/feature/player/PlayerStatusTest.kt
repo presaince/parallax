@@ -110,4 +110,20 @@ class PlayerStatusTest {
             ),
         )
     }
+
+    @Test
+    fun a_lost_network_says_so_instead_of_calling_the_stream_broken() {
+        // 110003: the phone dropped DNS mid-video and the screen blamed the stream.
+        assertEquals(
+            PlayerStatus.Offline,
+            playerStatus(
+                loading = false,
+                hasError = true,
+                buffering = false,
+                firstFrameReady = true,
+                stalledForMs = 0,
+                networkDown = true,
+            ),
+        )
+    }
 }

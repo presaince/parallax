@@ -49,6 +49,6 @@ class FeedUiStateTest {
         assertEquals("Not fetched yet", FeedUiState().updatedLabel)
         val now = System.currentTimeMillis()
         val state = FeedUiState(lastFetchedAt = now - 3_600_000, videos = emptyList())
-        assertEquals("Updated 1h ago", state.updatedLabel)
+        assertEquals("Updated 1h\u00A0ago", state.updatedLabel)
     }
 }
