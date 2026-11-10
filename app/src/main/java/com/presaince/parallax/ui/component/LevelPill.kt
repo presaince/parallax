@@ -12,18 +12,15 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
@@ -71,24 +68,3 @@ fun LevelPill(
  * rounding is testable without a screen.
  */
 fun levelPercent(level: Float): String = "${(level.coerceIn(0f, 1f) * 100).roundToInt()}%"
-
-/**
- * The reading at the top of a pill. Every level pill shows its own number there, above where the
- * finger rests, so the value is never under the thumb.
- */
-@Composable
-fun BoxScope.LevelPercent(
-    level: Float,
-    modifier: Modifier = Modifier,
-    style: TextStyle = MaterialTheme.typography.labelSmall,
-    color: Color = Color.White,
-) {
-    Text(
-        text = levelPercent(level),
-        style = style,
-        color = color,
-        modifier = modifier
-            .align(Alignment.TopCenter)
-            .padding(top = 6.dp),
-    )
-}

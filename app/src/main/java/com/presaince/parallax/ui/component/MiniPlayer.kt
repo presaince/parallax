@@ -21,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -79,6 +80,12 @@ fun MiniPlayer(
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface),
     ) {
+        // This card is part of the same stack as the top and bottom bars, so it wears the same
+        // seam on its top edge. The bar below supplies the one on the other side.
+        HorizontalDivider(
+            thickness = 1.dp,
+            color = MaterialTheme.colorScheme.outlineVariant,
+        )
         Row(
             modifier = Modifier
                 .fillMaxWidth()

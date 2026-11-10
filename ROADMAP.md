@@ -8,6 +8,17 @@ place. The shell and the second UI pass landed 2026-11-05 (bottom navigation, th
 inline comments, mini-player, pull-to-refresh); the device check for that pass is still pending.
 No git repo — Bodi tests a build for a few days first.
 
+## Brightness handback, 2026-11-10
+
+The owner's report again: "can't change OS brightness, toast says it's locked by top app". The
+player's brightness swipe wrote `window.attributes.screenBrightness` and nothing ever cleared it, so
+the single Activity carried the swiped level onto every screen behind the player, and the shade
+refused its own slider while Parallax was on top. `restoreSystemBrightness` now runs from the
+player's `DisposableEffect(Unit)` dispose and sets `BRIGHTNESS_OVERRIDE_NONE`, leaving the rest of
+the window attributes alone. Verified: `BrightnessHandbackTest` (the override clears, `dimAmount`
+survives), `:app:assembleDebug`, installed on the Pixel 7. Whether the shade's slider is free
+again after a gesture-and-back is the owner's check.
+
 ## Bored sources, 2026-11-09 (eighth)
 
 Bored was capped at one `related()` call per seed, about twelve candidates each, so the pool was
@@ -60,7 +71,12 @@ ones:
 - **The two pages still say the same words**, including the three captions under "On the phone".
 - Verified: `npm run build` in the portfolio (check-assets: 53 screenshots present), and a Playwright
   pass over both pages measuring the decoded images: five per page, every one 1080×2400 at ratio
-  0.450, no broken image, one `h1`, captions matching the copy. Not deployed.
+  0.450, no broken image, one `h1`, captions matching the copy. Deployed: portfolio to
+  `bodiklamph.com` (7 uploaded, 7 verified) and `odesaplay.com.ua/other_apps/portfolio/` (8 uploaded,
+  8 verified), download page via `deploy-page.properties` (6 uploaded, 6 verified). `parallax4` and
+  `parallax5` had been 404 and the host's 200 HTML stub respectively because the earlier portfolio
+  upload ran before the two files existed; both now read back at their exact byte sizes from both
+  hosts, and the download page's five images do too.
 - Installed over the existing debug build on the Pixel 7 (`install -r`, data kept, 23:40). The new
   welcome picture only shows through Settings → Run setup again, because the wizard is gated on
   `firstInstallTime == lastUpdateTime`. Hand check pending.
@@ -682,6 +698,7 @@ feed state. Each is listed in ARCHITECTURE "Known gaps".
 - `data/library/ContentRepository.kt` — the feed refresh still opens a videos tab per subscription, although `ChannelFeed` now reads the same latest uploads for free from RSS. Cost: a refresh pays an extractor page per channel when a keyless feed would do; RSS has no duration, and the feed cards show one, which is the reason it was not swapped blind. Found 2026-11-09 while adding the uploads source.
 - `data/discover/DiscoverEngine.kt` — a search recipe reads one page. `VideoSource.search` has no continuation, so `count` above the first page changes nothing and there is no "more" on Bored. Cost: the pool is one page per tap; the fix is a search-page token on the source, not a bigger count. Found 2026-11-09.
 - `feature/**` - about thirty call sites still paint accent *text* with `colorScheme.primary` instead of `accentTextColour()`/`LocalAccentInk` (nav labels, chips and Settings are converted; feed, player, comments, library are not). Cost of leaving it: at AA and AAA those labels keep their raw accent, so a magenta or blue accent still sits near its own tinted surface. Found 2026-11-09 while adding the Contrast card.
+- `ui/component/ScrollToTop.kt` - the button is a stock `SmallFloatingActionButton`, whose container is the `surfaceContainerHigh` role, and `glassScheme` overrides only surface, surfaceVariant, background and outlineVariant. In Glass it is therefore opaque M3 baseline grey, not the accent-tinted pane everything else sits on. Cost: one grey button in a themed app; the fix is `containerColor = MaterialTheme.colorScheme.surface` plus the usual hairline. Found 2026-11-10 while giving the top bar its fill and seam.
 - `app/build.gradle.kts` - `assembleRelease` fails `validateSigningRelease` with "Keystore file not
   set" even when `keystore.properties` is present and `signingConfigs.release.storeFile` resolves to
   the file. Packaging works with `-x validateSigningRelease` followed by `apksigner sign`. Cost:
@@ -693,7 +710,6 @@ feed state. Each is listed in ARCHITECTURE "Known gaps".
   from Premium must export from Google Takeout or another client first. The wizard's Start page
   therefore shows import or empty only, with no dead sign-in row. Decided 2026-11-09.
 - `web/index.html` - the captures are full-screen stills and argue with screenshots what the app does in motion. A silent 12 s MP4 in the phone frame would show the feed swipe, player, mini player, Bored and the accent on reopen: screenrecord 1080×2400, encode 720×1600 H.264 CRF 26 `-an` `+faststart`, ≤2.5 MB, poster frame, `preload="none"`, tap to play. Not shot yet. Side quest: engine/self-repair as a 4 s rebuilt card, because it is invisible when it works.
-- `feature/player/PlayerScreen.kt` - brightness is locked at OS level sometimes with no video on: the window `screenBrightness` set during the player gesture can outlive the player, so the system brightness no longer governs the app while it stays in the foreground. Cost of leaving it: the screen stays stuck at the last gesture value until the process or the window attribute is cleared, and the symptom reads as a system setting. Found 2026-11-09 from the owner report, not yet repro'd on the device.
 - `data/library/ContentRepository.kt` - a channel that no longer exists (`Peruvian Bull` in the 212007 log) fails on every refresh and keeps its subscription slot. Retiring it needs a failure count per subscription (Room v12 and a migration) and a decision about removing something the person asked for. Cost of leaving it: one wasted extractor call per refresh per dead channel, and a line in every bug report. Found 2026-11-09 by triaging that batch.
 
 ## Milestones

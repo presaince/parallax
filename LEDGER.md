@@ -203,6 +203,11 @@ Rules:
 - Parallax — history: grouped by video, watch counts, clear today/week/all.
 - Parallax — sorting: one shared sort row (date, likes, watches, progress, duration, views, A-Z)
   on Feed and History.
+- Parallax — readouts: volume and brightness are one capsule in the seek pill's language — icon,
+  percent and the same progress hairline — 24dp above the finger and travelling with it; a level now
+  crosses its full range in half the picture's height; brightness answers while paused as well as
+  playing; the speed panel opens 48dp clear of the thumb with "tap for 1.0x" at its top; the Glass
+  tile keeps its fill and gains its percent.
 - Oko — the grouped-settings concept is the reference Parallax copied; improvements should flow
   back both ways.
 
@@ -235,3 +240,8 @@ Rules:
 - Parallax — a clip link carries only its start time; the end travels as text ("1:20–2:05"). No
   share target accepts both, and a link that silently drops the end would be a lie.
 - Parallax — Collections are rules, not stored folders: nothing to sync, nothing to go stale.
+- Parallax — no handedness setting and no hand detector. AOSP exposes neither, a system setting
+  would be wrong the moment a finger reaches across, and per-touch classification from the contact
+  ellipse is a research problem, not a readout. The readout's placement answers the question
+  instead: a bare percent above the finger is clear of any hand because the finger's mass is below
+  the contact point.

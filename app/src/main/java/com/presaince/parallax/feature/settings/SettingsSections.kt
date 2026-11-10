@@ -12,6 +12,10 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import com.presaince.parallax.ui.component.LevelPill
+import com.presaince.parallax.ui.component.levelPercent
+import com.presaince.parallax.ui.component.LevelReadout
+import com.presaince.parallax.ui.component.readoutLeft
+import com.presaince.parallax.ui.component.readoutTop
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -27,7 +31,6 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -80,7 +83,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
@@ -93,7 +95,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
@@ -1002,7 +1003,8 @@ private fun androidx.compose.foundation.layout.RowScope.GlassTile(theme: ThemeCo
         contentAlignment = Alignment.Center,
     ) {
         // Same fill as the volume/brightness pills: LevelPill owns the fill, the tile is its
-        // frame. The icon and word ride centred on the fill rather than a custom bar.
+        // frame. The icon and word ride centred on the fill rather than a custom bar, with the
+        // level's own percentage above them, as every level pill carries its reading at the top.
         // No fill when Glass is not selected; the gap to the border appears when it is.
         LevelPill(
             level = if (active) level else 0f,
@@ -1013,16 +1015,25 @@ private fun androidx.compose.foundation.layout.RowScope.GlassTile(theme: ThemeCo
             modifier = if (active) Modifier.padding(4.dp) else Modifier,
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                if (active) {
+                    Text(
+                        text = levelPercent(level),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = tileInk().copy(alpha = 0.72f),
+                    )
+                    Spacer(Modifier.height(2.dp))
+                }
                 Icon(
                     painter = painterResource(R.drawable.ic_glass),
                     contentDescription = "Glass theme",
+                    modifier = Modifier.size(if (active) 20.dp else 24.dp),
                     tint = if (active) {
                         tileInk()
                     } else {
                         MaterialTheme.colorScheme.onSurfaceVariant
                     },
                 )
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(if (active) 2.dp else 6.dp))
                 Text(
                     text = "Glass",
                     style = MaterialTheme.typography.labelMedium,
@@ -2230,9 +2241,9 @@ private fun RegionSection(onRegionChange: (List<String>) -> Unit) {
 
 /**
  * The dashed target for the step in progress: a ring for the tap, a bar for the seek, the two
- * side pills for volume and brightness, and a mini-player outline for the flick. They sit under
- * the live readouts, so the dashed shape is where the finger goes and the black pill is what the
- * player would draw. Nothing here takes pointer input.
+ * side bands for volume and brightness, and a mini-player outline for the flick. They show where
+ * the finger goes; what the player draws there is a bare percent above the finger. Nothing here
+ * takes pointer input.
  */
 @Composable
 private fun GestureStageHint(step: Int, modifier: Modifier = Modifier) {
@@ -2350,47 +2361,6 @@ private fun StageLevelHint(icon: Int, ink: Color) {
             contentDescription = null,
             tint = ink,
             modifier = Modifier.size(18.dp),
-        )
-    }
-}
-
-/** One half of the live pair: the active control full size, the partner smaller and dimmed. */
-@Composable
-private fun StageLevelPill(
-    active: Boolean,
-    level: Float,
-    icon: Int,
-    activeWidth: Dp,
-    partnerWidth: Dp,
-    pairHeight: Dp,
-) {
-    Box(
-        modifier = Modifier
-            .width(if (active) activeWidth else partnerWidth)
-            .height(if (active) pairHeight else 64.dp)
-            .then(
-                if (active) {
-                    Modifier
-                } else {
-                    Modifier.graphicsLayer { alpha = 0.45f }
-                },
-            )
-            .clip(RoundedCornerShape(if (active) 14.dp else 11.dp))
-            .background(Color(0xE6101014)),
-        contentAlignment = Alignment.Center,
-    ) {
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .fillMaxHeight(level)
-                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)),
-        )
-        Icon(
-            painter = painterResource(icon),
-            contentDescription = null,
-            tint = Color.White,
-            modifier = Modifier.size(if (active) 18.dp else 14.dp),
         )
     }
 }
@@ -2729,9 +2699,11 @@ internal fun GestureTutorial() {
                                         val next = (0.5f - totalY / height).coerceIn(0f, 1f)
                                         activeBrightness = !left
                                         sideActive = true
+                                        // The readout travels with the finger, so the demo
+                                        // shows the same tracking the player does.
                                         levelAnchor = Offset(
-                                            down.position.x / width,
-                                            down.position.y / height,
+                                            change.position.x / width,
+                                            change.position.y / height,
                                         )
                                         if (left) volumeLevel = next else brightnessLevel = next
                                         hint = "Slide across to the other control while your " +
@@ -2906,70 +2878,28 @@ internal fun GestureTutorial() {
                                 } else {
                                     volumeLevel
                                 }
-                                val otherLevel = if (activeBrightness) {
-                                    volumeLevel
-                                } else {
-                                    brightnessLevel
-                                }
                                 BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-                                    val activeWidth = 36.dp
-                                    val partnerWidth = 26.dp
-                                    val gap = 8.dp
-                                    val pairHeight = 96.dp
-                                    val activeLeft =
-                                        maxWidth * levelAnchor.x - activeWidth / 2
-                                    val rowLeft = if (activeBrightness) {
-                                        activeLeft - partnerWidth - gap
-                                    } else {
-                                        activeLeft
-                                    }
-                                    val x = rowLeft.coerceIn(
-                                        8.dp,
-                                        (
-                                            maxWidth - activeWidth -
-                                                partnerWidth - gap - 8.dp
-                                            ).coerceAtLeast(8.dp),
+                                    // The seek pill's capsule with the level's own icon, above
+                                    // the finger and travelling with it: the demo cannot
+                                    // promise a readout the real gesture lacks.
+                                    LevelReadout(
+                                        icon = if (activeBrightness) {
+                                            R.drawable.ic_sun
+                                        } else {
+                                            R.drawable.ic_volume
+                                        },
+                                        level = activeLevel,
+                                        modifier = Modifier.offset(
+                                            x = readoutLeft(
+                                                maxWidth * levelAnchor.x,
+                                                maxWidth,
+                                            ),
+                                            y = readoutTop(
+                                                maxHeight * levelAnchor.y,
+                                                maxHeight,
+                                            ),
+                                        ),
                                     )
-                                    val y = (
-                                        maxHeight * levelAnchor.y - pairHeight
-                                        ).coerceIn(
-                                        8.dp,
-                                        (
-                                            maxHeight - pairHeight - 8.dp
-                                            ).coerceAtLeast(8.dp),
-                                    )
-                                    Row(
-                                        modifier = Modifier
-                                            .offset(x = x, y = y)
-                                            .height(pairHeight),
-                                        horizontalArrangement = Arrangement.spacedBy(gap),
-                                        verticalAlignment = Alignment.Bottom,
-                                    ) {
-                                        StageLevelPill(
-                                            active = !activeBrightness,
-                                            level = if (!activeBrightness) {
-                                                activeLevel
-                                            } else {
-                                                otherLevel
-                                            },
-                                            icon = R.drawable.ic_volume,
-                                            activeWidth = activeWidth,
-                                            partnerWidth = partnerWidth,
-                                            pairHeight = pairHeight,
-                                        )
-                                        StageLevelPill(
-                                            active = activeBrightness,
-                                            level = if (activeBrightness) {
-                                                activeLevel
-                                            } else {
-                                                otherLevel
-                                            },
-                                            icon = R.drawable.ic_sun,
-                                            activeWidth = activeWidth,
-                                            partnerWidth = partnerWidth,
-                                            pairHeight = pairHeight,
-                                        )
-                                    }
                                 }
                             }
 

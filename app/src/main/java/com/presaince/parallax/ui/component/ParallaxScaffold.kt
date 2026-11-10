@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -69,55 +70,66 @@ fun ParallaxScaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             if (showTopBar) {
-                TopAppBar(
-                title = {
-                    if (titleContent != null) {
-                        titleContent()
-                    } else {
-                        Text(
-                            text = title,
-                            style = MaterialTheme.typography.titleLarge,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                    }
-                },
-                navigationIcon = {
-                    if (showBack) {
-                        IconButton(onClick = onBack) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Back",
-                            )
-                        }
-                    }
-                },
-                actions = {
-                    IconButton(onClick = onOpenBug) {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_bug),
-                            contentDescription = "Bug report",
-                        )
-                    }
-                    if (onSearch != null) {
-                        IconButton(onClick = onSearch) {
-                            Icon(Icons.Default.Search, contentDescription = "Search")
-                        }
-                    }
-                    // The Pburger: the brand mark, and the way into Settings. Untinted, because the
-                    // ramp is the mark; a tint flattens it to one colour.
-                    IconButton(onClick = onOpenSettings) {
-                        Image(
-                            painter = painterResource(R.drawable.ic_pburger),
-                            contentDescription = "Settings",
-                            modifier = Modifier.size(26.dp),
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
-                    titleContentColor = MaterialTheme.colorScheme.primary,
-                ),
-                )
+                Column {
+                    TopAppBar(
+                        title = {
+                            if (titleContent != null) {
+                                titleContent()
+                            } else {
+                                Text(
+                                    text = title,
+                                    style = MaterialTheme.typography.titleLarge,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                        },
+                        navigationIcon = {
+                            if (showBack) {
+                                IconButton(onClick = onBack) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                        contentDescription = "Back",
+                                    )
+                                }
+                            }
+                        },
+                        actions = {
+                            IconButton(onClick = onOpenBug) {
+                                Icon(
+                                    painter = painterResource(R.drawable.ic_bug),
+                                    contentDescription = "Bug report",
+                                )
+                            }
+                            if (onSearch != null) {
+                                IconButton(onClick = onSearch) {
+                                    Icon(Icons.Default.Search, contentDescription = "Search")
+                                }
+                            }
+                            // The Pburger: the brand mark, and the way into Settings. Untinted,
+                            // because the ramp is the mark; a tint flattens it to one colour.
+                            IconButton(onClick = onOpenSettings) {
+                                Image(
+                                    painter = painterResource(R.drawable.ic_pburger),
+                                    contentDescription = "Settings",
+                                    modifier = Modifier.size(26.dp),
+                                )
+                            }
+                        },
+                        // Surface, not background: in Glass the background is literally
+                        // transparent, so the header had no fill and no edge and the title sat
+                        // straight on the aurora. The bar and the nav bar are one chrome now.
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            titleContentColor = MaterialTheme.colorScheme.primary,
+                        ),
+                    )
+                    // The same seam the bottom bar wears. A pane with no edge reads as the page
+                    // ending rather than as a pane.
+                    HorizontalDivider(
+                        thickness = 1.dp,
+                        color = MaterialTheme.colorScheme.outlineVariant,
+                    )
+                }
             }
         },
         bottomBar = {
@@ -126,22 +138,38 @@ fun ParallaxScaffold(
                     // Above the bar, so it is reachable without covering the destinations.
                     miniPlayer?.invoke()
                     if (tabs.isNotEmpty()) {
-                        NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-                            tabs.forEachIndexed { index, item ->
-                        NavigationBarItem(
-                            selected = index == selectedTab,
-                            onClick = { onSelectTab(index) },
-                            icon = { Icon(item.icon, contentDescription = item.label) },
-                            label = { Text(item.label) },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = accentTextColour(),
-                                selectedTextColor = accentTextColour(),
-                                indicatorColor = MaterialTheme.colorScheme.primary
-                                    .copy(alpha = 0.16f),
-                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                            ),
+                        // The seam. In Glass the bar is a translucent pane over the aurora, and a
+                        // pane with no edge does not read as a pane: it reads as the page ending.
+                        // One hairline is all it takes, and in Dark and Light it is an ordinary
+                        // divider, so no theme is worse for it.
+                        HorizontalDivider(
+                            thickness = 1.dp,
+                            color = MaterialTheme.colorScheme.outlineVariant,
                         )
+                        NavigationBar(
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            // 0, not the default: tonal elevation composites a primary tint over
+                            // the fill, and a tint over a deliberately translucent surface keeps
+                            // the transparency but spoils its colour.
+                            tonalElevation = 0.dp,
+                        ) {
+                            tabs.forEachIndexed { index, item ->
+                                NavigationBarItem(
+                                    selected = index == selectedTab,
+                                    onClick = { onSelectTab(index) },
+                                    icon = { Icon(item.icon, contentDescription = item.label) },
+                                    label = { Text(item.label) },
+                                    colors = NavigationBarItemDefaults.colors(
+                                        selectedIconColor = accentTextColour(),
+                                        selectedTextColor = accentTextColour(),
+                                        indicatorColor = MaterialTheme.colorScheme.primary
+                                            .copy(alpha = 0.16f),
+                                        unselectedIconColor =
+                                            MaterialTheme.colorScheme.onSurfaceVariant,
+                                        unselectedTextColor =
+                                            MaterialTheme.colorScheme.onSurfaceVariant,
+                                    ),
+                                )
                             }
                         }
                     }

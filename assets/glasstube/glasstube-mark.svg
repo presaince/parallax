@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108" width="108" height="108"
+     role="img" aria-labelledby="gt-mark-title" shape-rendering="geometricPrecision">
+  <title id="gt-mark-title">GlassTube</title>
+  <!--
+    GlassTube — the silhouette, no tile. The same 22 x 54 tube as glasstube-icon.svg with the play
+    punched through it, on one path with fill-rule evenodd so the hole is transparent rather than
+    painted.
+
+    For anything that has to be one colour: Android's <monochrome> launcher layer (the system tints
+    it, so the file's own colour is ignored), a favicon, a stamp, a watermark.
+
+    Current colour: fill is currentColor, so the host sets `color`. Standalone it inherits the page
+    text colour. For Android, replace it with fillColor="#FFFFFFFF" — VectorDrawable has no
+    currentColor.
+
+    Geometry, for anyone redrawing: capsule x 43..65, y 27..81, radius 11 (a stadium). Play apex at
+    (61.3, 54), width 11, height 13.8. The play sits on its centroid, not its bounding box — that
+    is why it looks centred and a mirrored copy would not.
+  -->
+  <path fill="currentColor" fill-rule="evenodd"
+        d="M43 38 A11 11 0 0 1 65 38 V70 A11 11 0 0 1 43 70 Z
+           M50.3 47.1 L61.3 54 L50.3 60.9 Z"/>
+</svg>

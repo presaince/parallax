@@ -29,7 +29,8 @@ private const val BAR_BAND_DP = 44f
 fun Modifier.playbackGestures(
     enabled: Boolean,
     onVerticalStart: (Zone, Offset) -> Unit,
-    onVerticalDelta: (Zone, Float) -> Unit,
+    /** Zone, the level's fraction of travel, and where the finger is now. */
+    onVerticalDelta: (Zone, Float, Offset) -> Unit,
     onVerticalEnd: () -> Unit,
     onHorizontalStart: (Float) -> Unit,
     onHorizontalDelta: (Float, Float) -> Unit,
@@ -58,7 +59,7 @@ fun Modifier.playbackGestures(
 
 private suspend fun PointerInputScope.detectPlaybackGestures(
     onVerticalStart: (Zone, Offset) -> Unit,
-    onVerticalDelta: (Zone, Float) -> Unit,
+    onVerticalDelta: (Zone, Float, Offset) -> Unit,
     onVerticalEnd: () -> Unit,
     onHorizontalStart: (Float) -> Unit,
     onHorizontalDelta: (Float, Float) -> Unit,
@@ -213,7 +214,14 @@ private suspend fun PointerInputScope.detectPlaybackGestures(
                             change.position.x < width / 2f -> Zone.Left
                             else -> Zone.Right
                         }
-                        onVerticalDelta(active, -dy / height)
+                        onVerticalDelta(
+                            active,
+                            -dy / height,
+                            Offset(
+                                (change.position.x / width).coerceIn(0f, 1f),
+                                (change.position.y / height).coerceIn(0f, 1f),
+                            ),
+                        )
                     }
                     Axis.Horizontal -> onHorizontalDelta(
                         dx / width,

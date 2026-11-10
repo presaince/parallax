@@ -101,7 +101,14 @@ budget as the forward buffer, so it is fixed rather than growing with the cache 
 
 **Edge.** A tap that hides the controls does not move the disc on the way out; only a tap that
 reveals them chooses the position. Pressing play hides the overlay at once: the tap already said
-"play". A tap on a control is consumed by that control and does not also
+"play". The progress bar is part of the overlay, so it fades in with a tap and fades out with it;
+the bottom band still answers a sideways drag while the bar is hidden. The track sits on the
+bottom edge of the picture and the control strip's bottom is level with the handle's top: the
+handle rises out of the track, 18dp tall with its foot just inside the track, so the bar and the
+timestamp/speed/quality row read as one cluster instead of the track cutting through the row. At
+200% type the strip's bottom padding keeps the text above the handle. The handle is the GlassTube
+mark — the 22 x 54 glass capsule with the play punched through it — not a plain dot. A tap on a
+control is consumed by that control and does not also
 toggle the overlay. The back arrow and the bug button each register a named `TapZone`; a tap inside
 one is not a picture tap, and the registry is the place new controls are added.
 
@@ -119,16 +126,23 @@ lesson cannot promise a different speed.
 
 **Rule.** A vertical drag starts as volume on the left and brightness on the right; the centre is
 the ladder. While a side drag is held, the active control follows the finger across the middle, so
-volume and brightness can be swapped without lifting. Both pills are one pair at the point where
-the finger went down: the active control 40x96, the partner 28x64 and dimmed 8dp beside it. Neither
-pill is pinned to an edge.
+volume and brightness can be swapped without lifting. The reading is the seek pill's own capsule:
+the level's mark, its whole percent and the same progress hairline along the bottom, 24dp above the
+finger and travelling with it, never pinned to a side. Above is the safe side for either hand and
+every finger, because the finger's mass lies below the contact point — which is why there is no
+handedness setting and no classifier guessing one. A level crosses its full range in half the
+picture's height, which leaves both ends reachable well inside the inner 80% — the finger never has
+to run to the screen's edge to get from silent to loud.
 
 **Edge.** A drag that starts in the centre stays on the ladder; it does not become a level control
 when it drifts sideways. A fast flick from a side becomes the centre ladder either way: down
 minimises, up goes fullscreen, and neither changes the volume or the brightness on the way, because
-a swipe asking for fullscreen did not ask for louder. Brightness only answers while the video is
-playing. On a paused or stopped picture the same vertical drag belongs to the page, so it must not
-dim the screen. The detector sits on a box that does not move, so the finger is read in screen space.
+a swipe asking for fullscreen did not ask for louder. Volume and brightness answer while the video
+is paused too: a level is settable whether or not the picture is moving, and the readout has to
+answer the drag that changes it. The brightness the swipe sets is a player-only window override: leaving the player
+hands the window back to the system (`BRIGHTNESS_OVERRIDE_NONE`), because the one Activity would
+otherwise stay at the swiped level on the feed and the shade reports the slider as locked by the top
+app. The detector sits on a box that does not move, so the finger is read in screen space.
 A vertical gesture is not abandoned when the finger leaves the picture, which is what froze the drag
 a few percent in. A fast flick counts even when short; a slow drag has to pass about a fifth of the
 height. The surface follows the finger and closes with no release animation, or snaps back.
@@ -140,9 +154,10 @@ height. The surface follows the finger and closes with no release animation, or 
 **Edge.** While the dial is held or the panel is open, the picture gesture is disabled, so a drag
 cannot also be a brightness swipe. An interrupted gesture clears the hold in `finally`. The panel's
 fill is measured against the panel, not the screen. The dial and the panel show only the current
-speed, filled like the volume/brightness pill; the panel opens just above the control, under the
-finger. A tap on the panel is the way back to 1.0x, and while the speed is anything else the pill
-says so under the number, because dragging back to exactly 1.0 is the one thing a slider is bad at.
+speed, filled like the volume/brightness pill; the dial's readout sits 48dp above the finger and the
+panel opens well above the control, clear of the thumb, with the way back at the top of the pill. A
+tap on the panel is the way back to 1.0x, and while the speed is anything else the pill says so,
+because dragging back to exactly 1.0 is the one thing a slider is bad at.
 Auto quality reads as "Auto (1080p)" once ExoPlayer reports the resolved height.
 
 **Enforced by** `PlayerScreen.kt` (`SpeedPanel`, gesture gate).
@@ -195,7 +210,9 @@ facts (views, age) sit on the right of the same line.
 **Edge.** The offer covers a sideways swipe, a drag on the progress bar, and any tap that
 chooses a position: a chapter, a SponsorBlock row, a description timestamp, a share-panel
 seek, or the SponsorBlock skip chip. Undo returns to the position the gesture started
-from; the offer leaves on its own and never blocks the controls.
+from; the offer leaves on its own and never blocks the controls. While the offer is up the
+progress bar steps aside, and it does the same while the seek pill is up, so neither stacks at the
+bottom of the picture.
 
 **Enforced by** `PlayerScreen.kt` (`SeekUndoChip`, `userSeek`, `onHorizontalEnd`, `onBarEnd`).
 
@@ -508,15 +525,15 @@ selectable under it. The ads page keeps both answers on screen as radio rows and
 current SponsorBlock state; "No ads" turns it on, the other turns it off, and the line below says
 YouTube ads are not in the stream either way. The player page is the Settings gesture lesson, full
 width, not a video; the invitation sits on the picture ("Gesture tutorial" / "Touch me"). The stage
-draws a dashed target for each step — ring, seek bar, volume and brightness pills — and the fourth
-teaches the real three-stop ladder (normal, mini, super-mini) with the way back. That step completes
-only after the bar was reached and the card returned to normal. A side drag follows the finger
-across the middle, so the small pill on the other side becomes the active one without lifting; the
-seek hint says longer slides move faster and names the base step in Settings. The four steps are a
-thin four-column line on the bottom edge of the picture. At the end the line is full and a Restart
-tutorial button replaces the hint; there is no checkmark. The volume/brightness pair appears at the
-point where the finger went down, the active control full size and its partner 8dp beside it; the
-dashed step-2 target is the same pair in the middle, never two edge pills. The seek target is a
+draws a dashed target for each step — ring, seek bar, the two volume/brightness side bands — and the
+fourth teaches the real three-stop ladder (normal, mini, super-mini) with the way back. That step
+completes only after the bar was reached and the card returned to normal. A side drag follows the
+finger across the middle, so the other level becomes the active one without lifting; the seek hint
+says longer slides move faster and names the base step in Settings. The four steps are a thin
+four-column line on the bottom edge of the picture. At the end the line is full and a Restart
+tutorial button replaces the hint; there is no checkmark. The level reading is the same bare
+percentage above the finger that the player shows, so the lesson cannot promise a readout the real
+gesture lacks. The seek target is a
 2.5dp dashed line, and the readout is the signed delta only, computed with the Settings base and
 `SeekRate`; the fake video target is gone. The last page's import card is
 the action: tapping it opens the picker, and the bottom button is Start with nothing, or Open feed

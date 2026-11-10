@@ -10,6 +10,8 @@ import android.content.ContextWrapper
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.media.AudioManager
+import android.view.Window
+import android.view.WindowManager
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -54,6 +56,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import com.presaince.parallax.ui.component.LevelPill
+import com.presaince.parallax.ui.component.LevelReadout
+import com.presaince.parallax.ui.component.readoutLeft
+import com.presaince.parallax.ui.component.readoutTop
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -159,6 +164,7 @@ import com.presaince.parallax.feature.player.gesture.SeekRate
 import com.presaince.parallax.feature.player.gesture.Zone
 import com.presaince.parallax.feature.player.gesture.playbackGestures
 import com.presaince.parallax.ui.component.CardStyle
+import com.presaince.parallax.ui.component.GlassTube
 import com.presaince.parallax.ui.component.LinkifiedText
 import com.presaince.parallax.ui.component.SineRiver
 import com.presaince.parallax.ui.component.compactCount
@@ -356,8 +362,6 @@ fun PlayerScreen(
         else retryCount = 0
     }
     var dragZone by remember { mutableStateOf(Zone.Centre) }
-    // Where the finger went down: the volume/brightness pair is drawn there, not at the edges.
-    var levelAnchor by remember { mutableStateOf(Offset(0.5f, 0.5f)) }
     // A video opens clean: the picture only, no controls until the first tap.
     var controlsVisible by remember { mutableStateOf(false) }
     var speedHolding by remember { mutableStateOf(false) }
@@ -405,6 +409,13 @@ fun PlayerScreen(
             // Doing it here, in a dispose that runs on every fullscreen toggle, fought the
             // rotation and snapped the picture back to portrait.
         }
+    }
+
+    // The brightness swipe writes the window, and a window attribute outlives the screen: the
+    // same single Activity drew the feed after the player and stayed at the swiped level, which
+    // the shade reports as brightness locked by the top app. Hand it back on the way out.
+    DisposableEffect(Unit) {
+        onDispose { restoreSystemBrightness(activity?.window) }
     }
 
     // Controls fade out while playing, and stay while paused or while the speed panel is open.
@@ -627,26 +638,25 @@ fun PlayerScreen(
         // A press on the speed dial, or an open speed panel, owns the gesture. Restarting the
         // picture detector disabled is what stops the same drag from also being a brightness swipe.
         enabled = !speedHolding && !speedPanelOpen,
-        onVerticalStart = { zone, anchor ->
+        onVerticalStart = { zone, _ ->
             dragDown = 0f
             dragUp = 0f
             dragZone = zone
-            levelAnchor = anchor
             dragStartedAt = SystemClock.uptimeMillis()
             volumeSteps = rawVolume(audio)
             brightnessLevel = brightnessFraction(activity)
-            // Nothing is shown until the gesture actually changes the level: a swipe with the
-            // volume already at zero should not flash an empty capsule at the user.
+            // Nothing is shown until the first move: a drag that turns out to be the ladder
+            // must not flash a level readout on the way.
             hud = null
         },
-        onVerticalDelta = { zone, fraction ->
+        onVerticalDelta = { zone, fraction, finger ->
             when (zone) {
                 Zone.Left -> {
                     dragZone = Zone.Left
                     val before = volumeSteps.roundToInt()
                     // Accumulate in steps, not in whole steps per event: rounding every delta to
                     // an Int lost most of a slow swipe, which is why the slider felt stuck.
-                    volumeSteps = (volumeSteps + fraction * maxVolume(audio) * 2f)
+                    volumeSteps = (volumeSteps + fraction * LevelTravel * maxVolume(audio))
                         .coerceIn(0f, maxVolume(audio))
                     val after = volumeSteps.roundToInt()
                     ticks.clamp(before.toFloat(), after.toFloat(), 0f, maxVolume(audio).toFloat())
@@ -655,21 +665,21 @@ fun PlayerScreen(
                         after,
                         0,
                     )
-                    if (after != before) {
-                        hud = Hud(
-                            fraction = volumeFraction(audio),
-                            brightness = false,
-                            otherFraction = brightnessFraction(activity),
-                            anchor = levelAnchor,
-                        )
-                    }
+                    // Every move, not only a change: the readout travels with the finger, and
+                    // a level pinned at an end still has a place to be.
+                    hud = Hud(
+                        fraction = volumeFraction(audio),
+                        icon = R.drawable.ic_volume,
+                        anchor = finger,
+                    )
                 }
-                Zone.Right -> if (playbackState.isPlaying) {
+                Zone.Right -> {
                     dragZone = Zone.Right
-                    // Brightness is a playback gesture. On a paused or stopped picture the same
-                    // drag is how the page below scrolls, so it must not dim the screen instead.
+                    // A level is settable whether or not the picture is moving: a paused video
+                    // still has a brightness to choose, and the readout has to answer the drag.
                     val before = brightnessLevel
-                    brightnessLevel = (brightnessLevel + fraction).coerceIn(0.01f, 1f)
+                    brightnessLevel = (brightnessLevel + fraction * LevelTravel)
+                        .coerceIn(0.01f, 1f)
                     ticks.clamp(before, brightnessLevel, 0.01f, 1f)
                     if (kotlin.math.abs(brightnessLevel - before) > 0.001f) {
                         activity?.window?.let { window ->
@@ -677,13 +687,12 @@ fun PlayerScreen(
                                 screenBrightness = brightnessLevel
                             }
                         }
-                        hud = Hud(
-                            fraction = brightnessLevel,
-                            brightness = true,
-                            otherFraction = volumeFraction(audio),
-                            anchor = levelAnchor,
-                        )
                     }
+                    hud = Hud(
+                        fraction = brightnessLevel,
+                        icon = R.drawable.ic_sun,
+                        anchor = finger,
+                    )
                 }
                 // Centre vertical is the ladder gesture. Down follows the finger and a qualifying
                 // swipe steps down one level, up steps back one level. No animation on release.
@@ -844,19 +853,28 @@ fun PlayerScreen(
     } else {
         0f
     }
+    // The bar fades with the controls, and is never up beside the seek pill or the undo offer.
+    val showProgress = progressBarVisible(
+        controlsVisible = controlsVisible,
+        barDragging = barStartMs != null,
+        seekPillVisible = hud?.progress != null,
+        undoVisible = seekUndo != null,
+    )
     val progressLine: @Composable () -> Unit = {
         val duration = playbackState.durationMs
         val segments = playbackState.segments
         val primary = MaterialTheme.colorScheme.primary
+        // The bar is the bottom edge of the picture, and the control strip above it ends where
+        // the bar begins. The handle rises out of that join, so the two read as one cluster.
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(48.dp),
+                .height(26.dp),
         ) {
             val barWidth = maxWidth
             Box(
                 modifier = Modifier
-                    .align(Alignment.Center)
+                    .align(Alignment.BottomCenter)
                     .fillMaxWidth()
                     .height(6.dp)
                     .background(Color(0x44FFFFFF)),
@@ -898,15 +916,18 @@ fun PlayerScreen(
                 }
             }
             if (duration > 0L) {
-                val dotX = (barWidth * progressFraction - 6.dp)
-                    .coerceIn(0.dp, (barWidth - 12.dp).coerceAtLeast(0.dp))
-                Box(
+                // The handle is the GlassTube mark, not a plain dot: the tube with the play in it.
+                // It sits on the bar rather than through it, so the track crosses its foot and the
+                // rest peeks into the strip's lower margin — a small T, not a cross.
+                val handleHeight = 18.dp
+                val handleWidth = handleHeight * (22f / 54f)
+                val dotX = (barWidth * progressFraction - handleWidth / 2)
+                    .coerceIn(0.dp, (barWidth - handleWidth).coerceAtLeast(0.dp))
+                GlassTube(
                     modifier = Modifier
-                        .align(Alignment.CenterStart)
-                        .offset(x = dotX)
-                        .size(12.dp)
-                        .clip(CircleShape)
-                        .background(primary),
+                        .align(Alignment.BottomStart)
+                        .offset(x = dotX, y = -4.dp)
+                        .height(handleHeight),
                 )
             }
         }
@@ -975,7 +996,10 @@ fun PlayerScreen(
                         )
                     }
                     if (progressInFullscreen) {
-                        Box(modifier = Modifier.align(Alignment.BottomCenter)) { progressLine() }
+                        FadingProgressBar(
+                            visible = showProgress,
+                            modifier = Modifier.align(Alignment.BottomCenter),
+                        ) { progressLine() }
                     }
                 }
             }
@@ -1059,7 +1083,10 @@ fun PlayerScreen(
                             .padding(bottom = 16.dp),
                     )
                 }
-                Box(modifier = Modifier.align(Alignment.BottomCenter)) { progressLine() }
+                FadingProgressBar(
+                    visible = showProgress,
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                ) { progressLine() }
                 // Video failures (members-only, private, and the rest) get the whole black frame,
                 // because that is what the failure is sitting on. A permanent failure says its own
                 // sentence and offers no Retry: pressing it again cannot change the answer, and a
@@ -2009,15 +2036,41 @@ private fun ChaptersBlock(
     }
 }
 
-/** What the gesture HUD is saying: a time, a speed, or a level with its name on it. */
+/**
+ * The progress bar's slot: one fade for the portrait and fullscreen shells. It is its own
+ * composable because a top-level `AnimatedVisibility` cannot be called from inside a `Column`:
+ * `ColumnScope`'s overload shadows it and is then rejected by the layout scope marker.
+ */
+@Composable
+private fun FadingProgressBar(
+    visible: Boolean,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(tween(160)),
+        exit = fadeOut(tween(220)),
+        modifier = modifier,
+    ) { content() }
+}
+
+/**
+ * How far a level travels per pixel of drag: the full range across half the picture's height, so
+ * both ends are reachable well inside the inner 80% and the finger never needs the screen's edges.
+ * Volume has always used this factor; brightness now matches it.
+ */
+private const val LevelTravel = 2f
+
+/** What the gesture HUD is saying: a time, a speed, or a level's percentage. */
 private data class Hud(
     val label: String? = null,
     /** A smaller line under the primary one, such as the position a scrub is heading for. */
     val secondary: String? = null,
+    /** A level, volume or brightness, drawn as a pill above the finger. */
     val fraction: Float? = null,
-    val brightness: Boolean = false,
-    /** The other level, shown small on the opposite side while a vertical drag is held. */
-    val otherFraction: Float? = null,
+    /** The level's mark, so the readout says which level it is. */
+    val icon: Int? = null,
     /** Scrub progress through the video, 0..1, drawn as a bar inside the pill. */
     val progress: Float? = null,
     /** Finger position as a fraction of the picture. The readout follows it. */
@@ -2104,9 +2157,9 @@ private fun SponsorChip(
 }
 
 /**
- * The gesture readout. Volume and brightness get a capsule whose fill is the level, with no text.
- * A scrub or a skip gets a wide pill just above the finger that asked for it, or just below when
- * the finger is too near the top, carrying the whole video's progress in its bottom edge. Speed
+ * The gesture readout. Volume and brightness get one bare percentage above the finger; a scrub
+ * or a skip gets a wide pill clear above the finger that asked for it, or below when the
+ * finger is too near the top, carrying the whole video's progress in its bottom edge. Speed
  * sticks to the left edge at the finger's height, out of the way of the picture.
  */
 @Composable
@@ -2119,10 +2172,12 @@ private fun HudPill(hud: Hud) {
             progress != null -> {
                 val pillHeight = 48.dp
                 val below = anchorY < 0.25f
+                // 64dp of air, not 28: at 28 the bottom line sat half under the thumb, and the
+                // pill's bottom edge carries the progress bar.
                 val raw = if (below) {
                     maxHeight * anchorY + 56.dp
                 } else {
-                    maxHeight * anchorY - pillHeight - 28.dp
+                    maxHeight * anchorY - pillHeight - 64.dp
                 }
                 val y = raw.coerceIn(8.dp, (maxHeight - pillHeight - 8.dp).coerceAtLeast(8.dp))
                 ScrubPill(
@@ -2133,66 +2188,19 @@ private fun HudPill(hud: Hud) {
                 )
             }
             level != null -> {
+                // The seek pill's capsule, carrying the level's icon and its whole percent,
+                // 64dp clear above the finger and travelling with it. Above is the safe side
+                // for either hand: the finger's mass lies below the contact point, which is why
+                // there is no handedness setting to consult.
                 val anchorX = (hud.anchor?.x ?: 0.5f).coerceIn(0f, 1f)
-                val activeWidth = 40.dp
-                val partnerWidth = 28.dp
-                val gap = 8.dp
-                val pairHeight = 96.dp
-                val activeLeft = maxWidth * anchorX - activeWidth / 2
-                val rowLeft = if (hud.brightness) {
-                    activeLeft - partnerWidth - gap
-                } else {
-                    activeLeft
-                }
-                val x = rowLeft.coerceIn(
-                    8.dp,
-                    (maxWidth - activeWidth - partnerWidth - gap - 8.dp).coerceAtLeast(8.dp),
+                LevelReadout(
+                    icon = hud.icon ?: R.drawable.ic_volume,
+                    level = level,
+                    modifier = Modifier.offset(
+                        x = readoutLeft(maxWidth * anchorX, maxWidth),
+                        y = readoutTop(maxHeight * anchorY, maxHeight),
+                    ),
                 )
-                val y = (maxHeight * anchorY - pairHeight).coerceIn(
-                    8.dp,
-                    (maxHeight - pairHeight - 8.dp).coerceAtLeast(8.dp),
-                )
-                Row(
-                    modifier = Modifier.offset(x = x, y = y).height(pairHeight),
-                    horizontalArrangement = Arrangement.spacedBy(gap),
-                    verticalAlignment = Alignment.Bottom,
-                ) {
-                    val volumeActive = !hud.brightness
-                    LevelPill(
-                        level = if (volumeActive) level else hud.otherFraction ?: 0f,
-                        modifier = if (volumeActive) {
-                            Modifier
-                        } else {
-                            Modifier.graphicsLayer { alpha = 0.5f }
-                        },
-                        width = if (volumeActive) activeWidth else partnerWidth,
-                        height = if (volumeActive) pairHeight else 64.dp,
-                    ) {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_volume),
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(if (volumeActive) 22.dp else 16.dp),
-                        )
-                    }
-                    LevelPill(
-                        level = if (hud.brightness) level else hud.otherFraction ?: 0f,
-                        modifier = if (hud.brightness) {
-                            Modifier
-                        } else {
-                            Modifier.graphicsLayer { alpha = 0.5f }
-                        },
-                        width = if (hud.brightness) activeWidth else partnerWidth,
-                        height = if (hud.brightness) pairHeight else 64.dp,
-                    ) {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_sun),
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(if (hud.brightness) 22.dp else 16.dp),
-                        )
-                    }
-                }
             }
             hud.leftEdge -> {
                 val y = (maxHeight * anchorY - 24.dp)
@@ -2384,7 +2392,10 @@ private fun ControlsOverlay(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                    // The bottom 22dp is the scrubber: the track on the edge, the GlassTube rising
+                    // from it, and the strip starting where that handle ends. The padding, not a
+                    // margin on the text, is what keeps large type from growing into the handle.
+                    .padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 22.dp),
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -2773,8 +2784,8 @@ private fun SpeedPanel(
     }
 
     // Anchor is the speed button's top-left in the overlay's coordinates. The panel (84dp wide,
-    // 96dp tall) is centred on it and sits just above it, so it opens literally on the control
-    // the finger just tapped.
+    // 96dp tall) is centred on it and sits well above it, so it opens literally on the control
+    // the finger just tapped, with the thumb clear of its foot.
     val density = androidx.compose.ui.platform.LocalDensity.current
     Box(
         modifier = Modifier
@@ -2788,7 +2799,7 @@ private fun SpeedPanel(
             with(density) { anchor.x.toDp() } - panelW / 2
         } else 12.dp
         val offsetY = if (anchor != Offset.Zero) {
-            with(density) { anchor.y.toDp() } - panelH - 8.dp
+            with(density) { anchor.y.toDp() } - panelH - 48.dp
         } else 64.dp
         val offset: androidx.compose.ui.unit.Dp = offsetX.coerceIn(8.dp, 320.dp)
         val offsetYdp: androidx.compose.ui.unit.Dp = offsetY.coerceIn(16.dp, 800.dp)
@@ -2798,8 +2809,8 @@ private fun SpeedPanel(
             color = MaterialTheme.colorScheme.surface,
             tonalElevation = 6.dp,
             modifier = Modifier
-                // Centred on the speed button and just above it, so sliding continues without
-                // reaching across the screen.
+                // Centred on the speed button and clear of the thumb, so sliding continues
+                // without reaching across the screen and the reset hint is never covered.
                 .offset(x = offset, y = offsetYdp)
                 .wrapContentWidth()
                 // Swallow taps meant for the panel itself. A tap on the pill is the way home: it
@@ -2839,29 +2850,33 @@ private fun SpeedPanel(
                 },
         ) {
             // Only the current speed, filled like volume/brightness. The preset numbers are
-            // gone; the fill is the reading.
+            // gone; the fill is the reading. The way back sits at the top, clear of the thumb
+            // that is on the panel.
             LevelPill(
                 level = speedFill(preview),
                 width = 84.dp,
                 height = 96.dp,
                 fillColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                // Only while there is something to reset: a hint under 1.0x would be a
+                // control that does nothing.
+                if (kotlin.math.abs(preview - 1f) > 0.001f) {
                     Text(
-                        text = "%.1fx".format(preview),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = Color.White,
+                        text = "tap for 1.0x",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White.copy(alpha = 0.72f),
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = 8.dp, start = 2.dp, end = 2.dp),
                     )
-                    // Only while there is something to reset: a hint under 1.0x would be a
-                    // control that does nothing.
-                    if (kotlin.math.abs(preview - 1f) > 0.001f) {
-                        Text(
-                            text = "tap for 1.0x",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Color.White.copy(alpha = 0.72f),
-                        )
-                    }
                 }
+                Text(
+                    text = "%.1fx".format(preview),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = Color.White,
+                    modifier = Modifier.align(Alignment.Center),
+                )
             }
         }
     }
@@ -2888,8 +2903,8 @@ private fun SpeedLadder(presets: List<Float>, current: Float) {
 }
 
 /**
- * Centred on the pill, just under the finger. If the list would run off the bottom of the
- * window, it goes above the finger instead, so it never covers the finger.
+ * Above the finger by default, so the readout is never under the thumb; below only when the
+ * finger is too near the top of the window for that.
  */
 private class SpeedLadderPosition(private val fingerY: Float) : PopupPositionProvider {
     override fun calculatePosition(
@@ -2899,12 +2914,12 @@ private class SpeedLadderPosition(private val fingerY: Float) : PopupPositionPro
         popupContentSize: IntSize,
     ): IntOffset {
         val x = anchorBounds.left + (anchorBounds.width - popupContentSize.width) / 2
-        val gap = 12
-        val below = anchorBounds.top + fingerY.roundToInt() + gap
-        val y = if (below + popupContentSize.height <= windowSize.height) {
-            below
+        val gap = 48
+        val above = anchorBounds.top + fingerY.roundToInt() - gap - popupContentSize.height
+        val y = if (above >= 0) {
+            above
         } else {
-            anchorBounds.top + fingerY.roundToInt() - gap - popupContentSize.height
+            anchorBounds.top + fingerY.roundToInt() + gap
         }
         return IntOffset(
             x.coerceIn(0, (windowSize.width - popupContentSize.width).coerceAtLeast(0)),
@@ -2936,6 +2951,14 @@ private fun volumeFraction(audio: AudioManager): Float =
 private fun brightnessFraction(activity: Activity?): Float {
     val value = activity?.window?.attributes?.screenBrightness ?: -1f
     return if (value < 0f) 0.5f else value
+}
+
+/** Give brightness back to the system, so the window stops overriding the shade's slider. */
+internal fun restoreSystemBrightness(window: Window?) {
+    if (window == null) return
+    window.attributes = window.attributes.apply {
+        screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+    }
 }
 
 /** "-12s" / "+12s": the size of the jump is the headline, so the sign stays visible. */
