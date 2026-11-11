@@ -26,11 +26,29 @@ known clamps to zero.
 
 **Rule.** Speed, quality ceiling and the audio track are playback settings, not per-video state.
 
-**Edge.** Audio prefers the original track, then the device locale, then the highest bitrate;
-multi-track videos are merged rather than taking the muxed default. Quality falls back to Auto when
-the chosen height is missing.
+**Edge.** Audio prefers the original track, then the device locale, then the highest bitrate; a
+video is always fetched as a split set (video-only plus audio) when the extractor offers one, and
+muxed only when it does not, which is the live case. The ladder is YouTube's own heights — 144,
+240, 360, 480, 720, 1080, 1440, 2160 — cut to what the panel can show (a 1080p screen stops at Full
+HD) and ending in Auto: uncapped on Wi-Fi, capped at 720p on mobile data. A stored stop above the
+cut falls to the tallest one the screen offers. A chosen height that the split set cannot reach
+falls back to the closest lower height, and the player's readout says what resolved ("Full HD
+(720p)") rather than only what was asked for.
 
-**Enforced by** `data/source/NewPipeSource.kt`, `PlaybackController.kt`.
+**Edge.** The ceiling is kept per connection: mobile data has its own stop, and everything that is
+not cellular — Wi-Fi, Ethernet, a VPN that reports no transport, no network — uses the Wi-Fi stop.
+The pick happens when streams are fetched, so a change applies from the next load.
+
+**Enforced by** `data/source/NewPipeSource.kt`, `core/Quality.kt`, `PlaybackController.kt`.
+
+**Rule.** With the screen off the player stops fetching video and keeps the sound.
+
+**Edge.** The video track is disabled, so the video source is not read; the audio source is never
+re-prepared, which is why the sound does not gap. Coming back to the screen costs a keyframe and a
+decoder start, so the picture is frozen for a moment while the audio continues. A muxed (live)
+stream cannot do this and keeps downloading the file as before.
+
+**Enforced by** `PlaybackController.kt` (`ACTION_SCREEN_OFF`/`ACTION_SCREEN_ON`, `setVideoTrackEnabled`).
 
 **Rule.** The media notification carries artwork and media controls; its restart button is optional.
 
@@ -38,6 +56,17 @@ the chosen height is missing.
 nothing, so it is a toggle that drops seek-to-previous. PiP on leaving the app is a separate toggle.
 
 **Enforced by** `playback/PlaybackService.kt`, `PlaybackController.kt`.
+
+**Rule.** Another app taking audio focus stops this player, and the sound returns when that app
+releases it.
+
+**Edge.** The player asks for focus as `USAGE_MEDIA`, so a second video app — NewPipe, YouTube — is a
+collision and not a second stream, which is what made both soundtracks play at once. A transient
+loss (a call, a chime) ducks instead of stopping. Focus loss pauses a player whose `playWhenReady`
+is still true, so the notification is repainted from `isPlaying`, not from the play intent.
+
+**Enforced by** `PlaybackController.kt` (`mediaAudioAttributes`, `setAudioAttributes`),
+`playback/PlaybackService.kt`.
 
 **Rule.** Fullscreen is landscape and nothing else is.
 

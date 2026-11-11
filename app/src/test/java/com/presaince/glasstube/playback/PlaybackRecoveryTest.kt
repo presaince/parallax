@@ -46,4 +46,42 @@ class PlaybackRecoveryTest {
         // arrives, and only then does the player throw away its buffer to try again.
         assertFalse(shouldRecover(hasVideo = true, hasError = false, stalledForMs = 3_000, attemptsUsed = 0))
     }
+
+    @Test
+    fun no_connection_spends_no_try() {
+        // 210828 / 204259: "error recovery 1/2 … net=none" twice in a row, then a dead picture.
+        // Both tries went to a phone that had nowhere to send them.
+        assertFalse(
+            shouldRecover(
+                hasVideo = true,
+                hasError = true,
+                stalledForMs = 0,
+                attemptsUsed = 0,
+                networkDown = true,
+            ),
+        )
+        assertFalse(
+            shouldRecover(
+                hasVideo = true,
+                hasError = false,
+                stalledForMs = 60_000,
+                attemptsUsed = 1,
+                networkDown = true,
+            ),
+        )
+    }
+
+    @Test
+    fun the_connection_coming_back_leaves_the_budget_whole() {
+        // The error is still on the player when the network returns, so the tick retries then.
+        assertTrue(
+            shouldRecover(
+                hasVideo = true,
+                hasError = true,
+                stalledForMs = 0,
+                attemptsUsed = 0,
+                networkDown = false,
+            ),
+        )
+    }
 }

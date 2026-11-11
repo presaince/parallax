@@ -17,7 +17,6 @@ class ProgressBarVisibilityTest {
                 controlsVisible = false,
                 barDragging = false,
                 seekPillVisible = false,
-                undoVisible = false,
             ),
         )
     }
@@ -29,7 +28,6 @@ class ProgressBarVisibilityTest {
                 controlsVisible = true,
                 barDragging = false,
                 seekPillVisible = false,
-                undoVisible = false,
             ),
         )
     }
@@ -41,7 +39,6 @@ class ProgressBarVisibilityTest {
                 controlsVisible = false,
                 barDragging = true,
                 seekPillVisible = false,
-                undoVisible = false,
             ),
         )
     }
@@ -53,19 +50,6 @@ class ProgressBarVisibilityTest {
                 controlsVisible = true,
                 barDragging = false,
                 seekPillVisible = true,
-                undoVisible = false,
-            ),
-        )
-    }
-
-    @Test
-    fun `the bar steps aside for the undo offer`() {
-        assertFalse(
-            progressBarVisible(
-                controlsVisible = true,
-                barDragging = false,
-                seekPillVisible = false,
-                undoVisible = true,
             ),
         )
     }

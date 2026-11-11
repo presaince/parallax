@@ -6,6 +6,7 @@ package com.presaince.glasstube.ui.component
 
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -26,6 +27,15 @@ import androidx.compose.ui.unit.dp
 import com.presaince.glasstube.core.timeAgo
 import com.presaince.glasstube.data.model.VideoSummary
 import com.presaince.glasstube.data.source.Thumbnails
+
+/** The card's press: a tap opens it, and a long press only exists when the caller has a use. */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+private fun Modifier.cardPress(onClick: () -> Unit, onLongClick: (() -> Unit)?): Modifier =
+    if (onLongClick == null) {
+        clickable(onClick = onClick)
+    } else {
+        combinedClickable(onClick = onClick, onLongClick = onLongClick)
+    }
 
 /**
  * The one video row: a small picture on the left, the words beside it. Full-width thumbnails with
@@ -51,6 +61,8 @@ fun VideoRow(
     subscribed: Boolean = false,
     /** Right-aligns the facts line. History reads as a column of numbers that way. */
     metaEnd: Boolean = false,
+    /** A long press, only where the caller has something to offer. The feed hides a video. */
+    onLongClick: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     // Read on every style change: the card style is set on another screen, and under layered
@@ -85,7 +97,7 @@ fun VideoRow(
                 .padding(vertical = 5.dp)
                 .clip(RoundedCornerShape(8.dp))
                 .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp))
-                .clickable(onClick = onClick)
+                .cardPress(onClick, onLongClick)
                 .padding(horizontal = 8.dp, vertical = 6.dp),
         ) {
             Box {
@@ -121,7 +133,7 @@ fun VideoRow(
                 .padding(vertical = 5.dp)
                 .clip(RoundedCornerShape(8.dp))
                 .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp))
-                .clickable(onClick = onClick)
+                .cardPress(onClick, onLongClick)
                 .padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.Top,
         ) {
@@ -158,7 +170,7 @@ fun VideoRow(
                 .padding(vertical = 4.dp)
                 .clip(RoundedCornerShape(8.dp))
                 .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp))
-                .clickable(onClick = onClick)
+                .cardPress(onClick, onLongClick)
                 .padding(horizontal = 6.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -202,6 +214,7 @@ fun VideoTile(
     watched: Float? = null,
     style: CardStyle,
     badge: (@Composable () -> Unit)? = null,
+    onLongClick: (() -> Unit)? = null,
 ) {
     Box(
         modifier = modifier
@@ -209,7 +222,7 @@ fun VideoTile(
             .padding(vertical = 4.dp)
                 .clip(RoundedCornerShape(8.dp))
                 .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp))
-            .clickable(onClick = onClick),
+            .cardPress(onClick, onLongClick),
     ) {
         Thumbnail(
             url = Thumbnails.forVideo(video.id, video.thumbnailUrl),

@@ -128,3 +128,27 @@ data class RecipeEntity(
     val source: String,
     val createdAt: Long,
 )
+
+/**
+ * Something the reader does not want offered in the feed. Two shapes share one table:
+ *
+ * - a video, keyed by its id ([videoId]), which is `110306`'s "hide that one";
+ * - a channel's live streams, keyed `live:<channelUrl>` with [liveOnly], which is the perm-live
+ *   channel whose current stream sits at the top of the feed forever. Its ordinary uploads still
+ *   arrive, because the complaint was about the stream, not the channel.
+ *
+ * The title and picture are copied in so the Hidden list can name a row whose video has since left
+ * the feed table. A refresh replaces every video row, which is why this is a table and not a
+ * column: a flag there would be wiped on the next fetch.
+ */
+@Entity(tableName = "hidden_videos")
+data class HiddenRow(
+    @PrimaryKey val key: String,
+    val videoId: String?,
+    val channelUrl: String?,
+    val title: String,
+    val thumbUrl: String?,
+    val liveOnly: Boolean,
+    val reason: String,
+    val hiddenAt: Long,
+)

@@ -93,8 +93,13 @@ internal object SettingsSchema {
             ),
             PrefField("speed", "playback_speed", PrefKind.FLOAT, 1f),
             PrefField("watchThreshold", "watch_threshold", PrefKind.STRING, "30s"),
-            // 0 is Auto; PlayerScreen reads the same fallback.
+            // The feed's own cut, in percent: 0 is off. Kept apart from watchThreshold, which
+            // decides when an open is a watch rather than when a video leaves the feed.
+            PrefField("hideWatchedPercent", "feed_hide_watched_percent", PrefKind.INT, 0),
+            // 0 is Auto; PlayerScreen reads the same fallback. Two ladders, one per connection:
+            // the Wi-Fi key is the original, the cellular one is the metered ceiling.
             PrefField("quality", "video_quality", PrefKind.INT, 0),
+            PrefField("qualityCellular", "video_quality_cellular", PrefKind.INT, 0),
             PrefField(
                 "cacheMb",
                 "stream_cache_mb",
@@ -105,11 +110,13 @@ internal object SettingsSchema {
             PrefField("seekBaseSeconds", "seek_base_seconds", PrefKind.INT, 5),
             PrefField("pipOnLeave", "pip_on_leave", PrefKind.BOOL, true),
             PrefField("restartButton", "notification_restart", PrefKind.BOOL, true),
-            PrefField("chaptersHorizontal", "chapters_horizontal", PrefKind.BOOL, true),
+            PrefField("chaptersStyle", "chapters_style", PrefKind.INT, 0),
+            PrefField("playerSections", "player_sections", PrefKind.STRING, ""),
             PrefField("chapterTimestamps", "chapter_timestamps", PrefKind.BOOL, true),
             PrefField("playerLabelsRight", "player_labels_right", PrefKind.BOOL, false),
             PrefField("endRelated", "end_related_enabled", PrefKind.BOOL, true),
             PrefField("hideLive", "hide_live", PrefKind.BOOL, false),
+            PrefField("feedLive", "feed_live", PrefKind.BOOL, true),
             // Stored as one comma string; the reader falls back to DEFAULT_PRESETS.
             PrefField(
                 "speedPresets",

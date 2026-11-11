@@ -147,8 +147,15 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.media3.ui.PlayerView
 import com.presaince.glasstube.R
 import com.presaince.glasstube.core.AppLog
+import com.presaince.glasstube.core.LEVEL_BAND_TOP_DP
 import com.presaince.glasstube.core.SourceError
+import com.presaince.glasstube.core.activeTransport
 import com.presaince.glasstube.core.formatDuration
+import com.presaince.glasstube.core.lowerStop
+import com.presaince.glasstube.core.panelShortSidePx
+import com.presaince.glasstube.core.qualityKey
+import com.presaince.glasstube.core.qualityStops
+import com.presaince.glasstube.core.snapToLadder
 import com.presaince.glasstube.core.timeAgo
 import com.presaince.glasstube.data.auth.PostingManager
 import com.presaince.glasstube.data.db.GlassTubeDb
@@ -159,6 +166,7 @@ import com.presaince.glasstube.data.resync.ResyncStore
 import com.presaince.glasstube.data.source.Thumbnails
 import com.presaince.glasstube.data.source.VideoSource
 import com.presaince.glasstube.feature.comments.CommentsViewModel
+import com.presaince.glasstube.feature.feed.hiddenVideo
 import com.presaince.glasstube.feature.comments.commentsItems
 import com.presaince.glasstube.feature.notes.NotesTab
 import com.presaince.glasstube.feature.player.gesture.SeekRate
@@ -290,9 +298,24 @@ fun PlayerScreen(
     var notesCount by remember { mutableIntStateOf(0) }
     var chaptersExpanded by remember { mutableStateOf(true) }
     var sponsorExpanded by remember { mutableStateOf(false) }
-    val chaptersHorizontal = remember {
-        context.getSharedPreferences("glasstube", Context.MODE_PRIVATE)
-            .getBoolean("chapters_horizontal", true)
+    // Row, plain list, or not drawn at all. Hidden exists because the description keeps its own
+    // timestamps: a reader who wants the text version of a chapter list should not have to read
+    // the same list twice.
+    val chaptersStyle = remember {
+        ChaptersStyle.of(
+            context.getSharedPreferences("glasstube", Context.MODE_PRIVATE)
+                .getInt("chapters_style", ChaptersStyle.Row.stored),
+        )
+    }
+    // The page's section order, as the reader arranged it in Settings.
+    val sectionOrder = remember {
+        resolveSectionOrder(
+            context.getSharedPreferences("glasstube", Context.MODE_PRIVATE)
+                .getString("player_sections", null)
+                .orEmpty()
+                .split(",")
+                .filter { it.isNotBlank() },
+        )
     }
     val chapterTimestamps = remember {
         context.getSharedPreferences("glasstube", Context.MODE_PRIVATE)
@@ -310,6 +333,8 @@ fun PlayerScreen(
     var volumeSteps by remember { mutableFloatStateOf(0f) }
     var brightnessLevel by remember { mutableFloatStateOf(0.5f) }
     var tapAt by remember { mutableStateOf<Offset?>(null) }
+    // Used by the permanent-failure screen: hiding a video it cannot play is a database write.
+    val hideScope = rememberCoroutineScope()
     var scrubStartMs by remember { mutableLongStateOf(0L) }
     // A seek that moved more than a moment gets a way back. Accidental bar taps are the reason.
     var seekUndo by remember { mutableStateOf<SeekUndo?>(null) }
@@ -456,27 +481,58 @@ fun PlayerScreen(
         context.getSharedPreferences("glasstube", Context.MODE_PRIVATE)
             .getBoolean("progress_in_fullscreen", true)
     }
-    var qualityHeight by remember {
+    // The ladder stops at what this screen can show, and the connection decides which of the two
+    // stops is in force: mobile data keeps its own, so a film on Wi-Fi does not raise it.
+    val panelPx = remember { panelShortSidePx(context) }
+    val qualityLadder = remember(panelPx) { qualityStops(panelPx) }
+    val qualityTransport = remember { activeTransport(context) }
+    var qualityHeight by remember(qualityTransport, panelPx) {
         mutableIntStateOf(
-            context.getSharedPreferences("glasstube", Context.MODE_PRIVATE)
-                .getInt("video_quality", 0),
+            snapToLadder(
+                context.getSharedPreferences("glasstube", Context.MODE_PRIVATE)
+                    .getInt(qualityKey(qualityTransport), 0),
+                panelPx,
+            ),
         )
+    }
+    // A quality change loads a different file, so the picture has to build a new buffer: there is
+    // nothing "already buffered" to fall back on. Saying so beats a pill that reads like a stall
+    // (`111445`).
+    var switchingQuality by remember { mutableStateOf(false) }
+    LaunchedEffect(playbackState.firstFrameReady) {
+        if (playbackState.firstFrameReady) switchingQuality = false
+    }
+    // `110114`: a video that has spent both quiet retries is asking for a smaller picture. One
+    // step down per video, written to the ladder in force, and said out loud — a silent quality
+    // change is indistinguishable from the app getting worse.
+    var degradedOnce by remember(video.id) { mutableStateOf(false) }
+    LaunchedEffect(playbackState.recoveryAttempts, video.id) {
+        if (!degradedOnce && playbackState.recoveryAttempts >= STALL_RETRY_LIMIT) {
+            val lower = lowerStop(qualityHeight, qualityLadder)
+            if (lower != null) {
+                degradedOnce = true
+                context.getSharedPreferences("glasstube", Context.MODE_PRIVATE)
+                    .edit()
+                    .putInt(qualityKey(qualityTransport), lower.height)
+                    .apply()
+                qualityHeight = lower.height
+                switchingQuality = true
+                Toast.makeText(
+                    context,
+                    "Kept stalling, so the picture dropped to ${lower.label}",
+                    Toast.LENGTH_LONG,
+                ).show()
+                viewModel.reloadAt(playback.state.value.positionMs)
+            }
+        }
     }
     val chapters = remember(loadState.description) { parseChapters(loadState.description) }
     val shownChapters = if (chapters.isNotEmpty()) chapters else loadState.aiChapters
-    // The timestamp lines are already the chapter panel above. Leaving them in the description
-    // put the same list on screen twice, one of them not tappable.
-    val descriptionBody = remember(loadState.description, chapters) {
-        if (chapters.isNotEmpty()) {
-            loadState.description.lineSequence()
-                .filter { timestampLine(it.trim()) == null }
-                .joinToString("\n")
-                .trim()
-        } else {
-            loadState.description
-        }
-    }
-
+    // The description keeps its own timestamp lines. They were stripped once the chapter parser
+    // found them, on the argument that the same list twice is noise — but the description is the
+    // only place the times are selectable and copyable, and the chapter row can be hidden
+    // (`chapters_style`). The timestamps stay; the duplication is the reader's to switch off.
+    val chaptersHidden = chaptersStyle == ChaptersStyle.Hidden
     // Only the model fills a gap: its features are off unless the user enabled the endpoint and key.
     // It also waits for the first frame: the staged order is video, then chapters, and the model
     // request must not compete with the picture.
@@ -516,11 +572,14 @@ fun PlayerScreen(
                 firstFrameReady = playbackState.firstFrameReady,
                 stalledForMs = playbackState.stalledForMs,
                 // A phone with no network cannot be repaired, and calling it a broken stream
-                // sends the reader looking for a fault in the app. The load state knows the kind.
-                networkDown = loadState.errorKind == SourceError.NetworkFailure,            )
+                // sends the reader looking for a fault in the app. The system's own answer
+                // outranks the load state's, because a drop mid-playback never reaches it.
+                networkDown = playbackState.networkDown ||
+                    loadState.errorKind == SourceError.NetworkFailure,
+            )
             val tappable = playbackState.recoveryAttempts >= STALL_RETRY_LIMIT &&
                 (status == PlayerStatus.Stalled || status == PlayerStatus.Broken)
-            val statusLine = when (status) {
+            val statusLine = if (switchingQuality) "Switching quality…" else when (status) {
                 PlayerStatus.Offline -> "No connection — playing will retry"
                 PlayerStatus.Broken ->
                     if (tappable) "Stream broken — tap to retry" else "Stream broken — retrying"
@@ -528,14 +587,19 @@ fun PlayerScreen(
                     if (tappable) "Stalled — tap to retry" else "Stalled — retrying"
                 PlayerStatus.Fetching -> "Fetching…"
                 PlayerStatus.WaitingForFirstFrame -> "Loading video…"
-                PlayerStatus.Buffering -> "Buffering…"
+                PlayerStatus.Buffering -> if (playbackState.bufferedPercent > 0) {
+                    "Buffering ${playbackState.bufferedPercent}%"
+                } else {
+                    "Buffering…"
+                }
                 PlayerStatus.Hidden -> null
             }
             if (statusLine != null && loadState.error == null) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
-                        .padding(bottom = 20.dp)
+                        // Clear of the progress bar, which owns the bottom 30dp.
+                        .padding(bottom = 40.dp)
                         .clip(RoundedCornerShape(50))
                         .background(Color(0xCC000000))
                         .then(
@@ -622,19 +686,25 @@ fun PlayerScreen(
                     enterFullscreen()
                 }
             },
-            onOpenBug = onOpenBug,
             // The readout owns the middle of the picture while it is up, so the play disc
             // steps aside instead of sitting on top of the number.
             showPlay = hud == null,
             playAt = tapAt,
             qualityLabel = com.presaince.glasstube.core.qualityLabel(qualityHeight, playbackState.videoHeight),
             selectedQuality = qualityHeight,
+            qualityConnection = if (qualityTransport == com.presaince.glasstube.core.Transport.Cellular) {
+                "Mobile data"
+            } else {
+                "Wi-Fi"
+            },
+            qualityStops = qualityLadder,
             onPickQuality = { height ->
                 context.getSharedPreferences("glasstube", Context.MODE_PRIVATE)
                     .edit()
-                    .putInt("video_quality", height)
+                    .putInt(qualityKey(qualityTransport), height)
                     .apply()
                 qualityHeight = height
+                switchingQuality = true
                 // The stream is chosen when it loads, so the same video is loaded again from here.
                 viewModel.reloadAt(playback.state.value.positionMs)
             },
@@ -666,17 +736,24 @@ fun PlayerScreen(
             // must not flash a level readout on the way.
             hud = null
         },
-        onVerticalDelta = { zone, fraction, finger ->
+        onVerticalDelta = { zone, fraction, finger, reach ->
             when (zone) {
                 Zone.Left -> {
                     dragZone = Zone.Left
                     val before = volumeSteps.roundToInt()
+                    val top = maxVolume(audio)
+                    // The magnet: the last 12dp of the band is the end, so a finger that started
+                    // high up can still finish the range instead of running out of screen.
+                    val next = when {
+                        reach > 0 -> top.toFloat()
+                        reach < 0 -> 0f
+                        else -> volumeSteps + fraction * LevelTravel * top
+                    }
                     // Accumulate in steps, not in whole steps per event: rounding every delta to
                     // an Int lost most of a slow swipe, which is why the slider felt stuck.
-                    volumeSteps = (volumeSteps + fraction * LevelTravel * maxVolume(audio))
-                        .coerceIn(0f, maxVolume(audio))
+                    volumeSteps = next.coerceIn(0f, top.toFloat())
                     val after = volumeSteps.roundToInt()
-                    ticks.clamp(before.toFloat(), after.toFloat(), 0f, maxVolume(audio).toFloat())
+                    ticks.clamp(before.toFloat(), after.toFloat(), 0f, top.toFloat())
                     audio.setStreamVolume(
                         AudioManager.STREAM_MUSIC,
                         after,
@@ -695,8 +772,11 @@ fun PlayerScreen(
                     // A level is settable whether or not the picture is moving: a paused video
                     // still has a brightness to choose, and the readout has to answer the drag.
                     val before = brightnessLevel
-                    brightnessLevel = (brightnessLevel + fraction * LevelTravel)
-                        .coerceIn(0.01f, 1f)
+                    brightnessLevel = when {
+                        reach > 0 -> 1f
+                        reach < 0 -> 0.01f
+                        else -> brightnessLevel + fraction * LevelTravel
+                    }.coerceIn(0.01f, 1f)
                     ticks.clamp(before, brightnessLevel, 0.01f, 1f)
                     if (kotlin.math.abs(brightnessLevel - before) > 0.001f) {
                         activity?.window?.let { window ->
@@ -875,78 +955,139 @@ fun PlayerScreen(
         controlsVisible = controlsVisible,
         barDragging = barStartMs != null,
         seekPillVisible = hud?.progress != null,
-        undoVisible = seekUndo != null,
     )
     val progressLine: @Composable () -> Unit = {
         val duration = playbackState.durationMs
         val segments = playbackState.segments
         val primary = MaterialTheme.colorScheme.primary
-        // The bar is the bottom edge of the picture, and the control strip above it ends where
-        // the bar begins. The handle rises out of that join, so the two read as one cluster.
-        BoxWithConstraints(
+        // The bar is the picture's bottom edge, with the elapsed time on its left and the length
+        // on its right. `111214` asked for it back at the bottom after it spent a day at the top,
+        // and `112240` asked for the bar *between* the two times rather than a "0:42 / 12:07"
+        // cell with the track somewhere else. Times at 12sp in a fixed 48dp column so the track
+        // does not jump as the seconds grow a digit.
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(26.dp),
+                .height(30.dp)
+                .padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            val barWidth = maxWidth
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .height(6.dp)
-                    .background(Color(0x44FFFFFF)),
+            Text(
+                text = formatDuration(playbackState.positionMs / 1000),
+                style = MaterialTheme.typography.labelMedium,
+                color = Color.White,
+                textAlign = TextAlign.Start,
+                modifier = Modifier.width(48.dp),
+            )
+            BoxWithConstraints(
+                modifier = Modifier.weight(1f).fillMaxHeight(),
             ) {
-                androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
-                    if (duration > 0L) {
-                        // Two layers that never share pixels: sponsors on top half, playhead on
-                        // bottom half. Overlap is the 50/50 split by construction.
-                        val half = size.height / 2f
-                        for (segment in segments) {
-                            val start = (segment.startMs.toFloat() / duration).coerceIn(0f, 1f)
-                            val end = (segment.endMs.toFloat() / duration).coerceIn(0f, 1f)
+                val barWidth = maxWidth
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .fillMaxWidth()
+                        .height(6.dp)
+                        .background(Color(0x44FFFFFF)),
+                ) {
+                    androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+                        if (duration > 0L) {
+                            // Two layers that never share pixels: sponsors on top half, playhead
+                            // on bottom half. Overlap is the 50/50 split by construction.
+                            val half = size.height / 2f
+                            for (segment in segments) {
+                                val start = (segment.startMs.toFloat() / duration).coerceIn(0f, 1f)
+                                val end = (segment.endMs.toFloat() / duration).coerceIn(0f, 1f)
+                                drawRect(
+                                    color = segmentColor(segment.category),
+                                    topLeft = androidx.compose.ui.geometry.Offset(
+                                        start * size.width,
+                                        0f,
+                                    ),
+                                    size = androidx.compose.ui.geometry.Size(
+                                        (end - start) * size.width,
+                                        half,
+                                    ),
+                                )
+                            }
                             drawRect(
-                                color = segmentColor(segment.category),
-                                topLeft = androidx.compose.ui.geometry.Offset(start * size.width, 0f),
-                                size = androidx.compose.ui.geometry.Size((end - start) * size.width, half),
+                                color = primary,
+                                topLeft = androidx.compose.ui.geometry.Offset(0f, half),
+                                size = androidx.compose.ui.geometry.Size(
+                                    progressFraction * size.width,
+                                    half,
+                                ),
                             )
-                        }
-                        drawRect(
-                            color = primary,
-                            topLeft = androidx.compose.ui.geometry.Offset(0f, half),
-                            size = androidx.compose.ui.geometry.Size(progressFraction * size.width, half),
-                        )
-                        if (clipFocused && (clipStartMs != null || clipEndMs != null)) {
-                            val cs = ((clipStartMs ?: 0L).toFloat() / duration).coerceIn(0f, 1f)
-                            val ce = ((clipEndMs ?: duration).toFloat() / duration).coerceIn(0f, 1f)
-                            val dim = Color.Black.copy(alpha = 0.45f)
-                            drawRect(dim, topLeft = androidx.compose.ui.geometry.Offset(0f, 0f),
-                                size = androidx.compose.ui.geometry.Size(cs * size.width, size.height))
-                            drawRect(dim, topLeft = androidx.compose.ui.geometry.Offset(ce * size.width, 0f),
-                                size = androidx.compose.ui.geometry.Size((1f - ce) * size.width, size.height))
-                            val bar = primary.copy(alpha = 0.9f)
-                            drawRect(bar, topLeft = androidx.compose.ui.geometry.Offset(cs * size.width - 1f, 0f),
-                                size = androidx.compose.ui.geometry.Size(2f, size.height))
-                            drawRect(bar, topLeft = androidx.compose.ui.geometry.Offset(ce * size.width - 1f, 0f),
-                                size = androidx.compose.ui.geometry.Size(2f, size.height))
+                            if (clipFocused && (clipStartMs != null || clipEndMs != null)) {
+                                val cs = ((clipStartMs ?: 0L).toFloat() / duration)
+                                    .coerceIn(0f, 1f)
+                                val ce = ((clipEndMs ?: duration).toFloat() / duration)
+                                    .coerceIn(0f, 1f)
+                                val dim = Color.Black.copy(alpha = 0.45f)
+                                drawRect(
+                                    dim,
+                                    topLeft = androidx.compose.ui.geometry.Offset(0f, 0f),
+                                    size = androidx.compose.ui.geometry.Size(
+                                        cs * size.width,
+                                        size.height,
+                                    ),
+                                )
+                                drawRect(
+                                    dim,
+                                    topLeft = androidx.compose.ui.geometry.Offset(
+                                        ce * size.width,
+                                        0f,
+                                    ),
+                                    size = androidx.compose.ui.geometry.Size(
+                                        (1f - ce) * size.width,
+                                        size.height,
+                                    ),
+                                )
+                                val bar = primary.copy(alpha = 0.9f)
+                                drawRect(
+                                    bar,
+                                    topLeft = androidx.compose.ui.geometry.Offset(
+                                        cs * size.width - 1f,
+                                        0f,
+                                    ),
+                                    size = androidx.compose.ui.geometry.Size(2f, size.height),
+                                )
+                                drawRect(
+                                    bar,
+                                    topLeft = androidx.compose.ui.geometry.Offset(
+                                        ce * size.width - 1f,
+                                        0f,
+                                    ),
+                                    size = androidx.compose.ui.geometry.Size(2f, size.height),
+                                )
+                            }
                         }
                     }
                 }
+                if (duration > 0L) {
+                    // A dot, the shape every player uses for the playhead. The tube-with-a-play-
+                    // mark it replaced read as decoration, and a control nobody recognises is not
+                    // a control.
+                    val handleSize = 14.dp
+                    val dotX = (maxWidth * progressFraction - handleSize / 2)
+                        .coerceIn(0.dp, (maxWidth - handleSize).coerceAtLeast(0.dp))
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.CenterStart)
+                            .offset(x = dotX)
+                            .size(handleSize)
+                            .clip(CircleShape)
+                            .background(primary),
+                    )
+                }
             }
-            if (duration > 0L) {
-                // A dot, the shape every player uses for the playhead. The tube-with-a-play-mark
-                // it replaced read as decoration, and a control nobody recognises is not a control.
-                val handleSize = 14.dp
-                val dotX = (barWidth * progressFraction - handleSize / 2)
-                    .coerceIn(0.dp, (barWidth - handleSize).coerceAtLeast(0.dp))
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .offset(x = dotX, y = -4.dp)
-                        .size(handleSize)
-                        .clip(CircleShape)
-                        .background(primary),
-                )
-            }
+            Text(
+                text = formatDuration(duration / 1000),
+                style = MaterialTheme.typography.labelMedium,
+                color = Color.White,
+                textAlign = TextAlign.End,
+                modifier = Modifier.width(48.dp),
+            )
         }
     }
 
@@ -986,7 +1127,7 @@ fun PlayerScreen(
                             text = "Skipped ${com.presaince.glasstube.data.sponsorblock.SponsorCategories.label(seg.category)} · ${formatDuration(seg.startMs / 1000)} → ${formatDuration(seg.endMs / 1000)}",
                             modifier = Modifier
                                 .align(Alignment.TopEnd)
-                                .padding(top = 12.dp, end = 12.dp),
+                                .padding(top = 64.dp, end = 12.dp),
                         )
                     }
                     currentSegment?.let { seg ->
@@ -996,7 +1137,7 @@ fun PlayerScreen(
                                 onClick = { userSeek(seg.endMs) },
                                 modifier = Modifier
                                     .align(Alignment.TopEnd)
-                                    .padding(top = 12.dp, end = 12.dp),
+                                    .padding(top = 64.dp, end = 12.dp),
                             )
                         }
                     }
@@ -1009,7 +1150,7 @@ fun PlayerScreen(
                             },
                             modifier = Modifier
                                 .align(Alignment.BottomCenter)
-                                .padding(bottom = 16.dp),
+                                .padding(bottom = 44.dp),
                         )
                     }
                     if (progressInFullscreen) {
@@ -1047,7 +1188,7 @@ fun PlayerScreen(
                         text = "Skipped ${com.presaince.glasstube.data.sponsorblock.SponsorCategories.label(seg.category)} · ${formatDuration(seg.startMs / 1000)} → ${formatDuration(seg.endMs / 1000)}",
                         modifier = Modifier
                             .align(Alignment.TopEnd)
-                            .padding(top = 12.dp, end = 12.dp),
+                            .padding(top = 64.dp, end = 12.dp),
                     )
                 }
                 currentSegment?.let { seg ->
@@ -1057,7 +1198,7 @@ fun PlayerScreen(
                             onClick = { userSeek(seg.endMs) },
                             modifier = Modifier
                                 .align(Alignment.TopEnd)
-                                .padding(top = 12.dp, end = 12.dp),
+                                .padding(top = 64.dp, end = 12.dp),
                         )
                     }
                 }
@@ -1073,7 +1214,7 @@ fun PlayerScreen(
                     Row(
                         modifier = Modifier
                             .align(Alignment.TopCenter)
-                            .padding(top = 12.dp)
+                            .padding(top = 64.dp)
                             .clip(RoundedCornerShape(50))
                             .background(Color(0xE6101014))
                             .padding(start = 14.dp, end = 4.dp),
@@ -1102,7 +1243,7 @@ fun PlayerScreen(
                         },
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
-                            .padding(bottom = 16.dp),
+                            .padding(bottom = 44.dp),
                     )
                 }
                 FadingProgressBar(
@@ -1144,6 +1285,24 @@ fun PlayerScreen(
                                     color = Color.White.copy(alpha = 0.75f),
                                     textAlign = TextAlign.Center,
                                 )
+                                Spacer(Modifier.height(8.dp))
+                                // A permanent failure is the one thing this screen can act on:
+                                // the feed offered something that cannot play, so stop offering
+                                // it. It lands in Hidden with the reason, and can come back.
+                                TextButton(onClick = {
+                                    val reason = when (loadState.errorKind) {
+                                        SourceError.MembersOnly -> "members only"
+                                        else -> "private or removed"
+                                    }
+                                    hideScope.launch {
+                                        runCatching {
+                                            db.hidden().hide(hiddenVideo(video, reason))
+                                        }
+                                        onBack()
+                                    }
+                                }) {
+                                    Text("Hide this video", color = Color.White)
+                                }
                             } else {
                                 Spacer(Modifier.height(16.dp))
                                 TextButton(onClick = {
@@ -1257,11 +1416,27 @@ fun PlayerScreen(
                         .padding(top = 6.dp),
                 ) {
                     if (cardStyle.title) {
+                        // Two lines, and a tap opens the rest. No chevron: the ellipsis is the
+                        // affordance, and a title that fits is not a target. The tap only exists
+                        // when the collapsed text was actually cut off, so a short title never
+                        // swallows a press that was meant for the picture above.
+                        var titleOpen by remember(video.id) { mutableStateOf(false) }
+                        var titleCut by remember(video.id) { mutableStateOf(false) }
                         Text(
                             text = loadState.title,
                             style = MaterialTheme.typography.titleMedium,
-                            maxLines = 2,
+                            maxLines = if (titleOpen) Int.MAX_VALUE else 2,
                             overflow = TextOverflow.Ellipsis,
+                            onTextLayout = { layout ->
+                                if (!titleOpen) titleCut = layout.hasVisualOverflow
+                            },
+                            modifier = Modifier.then(
+                                if (titleCut || titleOpen) {
+                                    Modifier.clickable { titleOpen = !titleOpen }
+                                } else {
+                                    Modifier
+                                },
+                            ),
                         )
                     }
                     // The channel is a door, not a caption: the name opens its page. The facts
@@ -1357,6 +1532,17 @@ fun PlayerScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.End,
                 ) {
+                    // The bug report sits on the left of this row and the share controls keep the
+                    // right, so a mis-aimed thumb does not file a report. It is temporary, and the
+                    // picture's top-right corner it used to hold is now nobody's.
+                    IconButton(onClick = onOpenBug) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_bug),
+                            contentDescription = "Bug report",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Spacer(Modifier.weight(1f))
                     Row(
                         modifier = Modifier
                             .clip(RoundedCornerShape(50))
@@ -1418,198 +1604,229 @@ fun PlayerScreen(
             }
 
 
-            if (shownChapters.isNotEmpty()) {
-                item(key = "chapters") {
-                    ChaptersBlock(
-                        chapters = shownChapters,
-                        videoId = video.id,
-                        thumbnailUrl = video.thumbnailUrl,
-                        horizontal = chaptersHorizontal,
-                        showTimestamps = chapterTimestamps,
-                        labelsRight = labelsRight,
-                        expanded = chaptersExpanded,
-                        // The chapter the playhead is inside. Before the first mark there is
-                        // none, which is honest: an intro is not the first chapter yet.
-                        activeIndex = activeChapterIndex(shownChapters, playbackState.positionMs),
-                        onToggle = { chaptersExpanded = !chaptersExpanded },
-                        onSeek = { seconds -> userSeek(seconds * 1000) },
-                    )
-                }
-            }
-
-            if (playbackState.segments.isNotEmpty()) {
-                item(key = "sponsor") {
-                    SponsorSegmentsBlock(
-                        segments = playbackState.segments,
-                        positionMs = playbackState.positionMs,
-                        videoId = video.id,
-                        durationMs = playbackState.durationMs,
-                        previewFrames = loadState.previewFrames,
-                        log = log,
-                        expanded = sponsorExpanded,
-                        onToggle = { sponsorExpanded = !sponsorExpanded },
-                        onSeek = { ms -> userSeek(ms) },
-                    )
-                }
-            }
-
-            // The timestamp lines are already the chapter panel above. Leaving them in the
-            // description put the same list on screen twice, one of them not tappable.
-            if (descriptionBody.isNotBlank()) {
-                item(key = "description") {
-                    DescriptionBlock(
-                        description = descriptionBody,
-                        expanded = descriptionExpanded,
-                        labelsRight = labelsRight,
-                        onToggle = { descriptionExpanded = !descriptionExpanded },
-                        onSeek = { seconds -> userSeek(seconds * 1000) },
-                    )
-                }
-            }
-
-            // My notes: a thin header with the record button always visible, above the comments.
-            // The whole header is the tap target, not just the word: a collapsed section that
-            // ignores a tap anywhere but the chevron is a section people think is broken.
-            item(key = "notes-header") {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .bringIntoViewRequester(notesRequester)
-                        .clickable { notesExpanded = !notesExpanded }
-                        .padding(horizontal = 16.dp, vertical = 6.dp)
-                        .heightIn(min = 44.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Spacer(Modifier.weight(1f))
-                    // The record button lives in the card once expanded: one microphone, not two.
-                    // It sits left of the title, so the header reads the same way the comments
-                    // header does, right-aligned against the chevron.
-                    if (!notesExpanded) {
-                        Box(
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.primary)
-                                .clickable {
-                                    notesExpanded = true
-                                    dictateSignal++
-                                },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                painter = painterResource(R.drawable.ic_mic),
-                                contentDescription = "Record a note",
-                                tint = MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier.size(18.dp),
+            // The page below the picture, in the order set in Settings → Playback. Each part is a
+            // whole lazy item (My notes is its header and its body), so a reorder moves sections
+            // and Compose keeps the reader's place.
+            for (section in sectionOrder) when (section) {
+                PlayerSection.Description -> if (loadState.description.isNotBlank()) {
+                    item(key = "description") {
+                        Column(modifier = Modifier.fillMaxWidth().playerCard()) {
+                            DescriptionBlock(
+                                description = loadState.description,
+                                expanded = descriptionExpanded,
+                                labelsRight = labelsRight,
+                                onToggle = { descriptionExpanded = !descriptionExpanded },
+                                onSeek = { seconds -> userSeek(seconds * 1000) },
                             )
                         }
-                        Spacer(Modifier.width(6.dp))
                     }
-                    Text(
-                        text = if (notesCount > 0) "My notes ($notesCount)" else "My notes",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = accentTextColour(),
-                    )
-                    if (!labelsRight) Spacer(Modifier.weight(1f))
-                    Icon(
-                        imageVector = if (notesExpanded) {
-                            Icons.Default.KeyboardArrowUp
-                        } else {
-                            Icons.Default.KeyboardArrowDown
-                        },
-                        contentDescription = if (notesExpanded) "Collapse notes" else "Expand notes",
-                        modifier = Modifier
-                            .padding(start = 6.dp)
-                            .clickable { notesExpanded = !notesExpanded },
-                    )
                 }
-                HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
-            }
-
-            item(key = "notes") {
-                AnimatedVisibility(
-                    visible = notesExpanded,
-                    enter = expandVertically() + fadeIn(),
-                    exit = shrinkVertically() + fadeOut(),
-                ) {
-                    NotesTab(
-                        db = db,
-                        playback = playback,
-                        videoId = video.id,
-                        log = log,
-                        dictateSignal = dictateSignal,
-                        onCount = { notesCount = it },
-                    )
+                PlayerSection.Chapters -> if (shownChapters.isNotEmpty() && !chaptersHidden) {
+                    item(key = "chapters") {
+                        Column(modifier = Modifier.fillMaxWidth().playerCard()) {
+                            ChaptersBlock(
+                                chapters = shownChapters,
+                                videoId = video.id,
+                                thumbnailUrl = video.thumbnailUrl,
+                                horizontal = chaptersStyle == ChaptersStyle.Row,
+                                showTimestamps = chapterTimestamps,
+                                labelsRight = labelsRight,
+                                expanded = chaptersExpanded,
+                                // The chapter the playhead is inside. Before the first mark there
+                                // is none, which is honest: an intro is not the first chapter yet.
+                                activeIndex = activeChapterIndex(
+                                    shownChapters,
+                                    playbackState.positionMs,
+                                ),
+                                onToggle = { chaptersExpanded = !chaptersExpanded },
+                                onSeek = { seconds -> userSeek(seconds * 1000) },
+                            )
+                        }
+                    }
                 }
-            }
-
-            commentsItems(
-                state = commentsState,
-                viewModel = commentsViewModel,
-                labelsRight = labelsRight,
-            )
-
-            if (endEnabled && relatedToShow.isNotEmpty()) {
-                item(key = "related") {
-                    Column(modifier = Modifier.padding(16.dp)) {
+                PlayerSection.Sponsor -> if (playbackState.segments.isNotEmpty()) {
+                    item(key = "sponsor") {
+                        Column(modifier = Modifier.fillMaxWidth().playerCard()) {
+                            SponsorSegmentsBlock(
+                                segments = playbackState.segments,
+                                positionMs = playbackState.positionMs,
+                                videoId = video.id,
+                                durationMs = playbackState.durationMs,
+                                previewFrames = loadState.previewFrames,
+                                log = log,
+                                expanded = sponsorExpanded,
+                                onToggle = { sponsorExpanded = !sponsorExpanded },
+                                onSeek = { ms -> userSeek(ms) },
+                            )
+                        }
+                    }
+                }
+                PlayerSection.Notes -> {
+                    // My notes: a thin header with the record button always visible. The whole
+                    // header is the tap target, not just the word: a collapsed section that
+                    // ignores a tap anywhere but the chevron is a section people think is broken.
+                    item(key = "notes-header") {
+                        Column(modifier = Modifier.fillMaxWidth().playerCard()) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { relatedExpanded = !relatedExpanded }
-                                .padding(vertical = 4.dp),
+                                .bringIntoViewRequester(notesRequester)
+                                .clickable { notesExpanded = !notesExpanded }
+                                .padding(horizontal = 16.dp, vertical = 6.dp)
+                                .heightIn(min = 44.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            if (labelsRight) Spacer(Modifier.weight(1f))
+                            Spacer(Modifier.weight(1f))
+                            // The record button lives in the card once expanded: one microphone,
+                            // not two. It sits left of the title, so the header reads the same way
+                            // the comments header does, right-aligned against the chevron.
+                            if (!notesExpanded) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.primary)
+                                        .clickable {
+                                            notesExpanded = true
+                                            dictateSignal++
+                                        },
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Icon(
+                                        painter = painterResource(R.drawable.ic_mic),
+                                        contentDescription = "Record a note",
+                                        tint = MaterialTheme.colorScheme.onPrimary,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                }
+                                Spacer(Modifier.width(6.dp))
+                            }
                             Text(
-                                text = "Up next",
+                                text = if (notesCount > 0) "My notes ($notesCount)" else "My notes",
                                 style = MaterialTheme.typography.titleSmall,
                                 color = accentTextColour(),
-                                modifier = if (labelsRight) Modifier else Modifier.weight(1f),
                             )
-                            if (relatedRefreshing) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(14.dp),
-                                    strokeWidth = 2.dp,
-                                    color = accentTextColour(),
-                                )
-                                Spacer(Modifier.width(8.dp))
-                            }
-                            // Another page from the same source, on demand. One related() call per
-                            // video returns the same set, so the answer is often "nothing new" —
-                            // and that is what the line under the header says.
-                            IconButton(onClick = { refreshRelated() }, enabled = !relatedRefreshing) {
-                                Icon(
-                                    imageVector = Icons.Default.Refresh,
-                                    contentDescription = "Refresh up next",
-                                    tint = accentTextColour(),
-                                    modifier = Modifier.size(18.dp),
-                                )
-                            }
+                            if (!labelsRight) Spacer(Modifier.weight(1f))
                             Icon(
-                                imageVector = if (relatedExpanded) {
-                                    Icons.Filled.KeyboardArrowUp
+                                imageVector = if (notesExpanded) {
+                                    Icons.Default.KeyboardArrowUp
                                 } else {
-                                    Icons.Filled.KeyboardArrowDown
+                                    Icons.Default.KeyboardArrowDown
                                 },
-                                contentDescription = if (relatedExpanded) "Hide up next" else "Show up next",
-                                tint = accentTextColour(),
+                                contentDescription = if (notesExpanded) {
+                                    "Collapse notes"
+                                } else {
+                                    "Expand notes"
+                                },
+                                modifier = Modifier
+                                    .padding(start = 6.dp)
+                                    .clickable { notesExpanded = !notesExpanded },
                             )
                         }
-                        relatedNote?.let { note ->
-                            Text(
-                                text = note,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
+                        }
+                    }
+
+                    item(key = "notes") {
+                        AnimatedVisibility(
+                            visible = notesExpanded,
+                            enter = expandVertically() + fadeIn(),
+                            exit = shrinkVertically() + fadeOut(),
+                        ) {
+                            NotesTab(
+                                db = db,
+                                playback = playback,
+                                videoId = video.id,
+                                log = log,
+                                dictateSignal = dictateSignal,
+                                onCount = { notesCount = it },
                             )
                         }
-                        if (relatedExpanded) {
-                            relatedToShow.forEach { next ->
-                                com.presaince.glasstube.ui.component.VideoRow(
-                                    video = next,
-                                    watches = watches[next.id],
-                                    onClick = { onOpenVideo(next) },
-                                    onChannel = onOpenChannel,
+                    }
+                }
+                PlayerSection.Comments -> commentsItems(
+                    state = commentsState,
+                    viewModel = commentsViewModel,
+                    labelsRight = labelsRight,
+                )
+
+                PlayerSection.UpNext -> if (endEnabled && relatedToShow.isNotEmpty()) {
+                    item(key = "related") {
+                        // Same inner padding as the blocks above it (16dp sides, 4dp top and
+                        // bottom): 16 all round made this one card visibly taller than its
+                        // neighbours for no reason a reader could see.
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .playerCard()
+                                .padding(horizontal = 16.dp, vertical = 4.dp),
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { relatedExpanded = !relatedExpanded }
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                if (labelsRight) Spacer(Modifier.weight(1f))
+                                Text(
+                                    text = "Up next",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = accentTextColour(),
+                                    modifier = if (labelsRight) Modifier else Modifier.weight(1f),
                                 )
+                                if (relatedRefreshing) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(14.dp),
+                                        strokeWidth = 2.dp,
+                                        color = accentTextColour(),
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                }
+                                // Another page from the same source, on demand. One related()
+                                // call per video returns the same set, so the answer is often
+                                // "nothing new" — and that is what the line under the header says.
+                                IconButton(
+                                    onClick = { refreshRelated() },
+                                    enabled = !relatedRefreshing,
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Refresh,
+                                        contentDescription = "Refresh up next",
+                                        tint = accentTextColour(),
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                }
+                                Icon(
+                                    imageVector = if (relatedExpanded) {
+                                        Icons.Filled.KeyboardArrowUp
+                                    } else {
+                                        Icons.Filled.KeyboardArrowDown
+                                    },
+                                    contentDescription = if (relatedExpanded) {
+                                        "Hide up next"
+                                    } else {
+                                        "Show up next"
+                                    },
+                                    tint = accentTextColour(),
+                                )
+                            }
+                            relatedNote?.let { note ->
+                                Text(
+                                    text = note,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            if (relatedExpanded) {
+                                relatedToShow.forEach { next ->
+                                    com.presaince.glasstube.ui.component.VideoRow(
+                                        video = next,
+                                        watches = watches[next.id],
+                                        onClick = { onOpenVideo(next) },
+                                        onChannel = onOpenChannel,
+                                    )
+                                }
                             }
                         }
                     }
@@ -2156,9 +2373,12 @@ private fun FadingProgressBar(
 }
 
 /**
- * How far a level travels per pixel of drag: the full range across half the picture's height, so
- * both ends are reachable well inside the inner 80% and the finger never needs the screen's edges.
- * Volume has always used this factor; brightness now matches it.
+ * How far a level travels per pixel of drag: the full range across half the picture's height.
+ *
+ * The rate is deliberately unchanged, because it is the part that felt right. What was missing was
+ * somewhere to put the last few percent: a drag that began near the top of the picture ran out of
+ * screen before it ran out of level. `core/LevelBand.kt` owns that answer — the band, and a magnet
+ * at each end — and this factor is only the middle of the gesture.
  */
 private const val LevelTravel = 2f
 
@@ -2231,6 +2451,17 @@ private fun SeekUndoChip(undo: SeekUndo, onUndo: () -> Unit, modifier: Modifier 
     }
 }
 
+/**
+ * One section of the page under the picture: a rounded surface with the theme's quiet fill, so the
+ * page reads as sections rather than as one run of text (`114914`). The chevrons were already
+ * there; this is the box they belong to.
+ */
+@Composable
+private fun Modifier.playerCard(): Modifier = this
+    .padding(horizontal = 8.dp, vertical = 4.dp)
+    .clip(RoundedCornerShape(16.dp))
+    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.30f))
+
 private fun segmentColor(category: String): Color =
     com.presaince.glasstube.data.sponsorblock.SponsorCategories.color(category)
 
@@ -2268,6 +2499,7 @@ private fun HudPill(hud: Hud) {
         val level = hud.fraction
         val progress = hud.progress
         val anchorY = (hud.anchor?.y ?: 0.5f).coerceIn(0f, 1f)
+        val anchorX = (hud.anchor?.x ?: 0.5f).coerceIn(0f, 1f)
         when {
             progress != null -> {
                 val pillHeight = 48.dp
@@ -2284,7 +2516,14 @@ private fun HudPill(hud: Hud) {
                     label = hud.label.orEmpty(),
                     secondary = hud.secondary,
                     progress = progress,
-                    modifier = Modifier.align(Alignment.TopCenter).offset(y = y),
+                    // The pill follows the finger instead of owning the middle of the picture
+                    // (`111834`): the same placement rule the level readouts use, clamped inside.
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .offset(
+                            x = readoutLeft(maxWidth * anchorX, maxWidth, 176.dp),
+                            y = y,
+                        ),
                 )
             }
             level != null -> {
@@ -2292,13 +2531,16 @@ private fun HudPill(hud: Hud) {
                 // 64dp clear above the finger and travelling with it. Above is the safe side
                 // for either hand: the finger's mass lies below the contact point, which is why
                 // there is no handedness setting to consult.
-                val anchorX = (hud.anchor?.x ?: 0.5f).coerceIn(0f, 1f)
                 LevelReadout(
                     icon = hud.icon ?: R.drawable.ic_volume,
                     level = level,
                     modifier = Modifier.offset(
                         x = readoutLeft(maxWidth * anchorX, maxWidth),
-                        y = readoutTop(maxHeight * anchorY, maxHeight),
+                        y = readoutTop(
+                            fingerY = maxHeight * anchorY,
+                            pictureHeight = maxHeight,
+                            bandTop = LEVEL_BAND_TOP_DP.dp,
+                        ),
                     ),
                 )
             }
@@ -2394,18 +2636,27 @@ private fun ControlsOverlay(
     onSpeedEnd: () -> Unit,
     onSpeedHold: (Boolean) -> Unit,
     onToggleFullscreen: () -> Unit,
-    onOpenBug: () -> Unit,
     showPlay: Boolean,
     /** Where the last tap landed, as a fraction of the picture: the play disc goes there. */
     playAt: Offset?,
     /** Auto or the chosen height, shown beside the speed as a readout of the setting. */
     qualityLabel: String,
     selectedQuality: Int,
+    /** Which ladder the menu is editing: the stop is stored per connection. */
+    qualityConnection: String,
+    /** The stops this screen can show, Auto last. */
+    qualityStops: List<com.presaince.glasstube.core.QualityStop>,
     onPickQuality: (Int) -> Unit,
     speedPresets: List<Float>,
 ) {
     var overlayCoords by remember { mutableStateOf<androidx.compose.ui.layout.LayoutCoordinates?>(null) }
     var speedBoxCoords by remember { mutableStateOf<androidx.compose.ui.layout.LayoutCoordinates?>(null) }
+    // The dial stops where the reader's presets stop (`111118`): tenths, low to high.
+    val speedRange = remember(speedPresets) {
+        val low = ((speedPresets.minOrNull() ?: 0.3f) * 10).roundToInt().coerceIn(3, 50)
+        val high = ((speedPresets.maxOrNull() ?: 5f) * 10).roundToInt().coerceIn(low, 50)
+        low to high
+    }
     AnimatedVisibility(visible = visible, enter = fadeIn(), exit = fadeOut()) {
         Box(modifier = Modifier.fillMaxSize().onGloballyPositioned { overlayCoords = it }) {
             Box(
@@ -2429,18 +2680,6 @@ private fun ControlsOverlay(
                 )
             }
 
-            // The bug screen is reachable from the player too; the bar is hidden here.
-            IconButton(
-                onClick = onOpenBug,
-                modifier = Modifier.align(Alignment.TopEnd).padding(4.dp),
-            ) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_bug),
-                    contentDescription = "Bug report",
-                    tint = Color.White,
-                )
-            }
-
             // Pause appears where the finger last was, so the next tap lands on it rather than on
             // empty picture. A first tap in the middle behaves exactly like a centre button.
             if (showPlay) {
@@ -2454,10 +2693,14 @@ private fun ControlsOverlay(
                     // control strip, or under the progress line, does not drag it down there: it
                     // gets the comfortable centre height instead.
                     val lowest = (maxHeight * 0.62f).coerceIn(0.dp, (maxHeight - disc).coerceAtLeast(0.dp))
+                    // The top strip (back arrow, speed, quality, fullscreen) owns the first 56dp of
+                    // the picture. A tap up there raises the controls, and the disc must not then
+                    // land on top of the strip it just revealed.
+                    val highest = 56.dp.coerceAtMost(lowest)
                     val y = if (fy > 0.72f) {
-                        ((maxHeight - disc) / 2).coerceIn(0.dp, lowest)
+                        ((maxHeight - disc) / 2).coerceIn(highest, lowest)
                     } else {
-                        (maxHeight * fy - disc / 2).coerceIn(0.dp, lowest)
+                        (maxHeight * fy - disc / 2).coerceIn(highest, lowest)
                     }
                     Box(
                         modifier = Modifier
@@ -2490,24 +2733,20 @@ private fun ControlsOverlay(
 
             Column(
                 modifier = Modifier
-                    .align(Alignment.BottomCenter)
+                    .align(Alignment.TopCenter)
                     .fillMaxWidth()
-                    // The bottom 22dp is the scrubber: the track on the edge, the GlassTube rising
-                    // from it, and the strip starting where that handle ends. The padding, not a
-                    // margin on the text, is what keeps large type from growing into the handle.
-                    .padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 22.dp),
+                    // Speed, quality and fullscreen are the picture's top row now. The bar owns
+                    // the bottom edge, so this strip has no business there; the back arrow keeps
+                    // the top-left, which is why the strip starts after its 48dp.
+                    .padding(start = 48.dp, end = 4.dp, top = 4.dp),
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(
-                        text = "${formatDuration(state.positionMs / 1000)} / " +
-                            formatDuration(state.durationMs / 1000),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = Color.White,
-                        modifier = Modifier.weight(1f),
-                    )
+                    // The times are on the bar's own row now, at its two ends. This strip keeps
+                    // the controls: speed, quality, fullscreen.
+                    Spacer(Modifier.weight(1f))
                     // The player's own position, not the last UI sample. Seeking is the slide
                     // gesture now, so the arrow buttons are gone.
                     var dial by remember { mutableStateOf<SpeedDial?>(null) }
@@ -2544,7 +2783,8 @@ private fun ControlsOverlay(
                                         }
                                         if (adjusting) {
                                             val steps = (travelled / 24f).roundToInt()
-                                            val tenths = (baseTenths + steps).coerceIn(3, 50)
+                                            val tenths = (baseTenths + steps)
+                                                .coerceIn(speedRange.first, speedRange.second)
                                             if (tenths != applied) {
                                                 val previous = applied
                                                 applied = tenths
@@ -2564,9 +2804,12 @@ private fun ControlsOverlay(
                                                 dial = null
                                                 onSpeedEnd()
                                             } else {
+                                                // The tap point, in the overlay's coordinates: the
+                                                // panel opens on the finger that asked for it, not
+                                                // on the button's corner (`213728`).
                                                 val anchor = overlayCoords?.let { parent ->
                                                     speedBoxCoords?.let { speed ->
-                                                        parent.localPositionOf(speed, Offset.Zero)
+                                                        parent.localPositionOf(speed, down.position)
                                                     }
                                                 } ?: Offset.Zero
                                                 onOpenSpeedPopup(anchor)
@@ -2608,7 +2851,13 @@ private fun ControlsOverlay(
                             expanded = qualityMenuOpen,
                             onDismissRequest = { qualityMenuOpen = false },
                         ) {
-                            com.presaince.glasstube.core.QUALITY_STOPS.forEach { stop ->
+                            Text(
+                                text = qualityConnection,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            )
+                            qualityStops.forEach { stop ->
                                 DropdownMenuItem(
                                     text = {
                                         Text(
@@ -2878,14 +3127,20 @@ private fun SpeedPanel(
     var dragBase by remember { mutableFloatStateOf(speed) }
     var accumulated by remember { mutableFloatStateOf(0f) }
     var lastTenths by remember { mutableIntStateOf((speed * 10).roundToInt()) }
+    // The reader's presets are the range: a panel that offered 5.0x when the list stops at 2.0x is
+    // a control advertising speeds they have switched off (`111118`).
+    val lowestTenths = ((presets.minOrNull() ?: 0.3f) * 10).roundToInt().coerceIn(3, 50)
+    val highestTenths = ((presets.maxOrNull() ?: 5f) * 10).roundToInt()
+        .coerceIn(lowestTenths, 50)
     val ticks = rememberTicks()
     fun panelTick(fromTenths: Int, toTenths: Int) {
         ticks.speedHome(fromTenths, toTenths)
     }
 
-    // Anchor is the speed button's top-left in the overlay's coordinates. The panel (84dp wide,
-    // 96dp tall) is centred on it and sits well above it, so it opens literally on the control
-    // the finger just tapped, with the thumb clear of its foot.
+    // Anchor is the tap point in the overlay's coordinates. The panel (84dp wide, 96dp tall) is
+    // placed by the same rules as the level readouts: centred on the finger, clear above it, and
+    // held inside the picture. The old placement centred it on the speed button's corner, so the
+    // pill appeared beside the finger rather than over it (`213728`).
     val density = androidx.compose.ui.platform.LocalDensity.current
     Box(
         modifier = Modifier
@@ -2895,24 +3150,27 @@ private fun SpeedPanel(
     ) {
         val panelW = 84.dp
         val panelH = 96.dp
-        val offsetX = if (anchor != Offset.Zero) {
-            with(density) { anchor.x.toDp() } - panelW / 2
-        } else 12.dp
-        val offsetY = if (anchor != Offset.Zero) {
-            with(density) { anchor.y.toDp() } - panelH - 48.dp
-        } else 64.dp
-        val offset: androidx.compose.ui.unit.Dp = offsetX.coerceIn(8.dp, 320.dp)
-        val offsetYdp: androidx.compose.ui.unit.Dp = offsetY.coerceIn(16.dp, 800.dp)
-        Surface(
-            // Same capsule shape as the readouts, but the fill is the level: one language.
-            shape = RoundedCornerShape(24.dp),
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 6.dp,
-            modifier = Modifier
-                // Centred on the speed button and clear of the thumb, so sliding continues
-                // without reaching across the screen and the reset hint is never covered.
-                .offset(x = offset, y = offsetYdp)
-                .wrapContentWidth()
+        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            val offset = if (anchor != Offset.Zero) {
+                with(density) { readoutLeft(anchor.x.toDp(), maxWidth, panelW) }
+            } else {
+                12.dp
+            }
+            val offsetY = if (anchor != Offset.Zero) {
+                with(density) { readoutTop(anchor.y.toDp(), maxHeight, panelH) }
+            } else {
+                64.dp
+            }
+            Surface(
+                // Same capsule shape as the readouts, but the fill is the level: one language.
+                shape = RoundedCornerShape(24.dp),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 6.dp,
+                modifier = Modifier
+                    // Centred on the finger and clear of the thumb, so sliding continues
+                    // without reaching across the screen and the reset hint is never covered.
+                    .offset(x = offset, y = offsetY)
+                    .wrapContentWidth()
                 // Swallow taps meant for the panel itself. A tap on the pill is the way home: it
                 // resets to 1.0x and closes, which is the one speed everybody wants back and the
                 // only one a drag makes awkward to reach.
@@ -2933,7 +3191,8 @@ private fun SpeedPanel(
                         onVerticalDrag = { _, delta ->
                             accumulated += -delta
                             val steps = (accumulated / 24f).roundToInt()
-                            val tenths = ((dragBase * 10).roundToInt() + steps).coerceIn(3, 50)
+                            val tenths = ((dragBase * 10).roundToInt() + steps)
+                                .coerceIn(lowestTenths, highestTenths)
                             if (tenths != lastTenths) {
                                 val previous = lastTenths
                                 lastTenths = tenths
@@ -2977,6 +3236,7 @@ private fun SpeedPanel(
                     color = Color.White,
                     modifier = Modifier.align(Alignment.Center),
                 )
+                }
             }
         }
     }

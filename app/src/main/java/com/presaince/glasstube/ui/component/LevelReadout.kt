@@ -82,23 +82,27 @@ val ReadoutWidth: Dp = 112.dp
 val ReadoutHeight: Dp = 56.dp
 
 /** Air between the finger and the readout's near edge, and air from the picture's own edges. */
-private val AboveGap = 24.dp
-private val BelowGap = 56.dp
+private val AboveGap = 40.dp
+private val BelowGap = 72.dp
 private val Edge = 8.dp
 
 /**
  * The readout's top edge for a finger at [fingerY]: clear above it, or below it when the finger
- * is too near the top of the picture for that. Either way it stays inside [pictureHeight].
+ * is too near the top of the picture for that. Either way it stays inside the picture, and inside
+ * [bandTop] when the caller has a level band — a pill that drifts into the top chrome is a pill
+ * over the controls the finger cannot reach.
  */
 fun readoutTop(
     fingerY: Dp,
     pictureHeight: Dp,
     pillHeight: Dp = ReadoutHeight,
+    bandTop: Dp = Edge,
 ): Dp {
     val above = fingerY - pillHeight - AboveGap
     val raw = if (above < Edge) fingerY + BelowGap else above
     val lastTop = (pictureHeight - pillHeight - Edge).coerceAtLeast(Edge)
-    return raw.coerceIn(Edge, lastTop)
+    val low = bandTop.coerceAtMost(lastTop)
+    return raw.coerceIn(low, lastTop)
 }
 
 /** The readout's left edge for a finger at [fingerX]: centred on it, inside the picture. */

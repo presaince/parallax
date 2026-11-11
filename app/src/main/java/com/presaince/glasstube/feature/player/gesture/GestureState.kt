@@ -27,11 +27,18 @@ fun zoneFor(x: Float, widthPx: Float, edgePx: Float): Zone = when {
  * gesture. Vertical means something in every zone: volume on the left, brightness on the right,
  * and the minimise drag in the middle. A vertical drag in the centre used to resolve to `None`,
  * which is why the minimise gesture never actually started.
+ *
+ * Horizontal has to *dominate*, not merely win: a swipe up with a millimetre of sideways drift
+ * used to lock horizontal on its first frame past the slop and raise the seek pill, which is what
+ * `222730` reported as "swiping up brings up seek pill". A finger has to travel [AXIS_BIAS] times
+ * further sideways than vertically before the gesture is a seek.
  */
+const val AXIS_BIAS = 1.5f
+
 fun resolveAxis(@Suppress("UNUSED_PARAMETER") zone: Zone, dx: Float, dy: Float, slopPx: Float): Axis =
     when {
         abs(dx) < slopPx && abs(dy) < slopPx -> Axis.None
-        abs(dx) > abs(dy) -> Axis.Horizontal
+        abs(dx) > abs(dy) * AXIS_BIAS -> Axis.Horizontal
         else -> Axis.Vertical
     }
 
@@ -51,14 +58,16 @@ data class TapZone(
 }
 
 /**
- * The zones that already own a press. The back arrow and the bug button sit in these corners, so a
- * tap there must not also toggle the controls behind them. Add to this list as the overlay grows.
+ * The zones that already own a press. The back arrow sits in the top-left corner, so a tap there
+ * must not also toggle the controls behind it. Add to this list as the overlay grows.
+ *
+ * The bug button used to have the top-right corner. It lives in the page's action row now, which
+ * is why there is one zone and not two.
  */
 object SurfaceTapZones {
     val back = TapZone("back", left = 0f, top = 0f, right = 0.17f, bottom = 0.24f)
-    val bug = TapZone("bug", left = 0.83f, top = 0f, right = 1f, bottom = 0.24f)
 
-    fun defaults(): List<TapZone> = listOf(back, bug)
+    fun defaults(): List<TapZone> = listOf(back)
 }
 
 /** -1 for the left half, +1 for the right half. */

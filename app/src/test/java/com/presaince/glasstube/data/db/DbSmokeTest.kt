@@ -116,6 +116,42 @@ class DbSmokeTest {
     }
 
     @Test
+    fun `the feed hides a video watched past the setting and shows it below`() = runTest {
+        val dao = db.videos()
+        dao.upsertAll(
+            listOf(
+                video(id = "half", publishedAt = 100, fetchedAt = 100),
+                video(id = "barely", publishedAt = 200, fetchedAt = 200),
+            ),
+        )
+        // 50% of the way through one video, 10% through the other.
+        db.progress().save(
+            ProgressEntity("half", "half", positionMs = 150_000, durationMs = 300_000, updatedAt = 1),
+        )
+        db.progress().save(
+            ProgressEntity("barely", "barely", positionMs = 30_000, durationMs = 300_000, updatedAt = 1),
+        )
+
+        // 205752: the cut is the reader's, from 1% to 100%.
+        assertEquals(listOf("barely"), dao.observeFeedHidingWatched(percent = 25).first().map { it.id })
+        assertEquals(
+            listOf("barely", "half"),
+            dao.observeFeedHidingWatched(percent = 75).first().map { it.id },
+        )
+    }
+
+    @Test
+    fun `a video history counts as watched leaves the feed at any setting`() = runTest {
+        db.videos().upsertAll(listOf(video(id = "a", fetchedAt = 1)))
+        db.history().add(history("a", openedAt = 100, watchedAt = 100))
+
+        assertEquals(
+            emptyList<String>(),
+            db.videos().observeFeedHidingWatched(percent = 100).first().map { it.id },
+        )
+    }
+
+    @Test
     fun `a replace upsert drops the learned like count at the dao level`() = runTest {
         val dao = db.videos()
         dao.upsertAll(listOf(video(id = "a", title = "first")))

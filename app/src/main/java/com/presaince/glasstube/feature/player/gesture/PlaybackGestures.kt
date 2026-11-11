@@ -11,12 +11,29 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
+import com.presaince.glasstube.core.LEVEL_BAND_BOTTOM_DP
+import com.presaince.glasstube.core.LEVEL_BAND_TOP_DP
+import com.presaince.glasstube.core.LEVEL_MAGNET_DP
+import com.presaince.glasstube.core.levelBandOf
+import com.presaince.glasstube.core.levelEndReach
+import com.presaince.glasstube.core.levelTravelFactor
 
 /** Pixels per millisecond. About 450 dp/s: a deliberate flick, not a slow drag. */
 private const val FLING_PX_PER_MS = 1.0f
 
 /** Height of the progress bar's touch band, measured up from the bottom of the picture. */
-private const val BAR_BAND_DP = 44f
+internal const val BAR_BAND_DP = 44f
+
+/**
+ * Whether a press landed on the progress bar. The bar is the picture's bottom edge, under the
+ * times, so the band is measured up from there. The corner exclusion the bar needed when it sat
+ * at the top is gone with it: the back arrow is the only control on the picture now, and it is
+ * nowhere near the bottom.
+ */
+internal fun inBarBand(y: Float, height: Float, bandPx: Float): Boolean {
+    if (height <= 0f) return false
+    return y >= height - bandPx
+}
 
 /**
  * One pointer stream, one state machine. Compose gives every pointer event to this loop, so the
@@ -29,8 +46,11 @@ private const val BAR_BAND_DP = 44f
 fun Modifier.playbackGestures(
     enabled: Boolean,
     onVerticalStart: (Zone, Offset) -> Unit,
-    /** Zone, the level's fraction of travel, and where the finger is now. */
-    onVerticalDelta: (Zone, Float, Offset) -> Unit,
+    /**
+     * Zone, the level's fraction of travel, where the finger is now, and +1 or -1 when this
+     * move has asked for the end of the range (see [levelEndReach]).
+     */
+    onVerticalDelta: (Zone, Float, Offset, Int) -> Unit,
     onVerticalEnd: () -> Unit,
     onHorizontalStart: (Float) -> Unit,
     onHorizontalDelta: (Float, Float) -> Unit,
@@ -59,7 +79,7 @@ fun Modifier.playbackGestures(
 
 private suspend fun PointerInputScope.detectPlaybackGestures(
     onVerticalStart: (Zone, Offset) -> Unit,
-    onVerticalDelta: (Zone, Float, Offset) -> Unit,
+    onVerticalDelta: (Zone, Float, Offset, Int) -> Unit,
     onVerticalEnd: () -> Unit,
     onHorizontalStart: (Float) -> Unit,
     onHorizontalDelta: (Float, Float) -> Unit,
@@ -77,9 +97,19 @@ private suspend fun PointerInputScope.detectPlaybackGestures(
         val width = size.width.toFloat()
         val height = size.height.toFloat()
         val zone = zoneFor(down.position.x, width, 24.dp.toPx())
-        // The progress bar: a band along the bottom edge. A sideways slide here puts the playhead
-        // under the finger directly, with no pill; a tap still reaches the controls.
-        val inBar = down.position.y >= height - BAR_BAND_DP.dp.toPx()
+        // The progress bar: a band along the bottom edge, under the times. A sideways slide here
+        // puts the playhead under the finger directly, with no pill; a tap still reaches the
+        // controls.
+        val inBar = inBarBand(down.position.y, height, BAR_BAND_DP.dp.toPx())
+        // The strip a level may move in: below the top chrome, above the bottom air, with a
+        // magnet at each end. Shared with the readout's placement, so the pill and the finger
+        // agree about where the ends are.
+        val band = levelBandOf(
+            heightPx = height,
+            topPx = LEVEL_BAND_TOP_DP.dp.toPx(),
+            bottomInsetPx = LEVEL_BAND_BOTTOM_DP.dp.toPx(),
+            magnetPx = LEVEL_MAGNET_DP.dp.toPx(),
+        )
         var barDragging = false
 
         var axis = Axis.None
@@ -90,8 +120,8 @@ private suspend fun PointerInputScope.detectPlaybackGestures(
         var lastX = down.position.x
         var lastY = down.position.y
 
-        // The seek gesture lives in the picture, not below it. A swipe that starts in the bottom
-        // band, or leaves the video, is not a seek: it is a tap or an abandoned gesture.
+        // The seek gesture lives in the picture, not on its bottom fifth. A swipe that starts
+        // there, or leaves the video, is not a seek: it is a tap or an abandoned gesture.
         val canSeek = down.position.y <= height * 0.80f
 
         fun downSpeed(now: Long): Float {
@@ -216,11 +246,12 @@ private suspend fun PointerInputScope.detectPlaybackGestures(
                         }
                         onVerticalDelta(
                             active,
-                            -dy / height,
+                            -dy / height * levelTravelFactor(change.position.y, band),
                             Offset(
                                 (change.position.x / width).coerceIn(0f, 1f),
                                 (change.position.y / height).coerceIn(0f, 1f),
                             ),
+                            levelEndReach(change.position.y, down.position.y, band),
                         )
                     }
                     Axis.Horizontal -> onHorizontalDelta(

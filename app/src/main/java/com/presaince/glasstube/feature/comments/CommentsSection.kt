@@ -280,6 +280,16 @@ private fun CommentRow(
     var expanded by remember(comment.id) { mutableStateOf(false) }
     var overflowing by remember(comment.id) { mutableStateOf(false) }
     val expandable = comment.replyCount > 0 || canReply || overflowing
+    // `105921`: a tap shows the most of what is hidden. A comment whose words fit is not folded, so
+    // tapping it used to do nothing visible even when it had ten replies underneath; the tap opens
+    // the replies instead.
+    val toggleMost: () -> Unit = {
+        when {
+            overflowing -> expanded = !expanded
+            comment.replyCount > 0 -> onToggleReplies()
+            else -> expanded = !expanded
+        }
+    }
     val context = LocalContext.current
     Surface(
         color = if (alignedSec != null) {
@@ -294,7 +304,7 @@ private fun CommentRow(
         Column(
             modifier = Modifier
                 .padding(10.dp)
-                .clickable(enabled = expandable) { expanded = !expanded },
+                .clickable(enabled = expandable, onClick = toggleMost),
         ) {
         // The name sits on the right, in the same column as the chevron: the words are what the
         // reader scans, and the author is the label on the way in. Tapping the name opens the
@@ -332,7 +342,7 @@ private fun CommentRow(
                 maxLines = if (expanded) Int.MAX_VALUE else 6,
                 style = MaterialTheme.typography.bodyMedium,
                 colour = MaterialTheme.colorScheme.onSurface,
-                onTapElsewhere = if (expandable) ({ expanded = !expanded }) else null,
+                onTapElsewhere = if (expandable) toggleMost else null,
                 // Only while folded: once open, the chevron has to stay so the card can close
                 // again, and "still overflowing" is what keeps it there.
                 onOverflow = { if (!expanded) overflowing = it },
@@ -486,7 +496,9 @@ private fun ReplyRow(reply: Comment) {
                 text = reply.text,
                 // A reply is short by nature; truncating one hides the sentence that answered.
                 maxLines = Int.MAX_VALUE,
-                style = MaterialTheme.typography.bodySmall,
+                // The same size as the comment it answers (`110831`): a reply is quieter through
+                // its indent and its name, not by shrinking the words somebody wrote.
+                style = MaterialTheme.typography.bodyMedium,
                 colour = MaterialTheme.colorScheme.onSurface,
             )
         }
@@ -497,6 +509,10 @@ private fun ReplyRow(reply: Comment) {
             },
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            // Likes and age end where the reply's name above them ends, so a thread reads as one
+            // column with both edges ruled (`205539`).
+            textAlign = androidx.compose.ui.text.style.TextAlign.End,
+            modifier = Modifier.fillMaxWidth(),
         )
     }
 }

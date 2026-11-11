@@ -63,6 +63,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import android.content.Context
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -71,10 +72,12 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.presaince.glasstube.R
 import com.presaince.glasstube.core.AppResult
+import com.presaince.glasstube.core.FeedProgress
 import com.presaince.glasstube.core.SortControl
 import com.presaince.glasstube.core.SortOption
 import com.presaince.glasstube.core.SortRow
 import com.presaince.glasstube.core.SortState
+import com.presaince.glasstube.core.refreshLabel
 import com.presaince.glasstube.core.timeAgo
 import kotlin.math.roundToInt
 import com.presaince.glasstube.data.db.GlassTubeDb
@@ -161,12 +164,12 @@ fun FeedScreen(
         !cardStyle.views && !cardStyle.likes &&
         !cardStyle.watches && !cardStyle.comments
 
-    if (history) {
-        HistoryList(
+    when (state.tab) {
+        FeedTab.HISTORY -> HistoryList(
             state = state,
             sortState = state.sortHistory,
             onSortState = viewModel::setSortHistory,
-            onSwitchTab = { viewModel.selectTab(FeedTab.FEED) },
+            onTab = viewModel::selectTab,
             onRefresh = viewModel::refresh,
             onOpenVideo = onOpenVideo,
             onOpenChannel = onOpenChannel,
@@ -175,12 +178,16 @@ fun FeedScreen(
             onUndo = viewModel::undoRemove,
             onClear = viewModel::clearHistory,
         )
-    } else {
-        FeedList(
+        FeedTab.HIDDEN -> HiddenList(
+            state = state,
+            onTab = viewModel::selectTab,
+            onUnhide = viewModel::unhide,
+        )
+        FeedTab.FEED -> FeedList(
             state = state,
             sortState = state.sortFeed,
             onSortState = viewModel::setSortFeed,
-            onSwitchTab = { viewModel.selectTab(FeedTab.HISTORY) },
+            onTab = viewModel::selectTab,
             onOpenVideo = onOpenVideo,
             onOpenChannel = onOpenChannel,
             subscribed = subscribed,
@@ -194,51 +201,68 @@ fun FeedScreen(
             hideLive = hideLive,
             pictureOnly = pictureOnly,
             cardStyle = cardStyle,
+            onHideVideo = viewModel::hideVideo,
+            onHideLiveChannel = viewModel::hideLiveChannel,
         )
     }
 }
 
 /**
- * The part of the feed that scrolls: sort on the left, the Feed/History switch on the right. It
- * moves with the list. While a refresh is running the sort control steps aside for the river, so
- * the one moving thing on screen is the one action happening; the pull-to-refresh indicator is
- * the standard one and has already gone by then.
+ * The part of the feed that scrolls: the sort control, then the three modes. While a refresh is
+ * running the sort control steps aside for the river plus a line saying where the refresh has got
+ * to — a counter, a percentage and the channel it has just passed, because an animation with no
+ * number is a wait nobody can plan around.
  */
 @Composable
 private fun FeedHeader(
-    history: Boolean,
+    tab: FeedTab,
     sortState: SortState,
     onSortState: (SortState) -> Unit,
     options: List<SortOption>,
     refreshing: Boolean,
-    onSwitchTab: () -> Unit,
+    progress: FeedProgress?,
+    onTab: (FeedTab) -> Unit,
+    showSort: Boolean = true,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(min = 48.dp)
-            .padding(top = 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (refreshing) {
-            SineRiver(
-                modifier = Modifier.weight(1f).height(28.dp).padding(end = 8.dp),
-                alpha = 0.55f,
-                speedMillis = 2600,
-            )
-        } else {
-            SortControl(
-                state = sortState,
-                onState = onSortState,
-                options = options,
-                modifier = Modifier.weight(1f),
-            )
+    Column(modifier = Modifier.fillMaxWidth().padding(top = 2.dp)) {
+        if (showSort) {
+            Row(
+                modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (refreshing) {
+                    SineRiver(
+                        modifier = Modifier.weight(1f).height(24.dp).padding(end = 8.dp),
+                        alpha = 0.55f,
+                        speedMillis = 2600,
+                    )
+                    if (progress != null) {
+                        Text(
+                            text = refreshLabel(progress),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                } else {
+                    SortControl(
+                        state = sortState,
+                        onState = onSortState,
+                        options = options,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
         }
-        ModeButton(
-            label = if (history) "Feed" else "History",
-            selected = history,
-            onClick = onSwitchTab,
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            ModeButton("Feed", tab == FeedTab.FEED) { onTab(FeedTab.FEED) }
+            ModeButton("History", tab == FeedTab.HISTORY) { onTab(FeedTab.HISTORY) }
+            ModeButton("Hidden", tab == FeedTab.HIDDEN) { onTab(FeedTab.HIDDEN) }
+        }
     }
 }
 
@@ -248,7 +272,7 @@ private fun FeedList(
     state: FeedUiState,
     sortState: SortState,
     onSortState: (SortState) -> Unit,
-    onSwitchTab: () -> Unit,
+    onTab: (FeedTab) -> Unit,
     onOpenVideo: (VideoSummary) -> Unit,
     onOpenChannel: (String, String) -> Unit,
     subscribed: Set<String>,
@@ -262,7 +286,12 @@ private fun FeedList(
     hideLive: Boolean,
     pictureOnly: Boolean,
     cardStyle: CardStyle,
+    onHideVideo: (VideoEntity, String) -> Unit,
+    onHideLiveChannel: (String, String) -> Unit,
 ) {
+    // The long press target. A dialog rather than a swipe: hiding is rare, and a gesture that
+    // removes things by accident needs an undo the feed does not have.
+    var hideTarget by remember { mutableStateOf<VideoEntity?>(null) }
     fun noteBadge(videoId: String): (@Composable () -> Unit)? {
         if (!cardStyle.notes) return null
         val n = state.noteCounts[videoId] ?: return null
@@ -329,7 +358,7 @@ private fun FeedList(
                     ) {
                         item(span = { GridItemSpan(maxLineSpan) }, key = "header") {
                             FeedHeader(
-                                history = false,
+                                tab = FeedTab.FEED,
                                 sortState = sortState,
                                 onSortState = { next ->
                                     anchorTop = gridState.firstVisibleItemIndex <= 1
@@ -342,7 +371,8 @@ private fun FeedList(
                                 },
                                 options = FEED_SORTS,
                                 refreshing = state.refreshing,
-                                onSwitchTab = onSwitchTab,
+                                progress = state.refreshProgress,
+                                onTab = onTab,
                             )
                         }
                         gridItems(videos, key = { it.id }) { video ->
@@ -351,6 +381,7 @@ private fun FeedList(
                                 watched = state.watchedFraction(video.id),
                                 style = cardStyle,
                                 onClick = { onOpenVideo(video.toSummary()) },
+                                onLongClick = { hideTarget = video },
                             )
                         }
                     }
@@ -385,7 +416,7 @@ private fun FeedList(
                     ) {
                         item(key = "header") {
                             FeedHeader(
-                                history = false,
+                                tab = FeedTab.FEED,
                                 sortState = sortState,
                                 onSortState = { next ->
                                     anchorTop = listState.firstVisibleItemIndex <= 1
@@ -398,7 +429,8 @@ private fun FeedList(
                                 },
                                 options = FEED_SORTS,
                                 refreshing = state.refreshing,
-                                onSwitchTab = onSwitchTab,
+                                progress = state.refreshProgress,
+                                onTab = onTab,
                             )
                         }
                         items(videos, key = { it.id }) { video ->
@@ -410,6 +442,7 @@ private fun FeedList(
                                 badge = noteBadge(video.id),
                                 onChannel = onOpenChannel,
                                 subscribed = video.channelName.lowercase() in subscribed,
+                                onLongClick = { hideTarget = video },
                             )
                         }
                         if (state.refreshing && state.videos.isEmpty()) {
@@ -426,6 +459,112 @@ private fun FeedList(
             }
         }
     }
+
+    // The long press's one question. Hiding is not destructive — the Hidden section puts any of
+    // it back — but it is a change the reader did not ask for by tapping, so it is confirmed.
+    hideTarget?.let { video ->
+        val live = video.streamState == "LIVE"
+        AlertDialog(
+            onDismissRequest = { hideTarget = null },
+            title = { Text("Leave this out of the feed?") },
+            text = {
+                Text(
+                    if (live) {
+                        "A live stream is on its own channel tab, so it is the one thing that sits " +
+                            "at the top of the feed until it ends. You can hide just this stream, " +
+                            "or this channel's live streams every time."
+                    } else {
+                        "Nothing is deleted. The video leaves the feed and waits in Hidden, " +
+                            "where one tap puts it back."
+                    },
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onHideVideo(video, "hidden by you")
+                        hideTarget = null
+                    },
+                ) { Text("Hide this video") }
+            },
+            dismissButton = {
+                Row {
+                    if (live && video.channelId != null) {
+                        TextButton(
+                            onClick = {
+                                onHideLiveChannel(video.channelId, video.channelName)
+                                hideTarget = null
+                            },
+                        ) { Text("Hide this channel's lives") }
+                    }
+                    TextButton(onClick = { hideTarget = null }) { Text("Cancel") }
+                }
+            },
+        )
+    }
+}
+
+/**
+ * What the feed leaves out. A hide you cannot find again is a delete, so this is a mode of the same
+ * screen rather than a setting: every row names what it is and offers the way back.
+ */
+@Composable
+private fun HiddenList(
+    state: FeedUiState,
+    onTab: (FeedTab) -> Unit,
+    onUnhide: (String) -> Unit,
+) {
+    val listState = rememberLazyListState()
+    LazyColumn(
+        state = listState,
+        contentPadding = PaddingValues(bottom = 84.dp),
+        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+    ) {
+        item(key = "header") {
+            FeedHeader(
+                tab = FeedTab.HIDDEN,
+                sortState = SortState(SortOption.DATE),
+                onSortState = {},
+                options = emptyList(),
+                refreshing = false,
+                progress = null,
+                onTab = onTab,
+                showSort = false,
+            )
+        }
+        if (state.hidden.isEmpty()) {
+            item(key = "empty") {
+                Text(
+                    text = "Nothing is hidden. Hold a card in the feed to leave it out, or hold a " +
+                        "live stream to hide that channel's lives as well.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(vertical = 16.dp),
+                )
+            }
+        }
+        items(state.hidden, key = { it.key }) { row ->
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                    Text(
+                        text = row.title,
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = row.reason,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                TextButton(onClick = { onUnhide(row.key) }) { Text("Unhide") }
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -434,7 +573,7 @@ private fun HistoryList(
     state: FeedUiState,
     sortState: SortState,
     onSortState: (SortState) -> Unit,
-    onSwitchTab: () -> Unit,
+    onTab: (FeedTab) -> Unit,
     onRefresh: () -> Unit,
     onOpenVideo: (VideoSummary) -> Unit,
     onOpenChannel: (String, String) -> Unit,
@@ -474,7 +613,7 @@ private fun HistoryList(
     PullToRefreshBox(
         isRefreshing = state.refreshing,
         onRefresh = {
-            onSwitchTab()
+            onTab(FeedTab.FEED)
             onRefresh()
         },
         modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
@@ -487,7 +626,7 @@ private fun HistoryList(
         ) {
             item(key = "header") {
                 FeedHeader(
-                    history = true,
+                    tab = FeedTab.HISTORY,
                     sortState = sortState,
                     onSortState = { next ->
                         anchorTop = listState.firstVisibleItemIndex <= 1
@@ -495,7 +634,8 @@ private fun HistoryList(
                     },
                     options = HISTORY_SORTS,
                     refreshing = false,
-                    onSwitchTab = onSwitchTab,
+                    progress = null,
+                    onTab = onTab,
                 )
             }
             item(key = "clear") {
@@ -651,21 +791,10 @@ private fun ModeButton(
                 },
             )
             .clickable(onClick = onClick)
-            .heightIn(min = 44.dp)
+            .heightIn(min = 40.dp)
             .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(
-            painter = painterResource(R.drawable.ic_history),
-            contentDescription = null,
-            tint = if (selected) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            },
-            modifier = Modifier.size(18.dp),
-        )
-        Spacer(Modifier.width(6.dp))
         Text(
             text = label,
             style = MaterialTheme.typography.labelLarge,

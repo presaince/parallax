@@ -138,6 +138,22 @@ interface VideoDao {
     )
     fun observeFeed(): Flow<List<VideoEntity>>
 
+    /**
+     * The feed with the videos this reader has finished taken out. Two ways a video counts as
+     * finished: history marked it watched, or the resume point is past [percent] of its length.
+     * The percentage is the setting; `205752` asked for it as a range from 1 to 100.
+     */
+    @Query(
+        "SELECT * FROM videos v WHERE TRIM(v.title) != '' " +
+            "AND NOT EXISTS (SELECT 1 FROM history h " +
+            "WHERE h.videoId = v.id AND h.watchedAt IS NOT NULL) " +
+            "AND NOT EXISTS (SELECT 1 FROM progress p " +
+            "WHERE p.videoId = v.id AND p.durationMs > 0 " +
+            "AND (p.positionMs * 100) >= (:percent * p.durationMs)) " +
+            "ORDER BY COALESCE(v.publishedAt, v.fetchedAt) DESC LIMIT 200",
+    )
+    fun observeFeedHidingWatched(percent: Int): Flow<List<VideoEntity>>
+
     @Query("SELECT MAX(fetchedAt) FROM videos")
     suspend fun lastFetchedAt(): Long?
 
@@ -268,6 +284,25 @@ interface RecipeDao {
     suspend fun pruneBuiltIns(names: List<String>)
 }
 
+/** What the feed leaves out, and what the Hidden section lists. */
+@Dao
+interface HiddenDao {
+    @Query("SELECT * FROM hidden_videos ORDER BY hiddenAt DESC")
+    fun observeAll(): Flow<List<HiddenRow>>
+
+    @Query("SELECT * FROM hidden_videos")
+    suspend fun all(): List<HiddenRow>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun hide(row: HiddenRow)
+
+    @Query("DELETE FROM hidden_videos WHERE key = :key")
+    suspend fun unhide(key: String)
+
+    @Query("DELETE FROM hidden_videos WHERE videoId = :videoId")
+    suspend fun unhideVideo(videoId: String)
+}
+
 @Database(
     entities = [
         SubscriptionEntity::class,
@@ -280,8 +315,9 @@ interface RecipeDao {
         ResyncEntity::class,
         AiChapterEntity::class,
         RecipeEntity::class,
+        HiddenRow::class,
     ],
-    version = 12,
+    version = 13,
     exportSchema = true,
 )
 abstract class GlassTubeDb : RoomDatabase() {
@@ -295,6 +331,7 @@ abstract class GlassTubeDb : RoomDatabase() {
     abstract fun resync(): ResyncDao
     abstract fun aiChapters(): AiChapterDao
     abstract fun recipes(): RecipeDao
+    abstract fun hidden(): HiddenDao
 
     companion object {
         /** v6 added thumbnails to the two playback tables so history rows are not blank. */
@@ -363,6 +400,19 @@ abstract class GlassTubeDb : RoomDatabase() {
                 )
                 db.execSQL("DROP TABLE `history`")
                 db.execSQL("ALTER TABLE `history_new` RENAME TO `history`")
+            }
+        }
+
+        /** v13 the feed's hidden set: one row per hidden video, or per channel's live streams. */
+        val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `hidden_videos` (" +
+                        "`key` TEXT NOT NULL, `videoId` TEXT, `channelUrl` TEXT, " +
+                        "`title` TEXT NOT NULL, `thumbUrl` TEXT, `liveOnly` INTEGER NOT NULL, " +
+                        "`reason` TEXT NOT NULL, `hiddenAt` INTEGER NOT NULL, " +
+                        "PRIMARY KEY(`key`))",
+                )
             }
         }
     }

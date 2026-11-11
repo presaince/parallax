@@ -96,15 +96,15 @@ fun LinkifiedText(
             detectTapGestures { position ->
                 val laidOut = layout
                 val offset = laidOut?.getOffsetForPosition(position)
-                val annotation = offset?.let { at ->
+                val url = offset?.let { at ->
                     annotated.getStringAnnotations("URL", at, at).firstOrNull()
                 }
-                if (annotation == null) {
+                if (url == null) {
                     onTapElsewhere?.invoke()
                     return@detectTapGestures
                 }
                 runCatching {
-                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(absoluteUrl(annotation.item))))
+                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(absoluteUrl(url.item))))
                 }
             }
         },

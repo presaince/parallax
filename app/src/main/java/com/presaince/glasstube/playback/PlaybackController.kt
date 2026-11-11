@@ -4,11 +4,15 @@
  */
 package com.presaince.glasstube.playback
 
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.SharedPreferences
 import android.net.Uri
 import androidx.core.content.ContextCompat
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
@@ -26,6 +30,8 @@ import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import com.presaince.glasstube.core.AppLog
 import com.presaince.glasstube.core.AppResult
+import com.presaince.glasstube.core.NetworkMonitor
+import com.presaince.glasstube.core.transportLabel
 import com.presaince.glasstube.data.db.HistoryEntity
 import com.presaince.glasstube.data.db.GlassTubeDb
 import com.presaince.glasstube.data.db.ProgressEntity
@@ -70,6 +76,13 @@ data class PlaybackState(
     val stalledForMs: Long = 0L,
     /** Quiet recovery tries spent on this video, so the pill knows when to become the way back. */
     val recoveryAttempts: Int = 0,
+    /**
+     * The phone has no usable connection. Read from the system, not guessed from a failed
+     * request: a stream error while offline is not a fault to spend a retry on.
+     */
+    val networkDown: Boolean = false,
+    /** How much of the stream ExoPlayer is holding, 0..100. Only the buffering pill reads it. */
+    val bufferedPercent: Int = 0,
 )
 
 /**
@@ -90,14 +103,44 @@ const val STALL_RETRY_LIMIT = 2
  * spent, and either a stream raised an error or it has gone quiet for [STALL_LIMIT_MS]. Pure, so
  * the retry rule has a test without a device. Pausing is not this function's business: the
  * stopwatch only runs while the player is trying to play, so a paused player never reaches it.
+ *
+ * A phone with no connection is not a stream that failed. Spending a try there is how a DNS drop
+ * used to leave a video dead: both tries burned while there was nothing to reach, and no budget
+ * left for the moment the connection came back. The error is still there when it does, so the
+ * retry happens then instead.
  */
 internal fun shouldRecover(
     hasVideo: Boolean,
     hasError: Boolean,
     stalledForMs: Long,
     attemptsUsed: Int,
+    networkDown: Boolean = false,
 ): Boolean =
-    hasVideo && attemptsUsed < STALL_RETRY_LIMIT && (hasError || stalledForMs >= STALL_LIMIT_MS)
+    hasVideo && !networkDown && attemptsUsed < STALL_RETRY_LIMIT &&
+        (hasError || stalledForMs >= STALL_LIMIT_MS)
+
+/**
+ * What a press on play or pause should do. ExoPlayer in [Player.STATE_IDLE] with an item loaded
+ * ignores `play()`: it is waiting to be prepared, not to be told to play. That is the fault the
+ * reports called "won't play, no toast, no log, restart fixed it" — the press did nothing, so
+ * nothing was logged and nothing was shown. Pure, so the four cases have a test.
+ */
+internal enum class PlayAction { Nothing, Play, Pause, Restart, Reprepare }
+
+internal fun playAction(
+    playbackState: Int,
+    hasMedia: Boolean,
+    hasError: Boolean,
+    isPlaying: Boolean,
+): PlayAction = when {
+    // Nothing loaded: there is no item to prepare, so this is a no-op rather than a fault.
+    !hasMedia -> PlayAction.Nothing
+    // A failed stream leaves the player IDLE, and so does anything else that took the media away.
+    hasError || playbackState == Player.STATE_IDLE -> PlayAction.Reprepare
+    playbackState == Player.STATE_ENDED -> PlayAction.Restart
+    isPlaying -> PlayAction.Pause
+    else -> PlayAction.Play
+}
 
 /** A sponsor seek during buffering discards what ExoPlayer buffered and restarts it. */
 internal fun shouldSkipSegment(playbackState: Int): Boolean = playbackState == Player.STATE_READY
@@ -108,6 +151,18 @@ internal fun shouldSkipSegment(playbackState: Int): Boolean = playbackState == P
  */
 internal fun playerDataSourceFactory(client: OkHttpClient): DataSource.Factory =
     OkHttpDataSource.Factory(client)
+
+/**
+ * What the player tells the audio system it is. Usage matters more than content type: `USAGE_MEDIA`
+ * is what every other media app asks for, so a focus request from NewPipe collides with this one
+ * instead of taking focus beside it. Paired with `handleAudioFocus = true` at the player, this is
+ * the whole of the rule that another app's video pauses this one.
+ */
+internal fun mediaAudioAttributes(): AudioAttributes =
+    AudioAttributes.Builder()
+        .setUsage(C.USAGE_MEDIA)
+        .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+        .build()
 
 /**
  * The disk cache key for one stream file: the video plus its itag. Signed URLs change on every
@@ -164,6 +219,37 @@ class PlaybackController(
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
+    /**
+     * The connection, as a value. The tick reads it to decide whether a retry is worth spending;
+     * the pill reads it to say "no connection" instead of blaming the stream.
+     */
+    private val network = NetworkMonitor(appContext)
+
+    /**
+     * Whether the display is on. Seeded from the PowerManager and kept current by [screenReceiver],
+     * so the tick loop does not ask a system service four times a second.
+     */
+    private var screenOn: Boolean = true
+
+    /**
+     * The screen is the only thing that decides this. The controller lives for the whole process,
+     * so the receiver is registered once and never taken down.
+     */
+    private val screenReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.action) {
+                Intent.ACTION_SCREEN_OFF -> {
+                    screenOn = false
+                    setVideoTrackEnabled(false)
+                }
+                Intent.ACTION_SCREEN_ON -> {
+                    screenOn = true
+                    setVideoTrackEnabled(true)
+                }
+            }
+        }
+    }
+
     val player: ExoPlayer = ExoPlayer.Builder(appContext)
         // A fat buffer behind the playhead: seeking back 30s must play immediately, not re-queue.
         // The disk cache holds the rest; the memory stops at 60s because at 1080p and above every
@@ -186,7 +272,17 @@ class PlaybackController(
                 .setPrioritizeTimeOverSizeThresholds(true)
                 .build(),
         )
+        // The screen going off is expected to leave the sound running. Without a wake lock the CPU
+        // may sleep between buffers, and with the video track disabled there is no decoder holding
+        // it up either. NETWORK lets it sleep while the buffer is full.
+        .setWakeMode(C.WAKE_MODE_NETWORK)
         .build()
+        .apply {
+            // ExoPlayer's default is no audio focus at all: it never asks, so it never hears that
+            // another app started playing and both soundtracks run over each other. Taking focus
+            // is what makes a second player stop this one.
+            setAudioAttributes(mediaAudioAttributes(), /* handleAudioFocus = */ true)
+        }
 
     /**
      * Stream bytes on disk, capped by the user's setting. Everything the player buffers while
@@ -240,11 +336,14 @@ class PlaybackController(
     /**
      * The muxed item, or video and audio merged, through the cache-aware factory. One shape for
      * playback and for the SponsorBlock prefetch, so both read and warm the same cache keys.
+     * [audioOnly] drops the video source from a split set: the prefetch asks for it while the
+     * screen is off, where only the sound will be heard.
      */
     private fun mediaSourceFor(
         videoId: String,
         streams: StreamSet,
         metadata: MediaMetadata? = null,
+        audioOnly: Boolean = false,
     ): MediaSource {
         val factory = mediaFactoryFor(videoId)
         fun item(url: String): MediaItem {
@@ -254,10 +353,9 @@ class PlaybackController(
         }
         val muxed = streams.muxedUrl
         if (muxed != null) return factory.createMediaSource(item(muxed))
-        return MergingMediaSource(
-            factory.createMediaSource(item(requireNotNull(streams.videoUrl))),
-            factory.createMediaSource(MediaItem.fromUri(requireNotNull(streams.audioUrl))),
-        )
+        val video = factory.createMediaSource(item(requireNotNull(streams.videoUrl)))
+        val audio = factory.createMediaSource(MediaItem.fromUri(requireNotNull(streams.audioUrl)))
+        return if (audioOnly) audio else MergingMediaSource(video, audio)
     }
 
     private val _state = MutableStateFlow(
@@ -302,7 +400,7 @@ class PlaybackController(
         context = appContext,
         scope = scope,
         log = log,
-    ) { videoId, streams -> mediaSourceFor(videoId, streams) }
+    ) { videoId, streams, audioOnly -> mediaSourceFor(videoId, streams, audioOnly = audioOnly) }
 
     private var segments: List<Segment> = emptyList()
     private var rawSegments: List<Segment> = emptyList()
@@ -344,6 +442,16 @@ class PlaybackController(
     private var recoveryAttempts = 0
 
     init {
+        screenOn = screenInteractive()
+        ContextCompat.registerReceiver(
+            appContext,
+            screenReceiver,
+            IntentFilter().apply {
+                addAction(Intent.ACTION_SCREEN_OFF)
+                addAction(Intent.ACTION_SCREEN_ON)
+            },
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
         player.addListener(object : Player.Listener {
             override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
                 _state.update {
@@ -379,9 +487,14 @@ class PlaybackController(
                     log.info("player", "ready in ${System.currentTimeMillis() - playStartedAtMs}ms for $currentVideoId")
                 }
                 // IDLE with a video loaded means something took the media away. It is the only
-                // clue when a stream stops on its own, so the log names it.
+                // clue when a stream stops on its own, so the log names it — and names what the
+                // player was doing, because the press that then did nothing left no other trace.
                 if (playbackState == Player.STATE_IDLE && currentVideoId != null && !preparing) {
-                    log.warn("player", "idle while loaded: $currentVideoId at ${player.currentPosition}ms")
+                    log.warn(
+                        "player",
+                        "idle while loaded: $currentVideoId at ${player.currentPosition}ms " +
+                            "items=${player.mediaItemCount} wantPlay=${player.playWhenReady}",
+                    )
                 }
                 val resume = pendingResumeMs
                 if (playbackState == Player.STATE_READY && resume != null) {
@@ -420,6 +533,19 @@ class PlaybackController(
         })
 
         scope.launch {
+            // One line per change, never one per tick: a dropped connection used to reach the log
+            // as two failed retries per video, which read like the app was at fault.
+            var last: Boolean? = null
+            network.online.collect { up ->
+                _state.update { it.copy(networkDown = !up) }
+                if (last != null && last != up) {
+                    log.info("player", if (up) "network back" else "network lost")
+                }
+                last = up
+            }
+        }
+
+        scope.launch {
             while (isActive) {
                 tick()
                 delay(TICK_MS)
@@ -445,7 +571,7 @@ class PlaybackController(
         if (videoId != currentVideoId) recoveryAttempts = 0
         val host = streams.muxedUrl?.let { hostOf(it) }
             ?: listOfNotNull(streams.videoUrl, streams.audioUrl).joinToString(",") { hostOf(it) }
-        log.info("player", "play $videoId (${if (streams.muxedUrl != null) "muxed" else "split"} host=$host net=${networkLabel()})")
+        log.info("player", "play $videoId (${if (streams.muxedUrl != null) "muxed" else "split"} host=$host net=${transportLabel(appContext)})")
 
         if (
             canReuseLoadedMedia(
@@ -516,6 +642,9 @@ class PlaybackController(
         player.setMediaSource(mediaSourceFor(videoId, streams, metadata))
 
         currentStreams = streams
+        // A play that starts with the screen already off must not open the video source at all.
+        // Set before prepare, which is where the track selection is first built.
+        setVideoTrackEnabled(screenOn)
         lastSkipEndMs = -1L
         prefetchedEndMs = null
         sponsorPrefetch.cancel()
@@ -607,24 +736,35 @@ class PlaybackController(
     }
 
     fun togglePlayPause() {
-        val playerError = player.playerError
-        if (playerError != null) {
-            // A paused stream can expire its URL. Re-preparing with the same URL is the cheap
-            // try; if it fails again the log says so and the picture stays where it was.
-            log.warn(
-                "player",
-                "play pressed while in error ${playerError.errorCodeName}; re-preparing $currentVideoId",
+        when (
+            val action = playAction(
+                playbackState = player.playbackState,
+                hasMedia = player.mediaItemCount > 0,
+                hasError = player.playerError != null,
+                isPlaying = player.isPlaying,
             )
-            player.prepare()
-            player.playWhenReady = true
-            return
+        ) {
+            // A paused stream can expire its URL, and an IDLE player ignores play(). Re-preparing
+            // with the same item is the cheap try for both; the log says which one happened,
+            // because a press that does nothing is the fault this branch exists to end.
+            PlayAction.Reprepare -> {
+                log.warn(
+                    "player",
+                    "play pressed while " +
+                        "${if (player.playerError != null) "in error ${player.playerError?.errorCodeName}" else "idle"}" +
+                        "; re-preparing $currentVideoId",
+                )
+                player.prepare()
+                player.playWhenReady = true
+            }
+            PlayAction.Restart -> {
+                player.seekTo(0)
+                player.play()
+            }
+            PlayAction.Pause -> player.pause()
+            PlayAction.Play -> player.play()
+            PlayAction.Nothing -> log.warn("player", "play pressed with nothing loaded")
         }
-        if (player.playbackState == Player.STATE_ENDED) {
-            player.seekTo(0)
-            player.play()
-            return
-        }
-        if (player.isPlaying) player.pause() else player.play()
     }
 
     fun seekTo(positionMs: Long) {
@@ -769,7 +909,7 @@ class PlaybackController(
         log.warn(
             "player",
             "${if (afterError) "error" else "stall"} recovery $recoveryAttempts/$STALL_RETRY_LIMIT " +
-                "for $videoId at ${position}ms net=${networkLabel()}",
+                "for $videoId at ${position}ms net=${transportLabel(appContext)}",
         )
         recoveryJob = scope.launch {
             // The failed read gets a beat to close instead of racing the new one, which is why
@@ -811,18 +951,34 @@ class PlaybackController(
             log.warn(
                 "player",
                 "stalled ${stalled}ms on $currentVideoId at ${player.currentPosition}ms " +
-                    "net=${networkLabel()}",
+                    "net=${transportLabel(appContext)}",
             )
         }
         if (stalled != current.stalledForMs) {
             _state.update { it.copy(stalledForMs = stalled) }
+        }
+        // The buffering pill's percentage. Only published while the picture is actually waiting,
+        // so a playing video does not churn the state four times a second.
+        val buffered = if (player.playbackState == Player.STATE_BUFFERING) {
+            player.bufferedPercentage.coerceIn(0, 100)
+        } else {
+            0
+        }
+        if (buffered != current.bufferedPercent) {
+            _state.update { it.copy(bufferedPercent = buffered) }
         }
 
         // Recovery is owned here, not by the screen: a stall on the mini-player or with the
         // activity gone still gets its two tries, and the budget is per video, not per visit.
         if (
             recoveryJob?.isActive != true &&
-            shouldRecover(currentVideoId != null, current.playerError != null, stalled, recoveryAttempts)
+            shouldRecover(
+                hasVideo = currentVideoId != null,
+                hasError = current.playerError != null,
+                stalledForMs = stalled,
+                attemptsUsed = recoveryAttempts,
+                networkDown = current.networkDown,
+            )
         ) {
             recover(afterError = current.playerError != null)
         }
@@ -856,7 +1012,9 @@ class PlaybackController(
                 )
                 if (target != null) {
                     prefetchedEndMs = target
-                    sponsorPrefetch.start(videoId, streams, target)
+                    // With the screen off the far side is played as sound, so warming the video
+                    // bytes there would be a second download for nothing.
+                    sponsorPrefetch.start(videoId, streams, target, audioOnly = !screenOn)
                 }
             }
         }
@@ -996,17 +1154,35 @@ class PlaybackController(
         return resolved
     }
 
-    /** The pipe READY depends on, so logs can tell wifi from LTE without a guess. */
-    private fun networkLabel(): String = runCatching {
-        val cm = appContext.getSystemService(android.net.ConnectivityManager::class.java) ?: return "unknown"
-        val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return "none"
-        when {
-            caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) -> "wifi"
-            caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR) -> "lte"
-            caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET) -> "eth"
-            else -> "other"
-        }
-    }.getOrDefault("unknown")
+    /**
+     * Audio only while the screen is off. Disabling the video track stops ExoPlayer reading the
+     * video source at all, so the bytes stop with it; the audio source keeps its position and is
+     * never re-prepared, so the sound does not gap. Turning it back on needs a keyframe and a
+     * decoder, which is the frozen picture for a moment when the screen returns — not a rebuffer,
+     * and not a fresh fetch of streams.
+     *
+     * Only a split stream can do this. Inside one muxed file the video bytes sit between the audio
+     * bytes, so nothing is saved and the toggle is left alone.
+     */
+    private fun setVideoTrackEnabled(enabled: Boolean) {
+        // Nothing loaded: there is no track to toggle, and the log would only be noise.
+        if (currentVideoId == null) return
+        val parameters = player.trackSelectionParameters.buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, !enabled)
+            .build()
+        player.trackSelectionParameters = parameters
+        log.info(
+            "player",
+            "video track ${if (enabled) "on" else "off"} for $currentVideoId " +
+                "shape=${if (currentStreams?.muxedUrl == null) "split" else "muxed"}",
+        )
+    }
+
+    /** Whether the display is on, so a play started behind a locked screen stays audio-only. */
+    private fun screenInteractive(): Boolean = runCatching {
+        val power = appContext.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+        power?.isInteractive ?: true
+    }.getOrDefault(true)
 
     companion object {
         const val TICK_MS = 250L

@@ -34,7 +34,12 @@ class PlaybackService : MediaSessionService() {
 
     private val listener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
-            if (isPlaying) updateNotification()
+            // Both directions repaint. A focus loss pauses the player while playWhenReady stays
+            // true, so no playWhenReady change arrives — this event is the only sign that another
+            // app took the sound. Without it the shade keeps a pause button over silence, and a
+            // pause the user did ask for leaves the same stale button.
+            val state = player.playbackState
+            if (state == Player.STATE_READY || state == Player.STATE_BUFFERING) updateNotification()
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {

@@ -26,9 +26,12 @@ fun seekDelta(seconds: Long): String = when {
     else -> "0s"
 }
 
-/** The undo chip's sentence: how far the seek moved, and nothing else. */
+/**
+ * The undo chip's sentence: how far the seek moved, and nothing else. "Seek", not "Seeked": the
+ * chip names the thing that happened, and the tense was doing no work the reader needed.
+ */
 fun seekUndoLabel(beforeMs: Long, afterMs: Long): String =
-    "Seeked ${seekDelta((afterMs - beforeMs) / 1000)}"
+    "Seek ${seekDelta((afterMs - beforeMs) / 1000)}"
 
 /** Singular and plural in one place. "1 replies" is not an output the app may produce. */
 fun plural(count: Long, singular: String, plural: String = defaultPlural(singular)): String =

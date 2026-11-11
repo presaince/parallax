@@ -30,4 +30,13 @@ class LinkifiedTextTest {
         assertEquals("https://www.example.com/a", absoluteUrl("www.example.com/a"))
         assertEquals("https://example.com/a", absoluteUrl("https://example.com/a"))
     }
+
+    @Test
+    fun `a handle is not a link, because the sentence never names a network`() {
+        // 205649 came back the same evening: `@mattkratter` under "Follow me on Twitter" was
+        // opened as youtube.com/@mattkratter. A bare handle belongs to whatever site the sentence
+        // named, so it stays words.
+        val text = "Follow me on Twitter: @mattkratter"
+        assertEquals(emptyList<IntRange>(), linkRanges(text))
+    }
 }

@@ -47,13 +47,13 @@ class TimeTest {
     fun `a seek undo names the seconds as well as where it landed`() {
         // The report: "seek undo should say secs seek too". The distance is the part a person
         // remembers; the position is the part they check.
-        assertEquals("Seeked +12s", seekUndoLabel(beforeMs = 48_000, afterMs = 60_000))
-        assertEquals("Seeked \u221245s", seekUndoLabel(beforeMs = 60_000, afterMs = 15_000))
+        assertEquals("Seek +12s", seekUndoLabel(beforeMs = 48_000, afterMs = 60_000))
+        assertEquals("Seek \u221245s", seekUndoLabel(beforeMs = 60_000, afterMs = 15_000))
     }
 
     @Test
     fun `a seek under a second does not round itself into a lie`() {
-        assertEquals("Seeked 0s", seekUndoLabel(beforeMs = 30_000, afterMs = 30_400))
+        assertEquals("Seek 0s", seekUndoLabel(beforeMs = 30_000, afterMs = 30_400))
         assertEquals("+1s", seekDelta(1))
         assertEquals("0s", seekDelta(0))
     }

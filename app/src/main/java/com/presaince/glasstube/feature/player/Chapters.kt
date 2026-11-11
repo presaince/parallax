@@ -7,6 +7,22 @@ package com.presaince.glasstube.feature.player
 /** A timestamped line from a description: "0:00 Intro", "1:23:45 The deep end". */
 data class Chapter(val atSec: Long, val title: String)
 
+/**
+ * How the chapter list is drawn. [Hidden] is a real state, not a missing one: the description
+ * carries the same timestamps as tappable rows, so a reader can keep the text version and drop
+ * the card row above it.
+ */
+enum class ChaptersStyle(val stored: Int) {
+    Row(0),
+    List(1),
+    Hidden(2),
+    ;
+
+    companion object {
+        fun of(stored: Int): ChaptersStyle = entries.firstOrNull { it.stored == stored } ?: Row
+    }
+}
+
 /** The chapter the playhead is inside, or -1 before the first mark. */
 fun activeChapterIndex(chapters: List<Chapter>, positionMs: Long): Int =
     chapters.indexOfLast { it.atSec <= positionMs / 1000 }

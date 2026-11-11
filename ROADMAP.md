@@ -8,6 +8,144 @@ place. The shell and the second UI pass landed 2026-11-05 (bottom navigation, th
 inline comments, mini-player, pull-to-refresh); the device check for that pass is still pending.
 No git repo — Bodi tests a build for a few days first.
 
+## A refresh with a number, and a feed you can leave things out of, 2026-11-11
+
+Fifth pass on the 0.3.11 batch, from what the owner found while using the last two builds.
+
+- **The refresh says where it is.** `ContentRepository.feedProgress` is a `StateFlow<FeedProgress?>`
+  published per channel — `12 of 47 · 26% · Hard Reset` — and cleared in a `finally`, so a cancelled
+  refresh cannot leave a counter on screen. `FeedProgress` and `refreshLabel` are in `core/`, and
+  `FeedProgressTest` pins the flooring (47 of 48 is 97%, never 100%) and the blank-name case.
+- **Long press a card to leave it out of the feed.** Hide is a Room table (`hidden_videos`, v13,
+  `MIGRATION_12_13`, `schemas/13.json`), not a column: a refresh REPLACEs every video row, so a flag
+  there would be wiped on the next fetch. A hidden row copies the title and picture, so the Hidden
+  list still names a video that has left the feed.
+- **Two scopes, one table.** `hide this video`, and — on a live stream — `hide this channel's live
+  streams`, keyed `live:<channelUrl>` and applied only to `LIVE` rows of that channel, because a
+  perm-live channel's uploads are still worth having. `visibleVideos` is the pure filter and
+  `HiddenTest` covers both kinds, the overlap, and the keys staying distinct.
+- **Hidden is a mode, not a setting.** The header's single History pill became `Feed · History ·
+  Hidden`, and the Hidden list shows the title, the reason ("private or removed", "hidden by you")
+  and one Unhide. A hide you cannot find again is a delete.
+- **A permanent failure can hide itself.** The player's dead-stream screen now offers **Hide this
+  video**, which writes the row with the extractor's own reason. That is the answer to the live
+  stream that opens to "private" — a members-only stream cannot play here, so the fix is to stop
+  the feed offering it, one tap, with a record of why.
+- **The player's Up next card had the wrong inner padding** (16dp all round against 16/4 in every
+  other card), which made it taller than its neighbours for no reason. Now 16/4 like the rest.
+- Verified: `:app:testDebugUnitTest` (422 tests, 0 failures, 3 skipped) and `:app:assembleDebug`,
+  installed on the Pixel 7 over the existing build.
+- **Needs the phone**: a refresh that counts up as it goes; a long press that hides a card and a
+  live stream; the Hidden list unhiding one; and the Up next card matching the others.
+- **Not built, deliberately**: hidden rows do not filter Bored or Search. Those are "find me
+  something" surfaces, and a matching video is a true answer there.
+
+## Surfaces, the bug sheet, and a quality that steps down, 2026-11-11Fourth pass on the 0.3.11 batch. It starts with the two chrome moves the owner asked for while the
+last build was going in, then takes everything on the list that had no unknown in it.
+
+- **Speed, quality and fullscreen are the picture's top row.** The bar owns the bottom edge, so the
+  strip moved to `TopCenter` with 48dp of start padding for the back arrow. The sponsor chips and
+  the clip banner dropped to 64dp so they clear it, and the status pill moved to 40dp above the
+  bar.
+- **The bug button is on the left of the action row**, share and open-in-browser on the right, so a
+  mis-aimed thumb does not file a report.
+- **A tap on a comment opens the most of what is hidden** (`105921`): the text if it was cut off,
+  otherwise its replies. Unfolding a comment whose words already fit used to be a tap that did
+  nothing visible. A reply's body is now the same size as the comment's (`110831`); the indent and
+  the name are what make it quieter.
+- **The player's sections are rounded cards** (`114914`) through one `Modifier.playerCard()`; the
+  chevrons were already there. The notes body stays outside its card, because a card that opens is
+  a header and its content, not one box.
+- **The scrub pill follows the finger** (`111834`) instead of centring itself on the picture, using
+  the same clamp the level readouts use.
+- **The speed panel and the dial stop where the presets stop** (`111118`). The panel used to walk
+  0.3–5.0 regardless of the reader's list.
+- **The bug sheet keeps its draft** (`110857`) in a small object outside the composition, cleared
+  only when the server has the report, and **the log below shows the filed line** (`113229`) because
+  the snapshot is retaken when a report lands.
+- **A video that keeps stalling drops one stop** (`110114`). `lowerStop` is the pure rule
+  (Auto steps to 720, the smallest stop has nowhere to go), the pick is written to the ladder in
+  force, and a toast says what happened. `111445` is answered rather than fixed: a lower stop is a
+  different file, so there is nothing buffered to reuse — the pill now says **"Switching quality…"**
+  instead of reading like a stall.
+- **The buffering pill carries its percentage** (`120655`): `PlaybackState.bufferedPercent`, sampled
+  only while the picture is waiting.
+- **The feed can hide what you have watched** (`205752`): it already could, from the Feed section's
+  slider; this pass only removed a duplicate filter it briefly grew. **Live streams now reach the
+  feed** (`104716`): the uploads list never carries a stream that is happening now, so a refresh
+  asks each channel's Live tab too — but only for channels whose own tab list reports one, because
+  asking a channel without it is a failure the repair path would log as a fault. `feed_live` turns
+  it off, which halves the requests per refresh.
+- **Auto starts every video at 720p** (`115657`). On Wi-Fi Auto used to be uncapped, which on this
+  phone is Full HD video-only plus a separate audio track: two connections and twice the bytes
+  before the first frame, and the reports show fifteen-second first frames. `firstLoadHeight` is now
+  one rule for both connections, the pill still reports what actually played ("Auto (720p)"), and an
+  explicit stop is still honoured, so the ladder above 720 is one tap away rather than the default.
+  `lowerStop` steps down from Auto to 720 when a video keeps stalling.
+- Verified: `:app:testDebugUnitTest` (411 tests, 0 failures, 3 skipped) and `:app:assembleDebug`,
+  installed on the Pixel 7 over the existing build.
+- **Needs the phone**: the top strip against the bar at the bottom, a comment that opens its
+  replies on one tap, the cards, the panel stopping at 2.0x if that is where the presets stop, and
+  a report that is still there after backing out and returning.
+- **Still open, and why**: `110306` (a picture that reverts to the previous video — the 720p cap
+  should stop the stall that precedes it, but the revert itself is not explained), `112435`
+  (captions), `215202` (audio EQ), `113155` (a back swipe that does nothing).
+
+## The bar at the bottom, a band the finger can reach, and a page in the reader's order, 2026-11-11
+
+Third pass on the 0.3.11 batch. The reports were all note-only except `115657`, and two of them
+were about the same fault from different ends.
+
+- **The progress bar is the picture's bottom edge, with a time at each end.** `111214` ("move the
+  progress bar back to bottom of video") reverses the top placement from yesterday, and `112240`
+  says how: the bar belongs *between* the elapsed time and the length, not beside a "0:42 / 12:07"
+  cell. `progressLine` is a Row of time, track, length now, the playhead dot sits on the track's
+  centre line instead of straddling it, and the control strip moved up 34dp to clear it. The strip
+  lost its own copy of the times, because the bar carries them.
+- **The bar's touch band followed it to the bottom** (`inBarBand`, `BAR_BAND_DP` up from the bottom)
+  and the two corner exclusions went with the bar: there is one dead zone on the picture now, the
+  back arrow's.
+- **A level behaves on a band, and the ends are a magnet.** `core/LevelBand.kt` is the rule: the
+  strip starts 44dp below the top of the picture and 12dp above the bottom, a finger outside it
+  moves nothing (so a drag can no longer creep a level while the thumb grinds at the status bar),
+  and entering the last 12dp at either end means that end. This is the answer to `111118`'s "my
+  finger has to swipe to uncomfy top screen pos to try and reach 100": the rate is unchanged, but
+  the last few percent no longer need centimetres the screen does not have. A drag that *starts*
+  inside an end zone is disarmed for that end on purpose — otherwise a swipe that began at 95% of
+  the height would jump the volume to full on its first pixel. `LevelBandTest` pins all of it,
+  including the short-picture case where the magnets would meet.
+- **The readout takes the band as well** (`readoutTop`'s `bandTop`), so the pill cannot drift into
+  the chrome the finger cannot reach.
+- **The description keeps its timestamps.** `descriptionBody` was filtering every chapter line out
+  once the parser found three, on the argument that the same list twice is noise. The text version
+  is the only one that is selectable and copyable, so the lines stay, and the duplication became a
+  setting: `chapters_horizontal` (a bool) is `chapters_style` (Row, List, Hidden). A pref written
+  before this pass restores to Row.
+- **Description is the first card.** The page's order is now data: `PlayerSection` is the one name
+  per section, `resolveSectionOrder` makes a stored order safe (unknown names dropped, missing
+  sections appended in their default place, duplicates keep their first position), and the player
+  emits its items with `for (section in sectionOrder) when (section)`. Settings → Playback →
+  **Video page order** lists the six sections and swaps them on a long-press drag: a fixed 52dp row
+  and a swap at half a row, because there is no drag-and-drop dependency and six rows do not need
+  one. `PlayerSectionTest` covers the three ways a stored order can rot.
+- **A title that is cut off is a control.** Two lines, then a tap shows the whole thing; no chevron,
+  because the ellipsis is the affordance. The tap only exists when the collapsed layout actually
+  overflowed, so a short title is not a dead target.
+- **The bug button left the picture.** It sat in the top-right corner of the video, which is a
+  button in the way of the thing being watched. It is in the page's action row now, beside share and
+  open-in-browser. Cost: no bug button in fullscreen, which is fine for a temporary one.
+- Verified: `:app:testDebugUnitTest` (410 tests, 0 failures, 3 skipped) and `:app:assembleDebug`.
+- **Not installed: the phone left `adb` while this was being built** (`adb devices` empty). The APK
+  is at `app\build\outputs\apk\debug\app-debug.apk`; the install is one `adb install -r`.
+- **Needs the phone**: the bar at the bottom with a time at each end, a level that reaches 100 from
+  a start near the top, a description that still lists its chapters, Description above Chapters,
+  and a drag in Video page order that survives the page scrolling.
+- Not done, and next: **`114914`** (the sections as rounded cards with a chevron), **`113229`**
+  (a filed report staying in the log), **`110857`** (the bug draft surviving a close), **`105921`**
+  (smart expand), **`110831`** (reply type size), **`111118`**'s second half (the speed panel should
+  offer only the presets the reader kept).
+
+
 ## Two ladders, and sound with the screen off, 2026-11-10
 
 - **Quality is per connection.** `video_quality` is the Wi-Fi stop and `video_quality_cellular` the
@@ -15,22 +153,158 @@ No git repo — Bodi tests a build for a few days first.
   not cellular — Wi-Fi, Ethernet, a VPN that reports no transport, no network — reads the Wi-Fi
   stop. Settings edits one ladder at a time behind a Wi-Fi / Mobile data chip, the player's menu
   writes the ladder in force and names it in the menu, and the backup carries both fields.
+- **The ladder is YouTube's, and Auto is the top of it.** Stops are 144, 240, 360, 480, 720, 1080,
+  1440, 2160 and then Auto; 6K, 8K and the "AI sim" joke stop are gone, because this phone cannot
+  decode what they asked the server for. Auto is uncapped on Wi-Fi and capped at 720p on mobile
+  data (`firstLoadHeight` takes the transport), so "the best this phone can decode" is what it now
+  does on the connection where a slow first frame costs nothing.
 - **The ladder above 720p was dead, and now it is not.** The old pick came from `videoStreams`, the
   progressive set, which tops out at 720p — so Full HD, QHD, 4K and AI sim all played the same file
   on any video with one audio track. `streams()` now takes `videoOnlyStreams` + `audioStreams`
   whenever both exist, and falls back to muxed only when there is no split set (a live stream).
+- **The ladder stops at the panel.** `qualityStops(panelShortSidePx)` cuts the list at the screen's
+  short side — on the Pixel's 1080p panel that is 144 through Full HD, then Auto — so QHD and 4K are
+  not offered anywhere, in Settings or in the player's menu. Auto's ceiling is the same panel
+  width. `snapToLadder` moves a stored stop above the cut down to the tallest one offered, and the
+  Settings screen rewrites the stored value once, so a 4K choice made before the cap does not keep
+  fetching 4K in the background.
+- **The readout stopped lying.** A 4K tap on a video with no 4K rendition used to log
+  `target=2160p`, take the warm-restart path on the identical URL, and still say "4K". `pick()` now
+  returns the stream, `streams()` logs the height it actually chose, and `qualityLabel` appends the
+  resolved height whenever it differs: "Full HD (720p)", "Auto (1440p)".
+- **The quality slider never dragged.** `WaveQualitySlider` keyed its `pointerInput` on `index`, so
+  the first step of a drag recomposed and cancelled the gesture — one stop per touch, which reads
+  as tap-only. It keys on `count` and reads the stop through `rememberUpdatedState`, and the track
+  and its label row are inset 16dp so the end stops are off the screen edge.
 - **Split is what makes the screen-off claim real.** `PlaybackController` listens for
   `ACTION_SCREEN_OFF`/`ACTION_SCREEN_ON` and disables the video track while the screen is dark: the
   video source stops being read, the audio source is never re-prepared, so the bytes stop and the
   sound does not gap. The player takes `C.WAKE_MODE_NETWORK` as well, because with no decoder
   running there is nothing else holding the CPU up between buffers.
-- **The picture freezes for a moment when the screen comes back**, because a video decoder needs a
-  keyframe at or before the playhead. The disk cache holds that keyframe, so it is a local read,
-  but it is not zero and the number has not been measured. The SponsorBlock prefetch warms only the
-  audio source while the screen is off, for the same reason.
-- **Not verified on the phone.** Built and unit-tested only. The gate is a hand check on the Pixel:
-  a 4K pick on an ordinary video (the pill should read 2160p), a quality change on Wi-Fi and again
-  on mobile data, and a locked screen for a minute then unlocked mid-video.
+- **Screen-off ran 54 s on the Pixel with no gap.** The log shows `video track off`, then 54 s of
+  nothing, then `video track on`: no error, no stall, no re-fetch. The picture came back without a
+  visible freeze because the surface holds the last frame and the keyframe was already on disk.
+- **The SponsorBlock prefetch warms only the audio source while the screen is off**, for the same
+  reason: video bytes fetched behind a locked screen are never seen.
+- **Not verified for the new ladder and slider.** Built and unit-tested only; the gate is a hand
+  check on the Pixel: slide the wave end to end, tap Auto, and read the pill after picking 4K and
+  Full HD on a video that has neither.
+
+## The feed's own cut, 2026-11-10
+
+- **A watched video can leave the feed.** `205752` asked for a setting from 1% to 100%, and the
+  cut is separate from the history threshold: that one decides when an open counts as a watch,
+  this one decides when a watched video stops being offered. `Playback → Feed` is a slider with
+  **0 = off** as the factory default, because a feed that hides things on its own is a surprise.
+  Moving it repaints the feed with no fetch: `ContentRepository.hideWatchedPercent` is a
+  `StateFlow`, and `observeFeed()` switches between two DAO queries on it.
+- **Two ways a video counts as finished**: the resume point is past the percentage, or history has
+  already marked it watched. The second one is why the setting cannot make a finished video come
+  back, which is stated in the copy rather than left to be discovered.
+- The stored value is `feed_hide_watched_percent`, in `SettingsSchema`, so a backup carries it and
+  the container seeds the repository from it on the first read.
+- Verified: `DbSmokeTest` covers both rules against a real in-memory database (40% hidden at 25%
+  and shown at 75%; a history-watched video hidden at 100%), the suite is green at 396 tests, and
+  the debug build is installed on the Pixel 7.
+- **Needs the phone**: the slider under Playback → Feed, and the feed dropping a video you watched
+  to the end once the cut is set below that point.
+
+## A minute of dictation, and the channel page's two blank spots, 2026-11-10
+
+Third pass. Two of these were only legible from the screenshots in the bundles, which is why the
+notes alone had stalled.
+
+- **Dictation keeps the minute.** `220547` is `VoiceInput` doing one utterance per start and every
+  partial *replacing* the note, so a minute of talking survived as its last second and then the
+  session ended on `ERROR_CLIENT`. A finished utterance is now committed, the next one is started
+  while the session is live (200ms apart, budget 300 segments), and a partial can only ever extend
+  what is there — `mergeTranscript` is the rule, with `TranscriptMergeTest` including the minute of
+  speech in every state the screen shows. Silence (`ERROR_NO_MATCH`, `SPEECH_TIMEOUT`) and a
+  dropped service (`ERROR_CLIENT`, `ERROR_SERVER`, network, busy) restart instead of ending.
+  `stop()` keeps the partial that was on screen when the finger arrived.
+- **The channel's Watched rows were text only.** `205625`'s screenshot is a bare title and "4h
+  ago": the row carried `thumbUrl` and never drew it. It draws the same `Thumbnail` the lists use,
+  at 112dp.
+- **The channel's About text was plain.** `205649`'s screenshot is a description with
+  `https://www.bitcoinuniversity.com/` printed as words. It is a `LinkifiedText` now, so a URL in
+  it opens. **A bare `@handle` stays words**: the first version guessed YouTube and the owner
+  landed on `youtube.com/@mattkratter` from a line that said "Follow me on Twitter". The sentence
+  names the network and the app cannot know it, so guessing is worse than not linking. That is the
+  rule `LinkifiedTextTest` now pins.
+- **A reply's likes and age are right-aligned** (`205539`), so the footer ends where the reply's
+  name above it ends.
+- Verified: `:app:testDebugUnitTest` (395 tests, 0 failures, 3 skipped) and `:app:assembleDebug`,
+  installed on the Pixel 7.
+- **Needs the phone**: a minute of dictation that keeps its first sentence and does not exit; a
+  channel's About tab opening the site and the handle; a Watched tab with pictures in it.
+- Seen and not changed: the channel header still says "Subscribed" beside the name *and* on the
+  button. The word was added deliberately in the `131926` pass, so it is the owner's call whether
+  the button makes it redundant.
+
+## The picture's geometry, 2026-11-10
+
+Second pass on the 0.3.10 batch. Two reports about the same thing: where the controls are, and
+what a finger means when it moves.
+
+- **The progress bar is the top edge of the picture.** `213728` asked for it and the bar's touch
+  band moved with it: `barBandHit` measures 44dp down from the top, and the bar itself sits 4dp in
+  with the playhead dot straddling it. The band is a function, not a constant, because the back
+  arrow and the bug button live in that band — a press on either is still a press, and a drag from
+  either is not a playhead drag. `GestureStateTest` pins the four cases.
+- **The top row moved down to clear it**: the sponsor chips and the clip banner now sit at 20dp
+  instead of 12dp, so the bar does not run through them.
+- **The level readouts sit 40dp above the finger**, not 24dp. A pill 24dp over the thumb was still
+  under the thumb. The below-the-finger case went to 72dp for the same reason.
+- **The speed panel opens on the finger.** It was anchored to the speed button's top-left and
+  offset upward from there, so it appeared beside the tap. It now takes the tap point in overlay
+  coordinates and uses the same `readoutLeft`/`readoutTop` rules as the level pills, including the
+  clamp to the picture — the hardcoded `320dp`/`800dp` limits are gone.
+- **A sideways drift no longer starts a seek.** `222730` is a swipe up whose first frame past the
+  slop happened to move further in x than in y; the axis locked horizontal and the seek pill came
+  up. `resolveAxis` now needs x to be `AXIS_BIAS` (1.5×) the vertical travel before the gesture is
+  a seek, so a near-vertical swipe is vertical however it starts.
+- Verified: `:app:testDebugUnitTest` green and `:app:assembleDebug`, installed on the Pixel 7.
+  `LevelReadoutTest` updated for the wider gap, and `GestureStateTest` has the bias and the band.
+- **Needs the phone**: the bar at the top in both shells, a swipe up from the middle of the picture
+  that must not raise the seek pill, and the speed panel landing under the finger that opened it.
+
+## A press that does something, 2026-11-10
+
+The 0.3.10 batch, first pass. Three faults that all read as "the app stopped working and said
+nothing".
+
+- **A play press on an idle player did nothing, so nothing was logged.** `210828` and `210851`
+  ("it won't give error toast or play or log … restart app fixed it") are `STATE_IDLE` with the
+  media still loaded: `play()` on an idle player is ignored, because it is waiting to be prepared.
+  `togglePlayPause` now goes through `playAction(state, hasMedia, hasError, isPlaying)`, which
+  re-prepares on idle or on a failed stream, restarts at the end, and logs which of those it did.
+  `PlayActionTest` pins the five cases.
+- **Both quiet retries were spent while the phone was offline.** `204259`'s log is
+  `error recovery 1/2 … net=none`, then `2/2 … net=none`, and then a dead picture with no budget
+  left for the moment the connection came back. `shouldRecover` takes `networkDown` and returns
+  false while there is nothing to reach; the error is still on the player when the network returns,
+  so the retry happens then. `PlaybackRecoveryTest` has the two new cases.
+- **The connection is now a value, not a guess.** `core/Network.kt` grew `NetworkMonitor`
+  (`VALIDATED` capability, registered for the process) and `PlaybackState.networkDown`; the pill
+  says "No connection — playing will retry" for a drop mid-playback, not only for a failed fetch.
+  One log line per transition, never one per retry: the old shape put two failed-retry lines in
+  every report and read like the app's fault.
+- **A death is now recorded, not inferred.** `163203`/`163241` are a "force close" with no
+  exception in our log, which is what a native crash, an ANR and a low-memory kill all look like
+  from inside. `core/ExitLog.kt` reads `ActivityManager.getHistoricalProcessExitReasons` on the next
+  start and writes the newest unrecorded one, with up to twelve trace lines for a crash or an ANR;
+  `GlassTubeApp` also installs an uncaught-exception handler, so a Java crash names itself. One
+  line per exit, keyed on the last recorded timestamp (`ExitLogTest`).
+- **The idle line says what the player was doing**: `items=… wantPlay=…` beside the video, position
+  and time. It is the only clue a stream left on its own leaves behind, and it appears in six of
+  these reports.
+- Verified: `:app:testDebugUnitTest` (382 tests, 0 failures, 3 skipped) and `:app:assembleDebug`,
+  installed on the Pixel 7 over the existing build.
+- **Needs the phone**: a video that has gone quiet overnight plays on the first press; a play with
+  the phone in flight mode says "No connection" and starts on its own when the network returns; and
+  after a force close, Diagnostics shows an `exit` line naming the reason.
+- Not fixed, and not claimed: the DNS drop itself is the phone's or the network's, and the dead
+  `Peruvian Bull` channel still fails every refresh (Queued, needs Room v12).
 
 ## A first screen with something on it, 2026-11-10
 
@@ -51,9 +325,11 @@ No git repo — Bodi tests a build for a few days first.
   page and both stubs point at it, and the app page now has an Open Graph card and a favicon of its
   own for the first time. The stubs redirect to `/other_apps/glasstube/` instead of the portfolio
   view.
-- **`/glasstube` without the slash is still the portfolio.** The OdesaPlay Express app answers every
-  unknown path with its SPA, so the short URL a chat drops the slash from previews that site. The
-  fix is one route in `odesaplay/server.js`; see Queued.
+- **`/glasstube` without the slash is the portfolio.** The OdesaPlay Express app answered every
+  unknown path with its SPA, so the short URL a chat drops the slash from previewed that site.
+  Fixed on 2026-11-11 in `odesaplay/server.js`: `/glasstube` and `/parallax` now serve their own
+  stub file (not a redirect — crawlers read only the first response). nginx still answers the
+  slashed URLs from disk; both shapes carry the GlassTube card.
 
 ## A restore that restores, a feed that fetches, a skip that does not rebuffer, 2026-11-10
 
@@ -1110,12 +1386,31 @@ feed state. Each is listed in ARCHITECTURE "Known gaps".
   metered. Cost to leave it: a VPN user gets their Wi-Fi ceiling on a phone plan. The fix is to walk
   `ConnectivityManager.allNetworks` for the underlying transport, which is a binder call per pick.
 
-- **`/glasstube` without the slash** - `odesaplay/server.js` serves `dist/index.html` for every
-  unmatched path, so `https://odesaplay.com.ua/glasstube` (no slash) is the portfolio SPA and
-  previews the portfolio, while `/glasstube/` is the stub. One `app.get('/glasstube', ...)` that
-  redirects to `/glasstube/` fixes it, but it is a second project and a second deploy (OdesaPlay
-  Node app, not this repo). Cost to leave it: a link pasted without the trailing slash still shows
-  the wrong card.
+- **The app root is the document root** - Plesk's application root for odesaplay.com.ua is
+  `httpdocs`, which nginx also serves, so `server.js`, `admin-routes.js` and `package.json` are
+  downloadable at their own paths. No secret is in any of them (the admin token is a Plesk
+  environment variable), but the source should not be published. This profile has no
+  nginx-directives box, so `location = /server.js { return 404; }` is not available. Two options:
+  `chmod 600` the three files (nginx runs as another user and gets 403, Passenger reads them as
+  the subscription user; Plesk's permission repair can undo it), or split the roots - application
+  root `/odesaplay-app`, document root `/odesaplay-app/public` inside it, which is the shape
+  Plesk's warning asks for. The split was tried on 2026-11-11 and reverted: the FTP account is
+  chrooted at `httpdocs`, so a sibling app root puts `server.js` outside every deploy config, and
+  aiming `remoteDir` at `httpdocs` from there created `httpdocs/httpdocs/`. Doing it properly
+  means re-homing the FTP account to the subscription root and prefixing
+  `odesaplay-app/public/` onto every config that targets odesaplay.com.ua (portfolio, binsy, oko,
+  both stubs, the glasstube page/APK/reports configs). Cost to leave it: source disclosure only.
+
+- **`npm install` on the host dies on a quota** - Plesk's NPM install fails with
+  `npm ERR! code Unknown system error -122` / `syscall write` / `errno -122`. That number is
+  `EDQUOT`: the subscription's disk quota, which is not the same number as free space and is read
+  in Plesk -> subscription -> Disk usage, not with `df`. Small writes still succeed - npm wrote
+  its own debug log before dying - and large extraction does not, which is exactly how the error
+  presents. The app runs and needs no install unless `package.json` changes; a `node_modules`
+  built on the PC and uploaded over FTP is the workaround. Do not delete `node_modules` to make
+  room: if the reinstall hits the same wall, the next restart dies at `[BOOT] Missing deps`. Safe
+  reclaim, in order: `.npm/_cacache`, `.npm/_logs`, locally stored Plesk backups. Cost to leave
+  it: dependencies cannot be changed on the host until the quota is raised. Found 2026-11-11.
 
 - **Playlists screen** - the owner asked for it on 2026-11-10 and it is the agreed next feature.
   Nothing exists today: no route, no `VideoSource.playlist`, no view. Needed pieces: an extractor

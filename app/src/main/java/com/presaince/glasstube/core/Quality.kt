@@ -9,9 +9,11 @@ package com.presaince.glasstube.core
  * pixel count and never a promise; `label` is what a person reads, because 2160 is a number and
  * "4K" is a fact.
  *
- * Auto is height 0, which the extractor already reads as "best this phone can decode". AI sim is
- * [Int.MAX_VALUE]: a real ceiling of none, named for what it pretends to be. Nothing else rounds
- * it down, because there is nothing above it to pick.
+ * The heights are the ones YouTube actually serves, low to high, and Auto is last: the track
+ * climbs left to right and Auto is the top of it, "the best this phone can decode". Auto is
+ * height 0, which the extractor already reads as "no ceiling". There is no 6K or 8K stop and no
+ * "AI sim": this phone cannot decode either, so they were stops that failed rather than stops
+ * that were merely pointless.
  */
 data class QualityStop(
     val height: Int,
@@ -21,32 +23,94 @@ data class QualityStop(
 )
 
 val QUALITY_STOPS: List<QualityStop> = listOf(
-    QualityStop(0, "Auto", "Auto", "the best this phone can decode"),
+    QualityStop(144, "144p", "144", "the smallest picture YouTube serves"),
     QualityStop(240, "240p", "240"),
+    QualityStop(360, "360p", "360"),
     QualityStop(480, "480p", "480"),
+    QualityStop(720, "HD", "720"),
     QualityStop(1080, "Full HD", "FHD"),
     QualityStop(1440, "QHD", "QHD"),
     QualityStop(2160, "4K", "4K"),
-    QualityStop(3240, "6K", "6K"),
-    QualityStop(Int.MAX_VALUE, "AI sim", "AI", "ai simulation = 1:1 with reality"),
+    QualityStop(0, "Auto", "Auto", "starts at 720p, then whatever you pick"),
 )
 
 /**
- * First-load height cap for Auto. A chosen height wins as-is; Auto (0) caps at 720p so the
- * first frame needs about a third of the bytes of a 1080p/4K highest-bitrate pick. The cap is
- * at or below every QUALITY_STOPS height except 240/480, so low caps stay exact.
+ * The stops worth offering on a screen whose short side is [panelShortSidePx]: the full ladder
+ * when the panel is unknown (0), otherwise what the panel can actually show. A 1080p phone stops
+ * at Full HD, because QHD and 4K are bytes spent on lines the screen does not have.
  */
-fun firstLoadHeight(storedHeight: Int): Int =
-    if (storedHeight == 0) FIRST_LOAD_AUTO_HEIGHT else storedHeight
-
-private const val FIRST_LOAD_AUTO_HEIGHT = 720
+fun qualityStops(panelShortSidePx: Int): List<QualityStop> {
+    if (panelShortSidePx <= 0) return QUALITY_STOPS
+    return QUALITY_STOPS.filter { it.height == 0 || it.height <= panelShortSidePx }
+}
 
 /**
- * What to call a stored height. Auto (0) says what ExoPlayer resolved to, so "Auto (1080p)"
- * answers "what quality is it using" without pretending Auto is one fixed height. Unknown
- * values keep their number rather than pretending.
+ * The stop a stored height lands on once the ladder is capped at the panel: an exact stop stays,
+ * a taller one falls to the tallest the panel offers, and anything below 144 falls to Auto.
+ * Pure, so the migration of an old 4K choice has a test without a device.
+ */
+fun snapToLadder(storedHeight: Int, panelShortSidePx: Int): Int {
+    if (storedHeight == 0) return 0
+    val offered = qualityStops(panelShortSidePx).filter { it.height > 0 }
+    if (offered.any { it.height == storedHeight }) return storedHeight
+    return offered.lastOrNull { it.height <= storedHeight }?.height ?: 0
+}
+
+/**
+ * Height cap for a video's first load. A chosen stop is kept — the reader asked for it. Auto starts
+ * at 720p on **every** connection, because on Wi-Fi it used to mean "uncapped", which on this phone
+ * is Full HD video plus a separate audio track, two connections and roughly twice the bytes before
+ * the first frame. That is what turned an opening into a fifteen-second wait (`115657`). The pill
+ * still reports what is actually playing, so Auto (720p) says what it did.
+ */
+const val FIRST_LOAD_HEIGHT = 720
+
+fun firstLoadHeight(storedHeight: Int): Int =
+    if (storedHeight != 0) storedHeight else FIRST_LOAD_HEIGHT
+
+/**
+ * Where a chosen stop is stored. Two ladders, one per kind of connection: the same phone wants a
+ * lower ceiling on mobile data than on Wi-Fi, and the pick is made when streams are fetched. The
+ * Wi-Fi key is the original "video_quality", so a choice stored before this existed is kept.
+ */
+fun qualityKey(transport: Transport): String =
+    if (transport == Transport.Cellular) KEY_QUALITY_CELLULAR else KEY_QUALITY_WIFI
+
+/** The stop in force on [transport]. Pure, so the rule has a test without a device. */
+fun qualityFor(transport: Transport, wifiHeight: Int, cellularHeight: Int): Int =
+    if (transport == Transport.Cellular) cellularHeight else wifiHeight
+
+const val KEY_QUALITY_WIFI = "video_quality"
+const val KEY_QUALITY_CELLULAR = "video_quality_cellular"
+
+/**
+ * The stop one step down the ladder from [height], for a video that keeps stalling. Auto is not a
+ * step: it is a ceiling, and the honest answer to "this is too much for this connection" is a
+ * height somebody can name. Null means there is nothing lower to offer, so the caller says so
+ * rather than pretending it improved.
+ */
+fun lowerStop(height: Int, stops: List<QualityStop>): QualityStop? {
+    val offered = stops.filter { it.height > 0 }.sortedBy { it.height }
+    if (offered.isEmpty()) return null
+    // Auto is a ceiling nobody can name, so its step down is the stop a phone can hold on a poor
+    // connection rather than the smallest picture the ladder offers.
+    if (height <= 0) return offered.lastOrNull { it.height <= 720 }
+    return offered.lastOrNull { it.height < height }
+}
+
+/**
+ * What to call a stored height, given what ExoPlayer actually resolved. A chosen stop is a request,
+ * and the stream behind it can be shorter: "Full HD (720p)" is the honest sentence, where a bare
+ * "Full HD" is a claim the picture never made. Auto says what it resolved to for the same reason.
+ * Unknown values keep their number rather than pretending.
  */
 fun qualityLabel(height: Int, resolvedHeight: Int = 0): String {
-    if (height == 0 && resolvedHeight > 0) return "Auto (${resolvedHeight}p)"
-    return QUALITY_STOPS.firstOrNull { it.height == height }?.label ?: "${height}p"
+    val stop = QUALITY_STOPS.firstOrNull { it.height == height }
+    val requested = stop?.label ?: "${height}p"
+    if (height == 0) return if (resolvedHeight > 0) "Auto (${resolvedHeight}p)" else "Auto"
+    return if (resolvedHeight > 0 && resolvedHeight != height) {
+        "$requested (${resolvedHeight}p)"
+    } else {
+        requested
+    }
 }

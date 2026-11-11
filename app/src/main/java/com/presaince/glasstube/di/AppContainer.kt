@@ -9,6 +9,7 @@ import androidx.room.Room
 import coil3.ImageLoader
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import com.presaince.glasstube.core.AppLog
+import com.presaince.glasstube.core.ExitLog
 import com.presaince.glasstube.data.auth.PostingManager
 import com.presaince.glasstube.data.auth.PostingStore
 import com.presaince.glasstube.data.auth.YouTubeAuth
@@ -77,6 +78,9 @@ class AppContainer(context: Context) {
     /** Readable from Settings; kept for 48 hours and never uploaded. */
     val log: AppLog = AppLog(appContext.filesDir)
 
+    /** Why the previous process ended, from the OS. Read once per start, in Application.onCreate. */
+    val exitLog: ExitLog by lazy { ExitLog(appContext, log, prefs) }
+
     init {
         // The extractor needs a downloader before any service can be used.
         initContentCountry(http, resolvedRegions(appContext).first(), log)
@@ -110,13 +114,23 @@ class AppContainer(context: Context) {
                 GlassTubeDb.MIGRATION_9_10,
                 GlassTubeDb.MIGRATION_10_11,
                 GlassTubeDb.MIGRATION_11_12,
+                GlassTubeDb.MIGRATION_12_13,
             )
             // Real migrations only: the destructive fallback is gone. Schema v12 is exported and
             // committed; the next change needs a real migration plus a migration test.
             .build()
     }
 
-    val content: ContentRepository by lazy { ContentRepository(source, db, log, playbackBusy = { playback.state.value.isBuffering }) }
+    val content: ContentRepository by lazy {
+        ContentRepository(source, db, log, playbackBusy = { playback.state.value.isBuffering })
+            // Seeded from the stored setting, so the feed's first paint already obeys it.
+            .also {
+                it.setHideWatchedPercent(
+                    prefs.getInt(ContentRepository.KEY_HIDE_WATCHED, 0),
+                )
+                it.setFeedLive(prefs.getBoolean("feed_live", true))
+            }
+    }
 
     val resyncStore: ResyncStore by lazy {
         ResyncStore(prefs, SecurePrefs(appContext))

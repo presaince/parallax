@@ -22,6 +22,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -56,6 +57,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -70,6 +72,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -93,6 +96,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -101,7 +106,12 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.presaince.glasstube.R
 import com.presaince.glasstube.core.AppLog
-import com.presaince.glasstube.core.QUALITY_STOPS
+import com.presaince.glasstube.core.Transport
+import com.presaince.glasstube.core.activeTransport
+import com.presaince.glasstube.core.panelShortSidePx
+import com.presaince.glasstube.core.qualityKey
+import com.presaince.glasstube.core.qualityStops
+import com.presaince.glasstube.core.snapToLadder
 import com.presaince.glasstube.core.timeAgo
 import com.presaince.glasstube.data.backup.BackupFiles
 import com.presaince.glasstube.data.backup.FoundFile
@@ -113,6 +123,10 @@ import com.presaince.glasstube.data.resync.ResyncStore
 import com.presaince.glasstube.data.source.flag
 import com.presaince.glasstube.data.source.readContentRegions
 import com.presaince.glasstube.data.sponsorblock.SponsorCategories
+import com.presaince.glasstube.feature.player.ChaptersStyle
+import com.presaince.glasstube.feature.player.PlayerSection
+import com.presaince.glasstube.feature.player.resolveSectionOrder
+import com.presaince.glasstube.feature.player.sectionOrderPref
 import com.presaince.glasstube.feature.player.gesture.SeekRate
 import com.presaince.glasstube.playback.PlaybackController
 import com.presaince.glasstube.ui.theme.Accents
@@ -154,7 +168,7 @@ fun SettingsSectionScreen(
 ) {
     when (section) {
         SettingsSectionId.APPEARANCE -> AppearanceSection(theme)
-        SettingsSectionId.PLAYBACK -> PlaybackSection(playback)
+        SettingsSectionId.PLAYBACK -> PlaybackSection(playback, content)
         SettingsSectionId.FEEDBACK -> FeedbackSection()
         SettingsSectionId.REGION -> RegionSection(onRegionChange)
         SettingsSectionId.SPONSOR -> SponsorSection(playback)
@@ -536,9 +550,10 @@ private fun <T> ChoiceChips(
 }
 
 /**
- * The quality track as water instead of a line: a filled wave, small and calm at Auto, rising into
- * a parabola at AI sim. Same six stops, same snap, but the shape says how far past a screen the
- * setting is claiming to go. The whole box is the touch target, so a thumb anywhere lands on a stop.
+ * The quality track as water instead of a line: a filled wave that climbs from the smallest stop
+ * to Auto at the right end, where the peak is "no ceiling, whatever this phone can decode". The
+ * whole box is the touch target: a tap jumps to the nearest stop, and a drag walks the ladder a
+ * step at a time from where it started, so a thumb does not fight an absolute map.
  */
 @Composable
 private fun WaveQualitySlider(
@@ -546,31 +561,38 @@ private fun WaveQualitySlider(
     count: Int,
     onIndex: (Int) -> Unit,
 ) {
+    // The gesture handler outlives a recomposition, so it reads the current stop and the current
+    // callback through these rather than through the values it was created with.
+    val indexState = rememberUpdatedState(index)
+    val onIndexState = rememberUpdatedState(onIndex)
     var widthPx by remember { mutableStateOf(1f) }
     val accent = MaterialTheme.colorScheme.primary
     val rest = MaterialTheme.colorScheme.onSurfaceVariant
     val fraction = index.toFloat() / (count - 1).coerceAtLeast(1)
 
-    fun pick(x: Float) {
-        if (widthPx <= 1f) return
-        val next = ((x / widthPx) * (count - 1)).roundToInt().coerceIn(0, count - 1)
-        if (next != index) onIndex(next)
+    fun stopAt(x: Float): Int {
+        val width = widthPx
+        if (width <= 1f) return indexState.value
+        return ((x / width) * (count - 1)).roundToInt().coerceIn(0, count - 1)
     }
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
+            // Inset: the end stops sit inside the screen edge where a thumb can reach them,
+            // instead of under the system's back gesture.
+            .padding(horizontal = 16.dp)
             .padding(top = 8.dp)
             .height(44.dp)
             .onSizeChanged { widthPx = it.width.toFloat().coerceAtLeast(1f) }
-            .pointerInput(count, widthPx, index) {
+            // Keyed on count alone. Keying this on index — as it was — restarted the handler on
+            // the first step of a drag and cancelled the gesture, so the track only ever moved one
+            // stop per touch and read as tap-only.
+            .pointerInput(count) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     down.consume()
-                    // A drag moves by steps from where it started, not to an absolute x: with
-                    // eight stops on one screen width, an absolute map makes 240 a target the
-                    // thumb always overshoots. A tap still jumps to the nearest stop.
-                    val startIndex = index
+                    val startIndex = indexState.value
                     val startX = down.position.x
                     var moved = false
                     var lastX = startX
@@ -578,21 +600,19 @@ private fun WaveQualitySlider(
                         val event = awaitPointerEvent()
                         val change = event.changes.firstOrNull { it.id == down.id } ?: break
                         change.consume()
-                        val dx = change.position.x - lastX
                         lastX = change.position.x
-                        if (!moved && kotlin.math.abs(change.position.x - startX) > 6f) {
-                            moved = true
-                        }
+                        if (!moved && kotlin.math.abs(lastX - startX) > 6f) moved = true
                         if (moved) {
                             val stepPx = (widthPx / (count - 1).coerceAtLeast(1)).coerceAtLeast(48f)
                             val steps = ((lastX - startX) / stepPx).roundToInt()
                             val next = (startIndex + steps).coerceIn(0, count - 1)
-                            if (next != index) onIndex(next)
-                        } else {
-                            pick(change.position.x)
+                            if (next != indexState.value) onIndexState.value(next)
                         }
                         if (!change.pressed) {
-                            if (!moved) pick(change.position.x)
+                            if (!moved) {
+                                val next = stopAt(lastX)
+                                if (next != indexState.value) onIndexState.value(next)
+                            }
                             break
                         }
                     }
@@ -608,7 +628,7 @@ private fun WaveQualitySlider(
 
             fun waveY(x: Float): Float {
                 val t = (x / w).coerceIn(0f, 1f)
-                // A growing value, not a wave: flat at Auto, climbing by AI sim.
+                // A growing value, not a wave: calm at 144p, climbing to the Auto peak at the end.
                 val climb = kotlin.math.exp(t * 2.2f) - 1f
                 return base - (h * 0.28f * climb) / (kotlin.math.exp(2.2f) - 1f)
             }
@@ -1288,12 +1308,18 @@ internal fun AccentGrid(theme: ThemeController) {
 
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-private fun PlaybackSection(playback: PlaybackController) {
+private fun PlaybackSection(playback: PlaybackController, content: ContentRepository) {
     val context = LocalContext.current
     var hideLive by remember {
         mutableStateOf(
             context.getSharedPreferences("glasstube", android.content.Context.MODE_PRIVATE)
                 .getBoolean("hide_live", false),
+        )
+    }
+    var feedLive by remember {
+        mutableStateOf(
+            context.getSharedPreferences("glasstube", android.content.Context.MODE_PRIVATE)
+                .getBoolean("feed_live", true),
         )
     }
     var speedPresets by remember { mutableStateOf(playback.speedPresets()) }
@@ -1315,10 +1341,23 @@ private fun PlaybackSection(playback: PlaybackController) {
                 .getBoolean("notification_restart", true),
         )
     }
-    var chaptersHorizontal by remember {
+    var chaptersStyle by remember {
         mutableStateOf(
-            context.getSharedPreferences("glasstube", android.content.Context.MODE_PRIVATE)
-                .getBoolean("chapters_horizontal", true),
+            ChaptersStyle.of(
+                context.getSharedPreferences("glasstube", android.content.Context.MODE_PRIVATE)
+                    .getInt("chapters_style", ChaptersStyle.Row.stored),
+            ),
+        )
+    }
+    var sectionOrder by remember {
+        mutableStateOf(
+            resolveSectionOrder(
+                context.getSharedPreferences("glasstube", android.content.Context.MODE_PRIVATE)
+                    .getString("player_sections", null)
+                    .orEmpty()
+                    .split(",")
+                    .filter { it.isNotBlank() },
+            ),
         )
     }
     var chapterTimestamps by remember {
@@ -1367,9 +1406,10 @@ private fun PlaybackSection(playback: PlaybackController) {
         )
 
         SwitchRow(
-            title = "Progress line in fullscreen",
-            summary = "The 2dp line at the bottom of the picture. Off means a completely clean " +
-                "picture when the phone is turned or fullscreen is entered.",
+            title = "Progress bar in fullscreen",
+            summary = "The bar along the bottom edge with the two times, and the strip that " +
+                "scrubs it. Off means a completely clean picture when the phone is turned or " +
+                "fullscreen is entered.",
             checked = progressInFullscreen,
             onCheckedChange = { enabled ->
                 progressInFullscreen = enabled
@@ -1408,16 +1448,44 @@ private fun PlaybackSection(playback: PlaybackController) {
             },
         )
 
-        SwitchRow(
-            title = "Chapters as a scrolling row",
-            summary = "Off shows the chapters as a plain list. On shows them in a row you swipe " +
-                "sideways, with a small thumbnail for each.",
-            checked = chaptersHorizontal,
-            onCheckedChange = { enabled ->
-                chaptersHorizontal = enabled
+        ChoiceChips(
+            options = listOf(
+                ChaptersStyle.Row to "Row",
+                ChaptersStyle.List to "List",
+                ChaptersStyle.Hidden to "Hidden",
+            ),
+            selected = chaptersStyle,
+            onPick = { picked ->
+                chaptersStyle = picked
                 context.getSharedPreferences("glasstube", android.content.Context.MODE_PRIVATE)
                     .edit()
-                    .putBoolean("chapters_horizontal", enabled)
+                    .putInt("chapters_style", picked.stored)
+                    .apply()
+            },
+            title = "Chapters",
+        )
+        Text(
+            text = "Row swipes sideways with a thumbnail for each, List is a plain column, " +
+                "Hidden leaves the chapter panel out. The description keeps its own timestamps " +
+                "either way, so Hidden is how you read a chapter list as plain text.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 8.dp),
+        )
+
+        Caption("Video page order")
+        Text(
+            text = "The sections under the picture, top to bottom. Hold a row and drag it.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        SectionOrderEditor(
+            order = sectionOrder,
+            onChange = { next ->
+                sectionOrder = next
+                context.getSharedPreferences("glasstube", android.content.Context.MODE_PRIVATE)
+                    .edit()
+                    .putString("player_sections", sectionOrderPref(next))
                     .apply()
             },
         )
@@ -1450,6 +1518,7 @@ private fun PlaybackSection(playback: PlaybackController) {
             },
         )
 
+        Caption("The feed")
         SwitchRow(
             title = "Hide live and upcoming",
             summary = "Leaves them out of the feed, search and channel pages.",
@@ -1459,6 +1528,21 @@ private fun PlaybackSection(playback: PlaybackController) {
                 context.getSharedPreferences("glasstube", android.content.Context.MODE_PRIVATE)
                     .edit()
                     .putBoolean("hide_live", enabled)
+                    .apply()
+            },
+        )
+
+        SwitchRow(
+            title = "Live streams in the feed",
+            summary = "A channel's live tab is asked too, because the uploads list never carries a " +
+                "stream that is happening now. Off halves the requests per refresh and no live " +
+                "stream ever appears in the feed.",
+            checked = feedLive,
+            onCheckedChange = { enabled ->
+                feedLive = enabled
+                context.getSharedPreferences("glasstube", android.content.Context.MODE_PRIVATE)
+                    .edit()
+                    .putBoolean("feed_live", enabled)
                     .apply()
             },
         )
@@ -1547,23 +1631,94 @@ private fun PlaybackSection(playback: PlaybackController) {
             }
         }
 
-        // "Price is right" speed editor: pick the numbers the slider offers.
-        Caption("Video quality")
+        // The feed's own cut, separate from the history one above: that decides when an open is
+        // a watch, this decides when a watched video stops being offered.
+        Caption("Feed")
+        var hideWatched by remember { mutableIntStateOf(content.hideWatchedPercent.value) }
         Text(
-            text = "The ceiling for new videos. Auto takes the best the phone can decode; the " +
-                "rest is a promise the video may not keep.",
+            text = if (hideWatched <= 0) {
+                "Off. Every fetched video stays in the feed, however much of it you have watched."
+            } else {
+                "Videos you have watched past $hideWatched% leave the feed. A video your " +
+                    "history already counts as watched leaves it too, whatever this says."
+            },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        val qualityState = remember {
+        Slider(
+            value = hideWatched.toFloat(),
+            onValueChange = { raw ->
+                val percent = raw.roundToInt()
+                hideWatched = percent
+                // Live, so the feed behind the screen repaints as the slider moves; the stored
+                // copy is written once the finger lifts.
+                content.setHideWatchedPercent(percent)
+            },
+            onValueChangeFinished = {
+                context.getSharedPreferences("glasstube", Context.MODE_PRIVATE)
+                    .edit()
+                    .putInt(ContentRepository.KEY_HIDE_WATCHED, hideWatched)
+                    .apply()
+            },
+            valueRange = 0f..100f,
+            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+        )
+
+        // "Price is right" speed editor: pick the numbers the slider offers.
+        Caption("Video quality")
+        Text(
+            text = "The ceiling for new videos, kept separately for Wi-Fi and mobile data. A " +
+                "video is picked when it loads, so a change applies from the next one. Auto " +
+                "starts every video at 720p, on either connection, which is what keeps a first " +
+                "frame quick; pick a height if you want a taller picture straight away. A chosen " +
+                "height is a promise the video may not keep.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        var editingCellular by remember {
+            mutableStateOf(activeTransport(context) == Transport.Cellular)
+        }
+        val editKey = qualityKey(if (editingCellular) Transport.Cellular else Transport.Wifi)
+        // The panel sets the top of the ladder: a 1080p screen is not offered 4K, because those
+        // are bytes spent on lines the screen does not have.
+        val panelPx = remember { panelShortSidePx(context) }
+        val ladder = remember(panelPx) { qualityStops(panelPx) }
+        val qualityState = remember(editKey, panelPx) {
             mutableStateOf(
-                context.getSharedPreferences("glasstube", android.content.Context.MODE_PRIVATE)
-                    .getInt("video_quality", 0),
+                snapToLadder(
+                    context.getSharedPreferences("glasstube", android.content.Context.MODE_PRIVATE)
+                        .getInt(editKey, 0),
+                    panelPx,
+                ),
             )
         }
-        val qualityIndex = QUALITY_STOPS.indexOfFirst { it.height == qualityState.value }
-            .coerceAtLeast(0)
-        val qualityStop = QUALITY_STOPS[qualityIndex]
+        // A stop stored before the cap existed — or on a taller screen — is rewritten here, so the
+        // file and the slider cannot disagree about what is chosen.
+        LaunchedEffect(editKey, panelPx) {
+            val prefs = context.getSharedPreferences("glasstube", android.content.Context.MODE_PRIVATE)
+            val stored = prefs.getInt(editKey, 0)
+            val snapped = snapToLadder(stored, panelPx)
+            if (snapped != stored) prefs.edit().putInt(editKey, snapped).apply()
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            listOf(false to "Wi-Fi", true to "Mobile data").forEach { (cellular, label) ->
+                FilterChip(
+                    selected = editingCellular == cellular,
+                    onClick = { editingCellular = cellular },
+                    label = { Text(label, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()) },
+                    colors = glassTubeFilterChipColors(),
+                    modifier = Modifier.width(120.dp),
+                )
+            }
+        }
+        val qualityIndex = ladder.indexOfFirst { it.height == qualityState.value }
+            // A value the capped ladder does not carry reads as Auto rather than as the smallest
+            // stop, which would say "144p" about a value nobody chose.
+            .takeIf { it >= 0 } ?: ladder.lastIndex
+        val qualityStop = ladder[qualityIndex]
         Row(
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -1588,29 +1743,30 @@ private fun PlaybackSection(playback: PlaybackController) {
                 )
             }
         }
-        // One track, six stops, Auto pinned at the left end but still part of the drag. The track
-        // is a filled wave rather than a line: flat at the start, and by AI sim the amplitude has
-        // climbed into a parabola, because that stop is the one that stops being measurable.
+        // One track, as many stops as the panel offers, Auto last as the top of the ladder. The
+        // track is a filled wave rather than a line: calm at 144p, climbing to the Auto peak.
         WaveQualitySlider(
             index = qualityIndex,
-            count = QUALITY_STOPS.size,
+            count = ladder.size,
             onIndex = { next ->
-                if (QUALITY_STOPS[next].height != qualityState.value) {
-                    qualityState.value = QUALITY_STOPS[next].height
+                if (ladder[next].height != qualityState.value) {
+                    qualityState.value = ladder[next].height
                     context.getSharedPreferences("glasstube", android.content.Context.MODE_PRIVATE)
                         .edit()
-                        .putInt("video_quality", QUALITY_STOPS[next].height)
+                        .putInt(editKey, ladder[next].height)
                         .apply()
                 }
             },
         )
         Row(
-            modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 2.dp, start = 16.dp, end = 16.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             // The labels are buttons, not a legend: on a narrow row the wave is hard to hit at
             // exactly one stop, and 480 is the one people ask for.
-            QUALITY_STOPS.forEachIndexed { index, stop ->
+            ladder.forEachIndexed { index, stop ->
                 Text(
                     text = stop.short,
                     style = MaterialTheme.typography.labelSmall,
@@ -1625,11 +1781,11 @@ private fun PlaybackSection(playback: PlaybackController) {
                                 qualityState.value = stop.height
                                 context.getSharedPreferences("glasstube", android.content.Context.MODE_PRIVATE)
                                     .edit()
-                                    .putInt("video_quality", stop.height)
+                                    .putInt(editKey, stop.height)
                                     .apply()
                             }
                         }
-                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                        .padding(horizontal = 4.dp, vertical = 4.dp),
                 )
             }
         }
@@ -2248,6 +2404,94 @@ private fun SwitchRow(
             }
         }
         Switch(checked = checked, onCheckedChange = null)
+    }
+}
+
+/**
+ * The video page's sections, in the reader's order. Hold a row and drag: it follows the finger and
+ * takes a neighbour's place once it has travelled half a row. There is no drag-and-drop library
+ * here, so the maths is a fixed row height and a swap at the midpoint — enough for six rows, and
+ * honest about what it is.
+ */
+@Composable
+private fun SectionOrderEditor(
+    order: List<PlayerSection>,
+    onChange: (List<PlayerSection>) -> Unit,
+) {
+    val rowHeight = 52.dp
+    val rowPx = with(androidx.compose.ui.platform.LocalDensity.current) { rowHeight.toPx() }
+    // Keyed on Unit on purpose: keying the detector on the order would cancel the drag every time
+    // a swap landed, which is exactly when the drag is still going.
+    val current by rememberUpdatedState(order)
+    val move by rememberUpdatedState(onChange)
+    var dragging by remember { mutableStateOf<PlayerSection?>(null) }
+    var offsetY by remember { mutableFloatStateOf(0f) }
+
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        order.forEach { section ->
+            val isDragging = dragging == section
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(rowHeight)
+                    .zIndex(if (isDragging) 1f else 0f)
+                    .graphicsLayer { translationY = if (isDragging) offsetY else 0f }
+                    .background(
+                        if (isDragging) {
+                            MaterialTheme.colorScheme.surfaceVariant
+                        } else {
+                            Color.Transparent
+                        },
+                        RoundedCornerShape(12.dp),
+                    )
+                    .pointerInput(Unit) {
+                        detectDragGesturesAfterLongPress(
+                            onDragStart = {
+                                dragging = section
+                                offsetY = 0f
+                            },
+                            onDragEnd = {
+                                dragging = null
+                                offsetY = 0f
+                            },
+                            onDragCancel = {
+                                dragging = null
+                                offsetY = 0f
+                            },
+                            onDrag = { change, drag ->
+                                change.consume()
+                                offsetY += drag.y
+                                val from = current.indexOf(section)
+                                val steps = (offsetY / rowPx).roundToInt()
+                                if (from >= 0 && steps != 0) {
+                                    val to = (from + steps).coerceIn(0, current.lastIndex)
+                                    if (to != from) {
+                                        val next = current.toMutableList().apply {
+                                            removeAt(from)
+                                            add(to, section)
+                                        }
+                                        move(next)
+                                        offsetY -= (to - from) * rowPx
+                                    }
+                                }
+                            },
+                        )
+                    }
+                    .padding(horizontal = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = section.label,
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = "≡",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
     }
 }
 

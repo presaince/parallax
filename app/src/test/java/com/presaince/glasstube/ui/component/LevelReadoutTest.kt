@@ -12,12 +12,12 @@ class LevelReadoutTest {
 
     @Test
     fun `the readout sits clear above the finger`() {
-        assertEquals(320.dp, readoutTop(fingerY = 400.dp, pictureHeight = 915.dp))
+        assertEquals(304.dp, readoutTop(fingerY = 400.dp, pictureHeight = 915.dp))
     }
 
     @Test
     fun `a finger near the top puts the readout below it`() {
-        assertEquals(116.dp, readoutTop(fingerY = 60.dp, pictureHeight = 915.dp))
+        assertEquals(132.dp, readoutTop(fingerY = 60.dp, pictureHeight = 915.dp))
     }
 
     @Test

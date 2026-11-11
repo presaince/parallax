@@ -6,10 +6,12 @@ package com.presaince.glasstube.feature.feed
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.presaince.glasstube.core.FeedProgress
 import com.presaince.glasstube.core.SortOption
 import com.presaince.glasstube.core.SortState
 import com.presaince.glasstube.core.sortList
 import com.presaince.glasstube.core.timeAgo
+import com.presaince.glasstube.data.db.HiddenRow
 import com.presaince.glasstube.data.db.HistoryGroup
 import com.presaince.glasstube.data.db.GlassTubeDb
 import com.presaince.glasstube.data.db.ProgressEntity
@@ -23,15 +25,19 @@ import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-enum class FeedTab { FEED, HISTORY }
+enum class FeedTab { FEED, HISTORY, HIDDEN }
 
 data class FeedUiState(
     val videos: List<VideoEntity> = emptyList(),
     val history: List<HistoryGroup> = emptyList(),
     val progress: Map<String, ProgressEntity> = emptyMap(),
     val noteCounts: Map<String, Int> = emptyMap(),
+    /** What the feed leaves out, newest first, for the Hidden section. */
+    val hidden: List<HiddenRow> = emptyList(),
     val tab: FeedTab = FeedTab.FEED,
     val refreshing: Boolean = false,
+    /** How far the running refresh has got, or null when nothing is running. */
+    val refreshProgress: FeedProgress? = null,
     val message: String? = null,
     val lastFetchedAt: Long? = null,
     val sortFeed: SortState = SortState(SortOption.DATE),
@@ -65,12 +71,17 @@ class FeedViewModel(
     private var refreshAgain = false
 
     val state: StateFlow<FeedUiState> = combine(
-        content.observeFeed(),
+        // The hidden set filters the feed here, not in the database: the same rows have to be
+        // listed in the Hidden section, and one predicate is easier to trust than a query plus a
+        // copy of the same rule.
+        combine(content.observeFeed(), db.hidden().observeAll()) { videos, hidden ->
+            visibleVideos(videos, hidden) to hidden
+        },
         db.history().observeGrouped(),
         db.progress().observeAll(),
         db.notes().counts("deck"),
-        status,
-    ) { videos, history, progress, noteCounts, current ->
+        combine(status, content.feedProgress) { current, refresh -> current to refresh },
+    ) { (videos, hidden), history, progress, noteCounts, (current, refresh) ->
         val byVideo = progress.associateBy { it.videoId }
         current.copy(
             noteCounts = noteCounts.associate { it.videoId to it.n },
@@ -83,6 +94,8 @@ class FeedViewModel(
                 views = { it.viewCount },
                 title = { it.title },
             ),
+            hidden = hidden,
+            refreshProgress = refresh,
             history = sortList(
                 history,
                 current.sortHistory,
@@ -191,6 +204,26 @@ class FeedViewModel(
 
     fun dismissRemoved() {
         status.value = status.value.copy(lastRemoved = null)
+    }
+
+    /** Leaves this one video out of the feed. It is not deleted: the Hidden section lists it. */
+    fun hideVideo(video: VideoEntity, reason: String = "hidden by you") {
+        viewModelScope.launch {
+            dbRef.hidden().hide(hiddenVideo(video, reason))
+        }
+    }
+
+    /** Leaves this channel's live streams out of the feed, and leaves its uploads alone. */
+    fun hideLiveChannel(channelUrl: String, channelName: String) {
+        viewModelScope.launch {
+            dbRef.hidden().hide(
+                hiddenLiveChannel(channelUrl, channelName, "live streams hidden by you"),
+            )
+        }
+    }
+
+    fun unhide(key: String) {
+        viewModelScope.launch { dbRef.hidden().unhide(key) }
     }
 
     enum class ClearPeriod { TODAY, WEEK, ALL }

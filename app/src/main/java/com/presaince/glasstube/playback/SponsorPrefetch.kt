@@ -74,14 +74,14 @@ internal class SponsorPrefetch(
     private val context: Context,
     private val scope: CoroutineScope,
     private val log: AppLog,
-    private val mediaSource: (String, StreamSet) -> MediaSource,
+    private val mediaSource: (String, StreamSet, Boolean) -> MediaSource,
 ) {
 
     private var job: Job? = null
     private var player: ExoPlayer? = null
 
     /** Starts once for one destination; a second call replaces whatever was warming. */
-    fun start(videoId: String, streams: StreamSet, targetMs: Long) {
+    fun start(videoId: String, streams: StreamSet, targetMs: Long, audioOnly: Boolean = false) {
         cancel()
         val prefetcher = ExoPlayer.Builder(context)
             .setLoadControl(
@@ -102,7 +102,7 @@ internal class SponsorPrefetch(
         log.info("player", "sponsor prefetch start ${targetMs}ms for $videoId")
         job = scope.launch {
             try {
-                prefetcher.setMediaSource(mediaSource(videoId, streams))
+                prefetcher.setMediaSource(mediaSource(videoId, streams, audioOnly))
                 prefetcher.playWhenReady = false
                 // Seek before prepare: the load starts at the far side, not at zero.
                 prefetcher.seekTo(targetMs)

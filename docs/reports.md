@@ -9,7 +9,7 @@ This file is the machine's: it only ever holds the list. What was found and what
 belongs in `ROADMAP.md`.
 
 - [fixed: MembersOnly state, plain sentence, no retry, 2026-11-09] `parallax_Google_Pixel_7_10_20261109-211837.json` — we need to show if s video is for members only and or other soon to be error states
-- [open] `parallax_Google_Pixel_7_10_20261109-212007.json` — horrible buffering just happened and still is.
+- [same gate as 204259; the DNS drop itself is the phone's, 2026-11-10] `parallax_Google_Pixel_7_10_20261109-212007.json` — horrible buffering just happened and still is.
 - [fixed: empty state lists each mode with its sentence, 2026-11-09] `parallax_Google_Pixel_7_10_20261109-222124.json` — bored why these aren't self explanatory
 - [open] `parallax_Google_Pixel_7_10_20261109-222224.json` — I'm underwhelmed by bored mode. good idea but let's enhance tf out of it!
 - [open] `parallax_Google_Pixel_7_10_20261109-222407.json` — portfolio why needs remakinh
@@ -43,3 +43,36 @@ belongs in `ROADMAP.md`.
 - [age strings hold together with a no-break space, 2026-11-10] `parallax_Google_Pixel_7_12_20261110-160919.json` — wrap weird
 
 - [card facts on their own line, right-aligned, 2026-11-10] `parallax_Google_Pixel_7_12_20261110-161450.json` — wrap
+
+- [exit reason now recorded by the OS on the next start, 2026-11-10] `parallax_Google_Pixel_7_12_20261110-163203.json` — did we just force close crash?
+- [same as 163203, 2026-11-10] `parallax_Google_Pixel_7_12_20261110-163241.json` — yes we did.
+- [no note; same stall and dead-channel lines as 204259, 2026-11-10] `glasstube_Google_Pixel_7_13_20261110-202937.json` — (no note)
+- [no retry spent while offline, network loss logged once, 2026-11-10] `glasstube_Google_Pixel_7_13_20261110-204259.json` — and yet playing. but did stutter
+- [reply likes and age right-aligned, 2026-11-10] `glasstube_Google_Pixel_7_13_20261110-205539.json` — reply time etc should be on right too
+- [channel Watched rows draw their thumbnail, 2026-11-10] `glasstube_Google_Pixel_7_13_20261110-205625.json` — missing thumbs
+- [channel About linkifies URLs and @handles, 2026-11-10] `glasstube_Google_Pixel_7_13_20261110-205649.json` — href links
+- [feed setting hides videos watched past 25/50/90/100 per cent, 2026-11-11] `glasstube_Google_Pixel_7_13_20261110-205752.json` — setting for how much played % feed should show watched videos. 1% to 100%
+- [play on an idle player re-prepares, 2026-11-10] `glasstube_Google_Pixel_7_13_20261110-210828.json` — it won't give error toast or play or log. weird.
+- [same fault as 210828, 2026-11-10] `glasstube_Google_Pixel_7_13_20261110-210851.json` — restart app fixed it
+- [bar at the top, readouts 40dp above the finger, speed panel opens at the tap, 2026-11-10] `glasstube_Google_Pixel_7_13_20261110-213728.json` — speed pill doesn't come at finger pos. make pills for vol and bright higher above finger, and move progress bar to top.
+- [open] `glasstube_Google_Pixel_7_13_20261110-215202.json` — need audio stabilizer and maybe even eq
+- [dictation commits each utterance and restarts while recording, 2026-11-10] `glasstube_Google_Pixel_7_13_20261110-220547.json` — my notes was recording the speaker for 1min and at the end it lost the first 95% and then exited.
+- [a sideways drift no longer locks a seek; the top band cannot start a minimise, 2026-11-10] `glasstube_Google_Pixel_7_13_20261110-222730.json` — sometimes swiping up bringe up seek pill. needs more elegant solution.
+
+- [the feed asks each channel's live tab when it has one, 2026-11-11] `glasstube_Google_Pixel_7_14_20261111-104716.json` — feed missing live subs
+- [a tap on a comment opens its replies when its words fit, 2026-11-11] `glasstube_Google_Pixel_7_14_20261111-105921.json` — tapping comments should expand replies if main comment doesntt have ellipses. make sense? smart expand, collapse
+- [two spent retries drop one quality stop, with a toast, 2026-11-11] `glasstube_Google_Pixel_7_14_20261111-110114.json` — if buffering a lot degarde the quality auto. give toast
+- [open] `glasstube_Google_Pixel_7_14_20261111-110306.json` — loading video buffers then stops then revers to previous video
+- [reply text is the comment text size, 2026-11-11] `glasstube_Google_Pixel_7_14_20261111-110831.json` — replies should be same font size
+- [the report draft survives leaving the screen, 2026-11-11] `glasstube_Google_Pixel_7_14_20261111-110857.json` — don't auto clear bug report if I close snf reopen. I might have to recheck something before submit.
+- [the speed panel and dial stop where the presets stop, 2026-11-11] `glasstube_Google_Pixel_7_14_20261111-111118.json` — speed level pill isn't filters by user settings. it also needs confined space on screen so my finger isn't off the screen. also idk if it Shou be rap and slide…
+- [bar back at the bottom of the picture with a time at each end, 2026-11-11] `glasstube_Google_Pixel_7_14_20261111-111214.json` — move progress bar back to bottom of video
+- [the pill says Switching quality; a different file cannot reuse the old buffer, 2026-11-11] `glasstube_Google_Pixel_7_14_20261111-111445.json` — why hwne changing to lower quality the video buffers? shouldn't it play what's already buffered ?
+- [the scrub pill follows the finger instead of owning the middle, 2026-11-11] `glasstube_Google_Pixel_7_14_20261111-111834.json` — seek shouldn't take over middle of screen
+- [bar sits between the elapsed time and the length, 2026-11-11] `glasstube_Google_Pixel_7_14_20261111-112240.json` — rearrange location of elements. progress bar should be in middle of time and total time etc
+- [open] `glasstube_Google_Pixel_7_14_20261111-112435.json` — captions
+- [open] `glasstube_Google_Pixel_7_14_20261111-113155.json` — sometimes swipe back does nothing
+- [a filed report writes a log line and the list below shows it, 2026-11-11] `glasstube_Google_Pixel_7_14_20261111-113229.json` — bug reports should show in the log below and stay
+- [the player sections are rounded cards, 2026-11-11] `glasstube_Google_Pixel_7_14_20261111-114914.json` — sections in player should be rounded cards w Chevron
+- [Auto's first load is capped at 720p on every connection, 2026-11-11] `glasstube_Google_Pixel_7_14_20261111-115657.json` — sometimes opening screen lafe audio and video for 2s. weird.
+- [the buffering pill carries the percentage, 2026-11-11] `glasstube_Google_Pixel_7_14_20261111-120655.json` — can buffering pill show %

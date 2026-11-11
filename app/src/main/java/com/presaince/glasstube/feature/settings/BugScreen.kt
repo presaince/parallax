@@ -51,11 +51,16 @@ import com.presaince.glasstube.ui.theme.accentTextColour
 @Composable
 fun BugScreen(log: AppLog) {
     val context = LocalContext.current
-    val entries = remember { log.recent().take(80) }
-    var includeShot by remember { mutableStateOf(BugShot.bitmap != null) }
-    var includeLogs by remember { mutableStateOf(true) }
-    var note by remember { mutableStateOf("") }
+    // The draft survives leaving the screen. Checking something and coming back used to lose the
+    // note (`110857`), which is the one thing a report form must never do. It is cleared when the
+    // server has the report, not when the composition goes away.
+    var note by remember { mutableStateOf(BugDraft.note) }
+    var includeShot by remember { mutableStateOf(BugDraft.includeShot ?: (BugShot.bitmap != null)) }
+    var includeLogs by remember { mutableStateOf(BugDraft.includeLogs) }
     val upload by BugUpload.state.collectAsStateWithLifecycle()
+    // The list is a snapshot, so it is taken again when a report lands: the `filed` line the send
+    // wrote has to be visible without closing and reopening the screen (`113229`).
+    val entries = remember(upload is BugUploadState.Done) { log.recent().take(80) }
     val sending = upload is BugUploadState.Building || upload is BugUploadState.Sending
     val retryAt = (upload as? BugUploadState.Failed)?.retryAtMillis ?: 0L
     var clock by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -79,7 +84,10 @@ fun BugScreen(log: AppLog) {
 
         OutlinedTextField(
             value = note,
-            onValueChange = { note = it },
+            onValueChange = { text ->
+                note = text
+                BugDraft.note = text
+            },
             label = { Text("What happened?") },
             placeholder = { Text("What you did, and what the app did instead") },
             minLines = 2,
@@ -106,7 +114,13 @@ fun BugScreen(log: AppLog) {
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.weight(1f).padding(start = 12.dp),
                 )
-                Switch(checked = includeShot, onCheckedChange = { includeShot = it })
+                Switch(
+                    checked = includeShot,
+                    onCheckedChange = {
+                        includeShot = it
+                        BugDraft.includeShot = it
+                    },
+                )
             }
         }
 
@@ -125,7 +139,13 @@ fun BugScreen(log: AppLog) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Switch(checked = includeLogs, onCheckedChange = { includeLogs = it })
+            Switch(
+                checked = includeLogs,
+                onCheckedChange = {
+                    includeLogs = it
+                    BugDraft.includeLogs = it
+                },
+            )
         }
 
         // One action, one state. After the server has the report the form resets on its own;
@@ -135,7 +155,9 @@ fun BugScreen(log: AppLog) {
             LaunchedEffect(done) {
                 delay(2000)
                 BugUpload.dismiss()
+                // The server has it: the draft has done its job.
                 note = ""
+                BugDraft.note = ""
             }
             Column(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
                 Text(
@@ -217,4 +239,16 @@ fun BugScreen(log: AppLog) {
             }
         }
     }
+}
+
+/**
+ * The report being written, held outside the composition. A note is the one thing here that took
+ * effort, so it outlives the screen (`110857`); the switches ride along because re-setting them is
+ * the same kind of tax.
+ */
+private object BugDraft {
+    var note: String = ""
+    /** Null until the screen has seen whether there is a screenshot to attach. */
+    var includeShot: Boolean? = null
+    var includeLogs: Boolean = true
 }

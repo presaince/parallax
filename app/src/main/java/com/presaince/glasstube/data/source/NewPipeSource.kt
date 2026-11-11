@@ -6,8 +6,13 @@ package com.presaince.glasstube.data.source
 
 import com.presaince.glasstube.core.AppLog
 import com.presaince.glasstube.core.AppResult
+import com.presaince.glasstube.core.Transport
+import com.presaince.glasstube.core.activeTransport
 import com.presaince.glasstube.core.cleanHtml
 import com.presaince.glasstube.core.firstLoadHeight
+import com.presaince.glasstube.core.panelShortSidePx
+import com.presaince.glasstube.core.qualityKey
+import com.presaince.glasstube.core.snapToLadder
 import com.presaince.glasstube.data.model.Channel
 import com.presaince.glasstube.data.model.Comment
 import com.presaince.glasstube.data.model.Cue
@@ -224,27 +229,36 @@ class NewPipeSource(
         withSourceRepair(log, "streams", { resetMainRegion() }) {
             val info = streamInfo(id)
 
-            // Progressive (video+audio in one file) is the smallest moving part and plays
-            // everywhere, but it comes with whichever audio track YouTube chose for the file. A
-            // video with several language tracks is played as a merge so the language is ours.
-            // The target is the first-load ceiling, so Auto does not start at the highest bitrate.
+            // Video-only plus audio, always, when the extractor offers both. Progressive files
+            // (video+audio in one) stop at 720p, so a stored 1080p or 4K was unreachable on any
+            // video with one audio track; split is also what lets the player drop the picture
+            // with the screen off without stopping the sound. A live stream has no split set,
+            // and then the muxed file is the only thing there is.
             val target = firstLoadTargetHeight()
-            val audioTracks = info.audioStreams.mapNotNull { it.audioTrackId }.distinct()
-            val muxed = if (audioTracks.size > 1) null else pick(info.videoStreams, target)
-            if (muxed != null) {
-                log?.info("source", "streams for $id target=${target}p muxed host=${hostOf(muxed)}")
-                StreamSet(muxedUrl = muxed)
-            } else {
-                val video = pick(info.videoOnlyStreams, target)
-                val audio = pickAudio(info.audioStreams)
-                if (video == null || audio == null) {
-                    throw IllegalStateException("no playable stream for $id")
-                }
+            val autoCeiling = autoCeiling()
+            val video = pick(info.videoOnlyStreams, target, autoCeiling)
+            val audio = pickAudio(info.audioStreams)
+            if (video != null && audio != null) {
                 log?.info(
                     "source",
-                    "streams for $id target=${target}p split video=${hostOf(video)} audio=${hostOf(audio)}",
+                    "streams for $id target=${describeTarget(target, autoCeiling)} split " +
+                        "video=${describe(video)} host=${hostOf(video.content)} " +
+                        "audio=${hostOf(audio)}",
                 )
-                StreamSet(videoUrl = video, audioUrl = audio)
+                StreamSet(videoUrl = video.content, audioUrl = audio)
+            } else {
+                val muxed = pick(info.videoStreams, target, autoCeiling)
+                if (muxed == null) {
+                    throw IllegalStateException("no playable stream for $id")
+                }
+                // Named with the height that was actually chosen: the muxed file tops out at 720p,
+                // and a target the set cannot reach is explained here rather than guessed at.
+                log?.info(
+                    "source",
+                    "streams for $id target=${describeTarget(target, autoCeiling)} " +
+                        "muxed (no split set) ${describe(muxed)} host=${hostOf(muxed.content)}",
+                )
+                StreamSet(muxedUrl = muxed.content)
             }
         }
     }
@@ -422,32 +436,68 @@ class NewPipeSource(
     }
 
     /**
-     * Highest bitrate wins for Auto. A chosen height wins otherwise: the closest stream at or
-     * below it, so "720p" never turns into a 1080p stream on a phone that asked for less.
+     * Auto takes the tallest rendition this screen can show, and the higher bitrate of two at the
+     * same height. A chosen height wins otherwise: the closest stream at or below it, so "720p"
+     * never turns into a 1080p stream on a phone that asked for less.
+     *
+     * The ceiling is the panel's short side, bounded by [AUTO_MAX_HEIGHT]: YouTube serves 8K, this
+     * phone cannot decode it, and a 4K file on a 1080p screen is bytes for lines nobody sees.
      */
-    private fun pick(streams: List<VideoStream>, targetHeight: Int = 0): String? {
+    private fun pick(
+        streams: List<VideoStream>,
+        targetHeight: Int = 0,
+        autoCeiling: Int = AUTO_MAX_HEIGHT,
+    ): VideoStream? {
         val playable = streams.filter {
             runCatching { it.isUrl() && it.content.isNotBlank() }.getOrDefault(false)
         }
         if (playable.isEmpty()) return null
         val chosen = if (targetHeight <= 0) {
-            playable.sortedByDescending { runCatching { it.bitrate }.getOrDefault(0) }.first()
+            fun heightOf(stream: VideoStream) = runCatching { stream.height }.getOrDefault(0)
+            playable
+                .filter { heightOf(it) in 1..autoCeiling }
+                .maxWithOrNull(
+                    compareBy({ heightOf(it) }, { runCatching { it.bitrate }.getOrDefault(0) }),
+                )
+                ?: playable.minByOrNull { heightOf(it).takeIf { h -> h > 0 } ?: Int.MAX_VALUE }
         } else {
             playable
                 .filter { runCatching { it.height }.getOrDefault(0) in 1..targetHeight }
                 .maxByOrNull { runCatching { it.height }.getOrDefault(0) }
                 ?: playable.minByOrNull { runCatching { it.height }.getOrDefault(Int.MAX_VALUE) }
         }
-        return chosen?.content
+        return chosen
     }
 
-    /** 0 means Auto; anything else is the ceiling height in pixels. */
+    /** One token for the log: the height chosen, so a target the set could not meet is visible. */
+    private fun describe(stream: VideoStream): String =
+        runCatching { "${stream.height}p" }.getOrDefault("unknown")
+
+    /** 0 is Auto, which has no target of its own: it has a ceiling instead. */
+    private fun describeTarget(target: Int, autoCeiling: Int): String =
+        if (target <= 0) "auto<=${autoCeiling}p" else "${target}p"
+
+    /** The tallest Auto may ask for: the panel's short side, never above 4K. */
+    private fun autoCeiling(): Int {
+        val panel = panelShortSidePx(appContext)
+        return if (panel in 1 until AUTO_MAX_HEIGHT) panel else AUTO_MAX_HEIGHT
+    }
+
+    /** 0 means Auto; anything else is the ceiling height in pixels, per connection. */
     private fun qualityHeight(): Int = runCatching {
-        appContext?.getSharedPreferences("glasstube", android.content.Context.MODE_PRIVATE)
-            ?.getInt("video_quality", 0)
+        val prefs = appContext?.getSharedPreferences("glasstube", android.content.Context.MODE_PRIVATE)
+        // A choice made on a taller ladder, or before the panel cap existed, falls to the tallest
+        // stop this screen offers instead of silently fetching 4K for a 1080p panel.
+        snapToLadder(
+            prefs?.getInt(qualityKey(activeTransport(appContext)), 0) ?: 0,
+            panelShortSidePx(appContext),
+        )
     }.getOrNull() ?: 0
 
-    /** First-load ceiling: Auto caps below the highest bitrate so first frame buffers faster. */
+    /**
+     * First-load ceiling. A chosen height is taken as-is; Auto is capped only on a metered
+     * connection, where a 720p first frame costs about a third of the bytes.
+     */
     private fun firstLoadTargetHeight(): Int = firstLoadHeight(qualityHeight())
 
     /**
@@ -545,6 +595,9 @@ class NewPipeSource(
         const val USER_AGENT =
             "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) " +
                 "Chrome/124.0.0.0 Mobile Safari/537.36"
+
+        /** Auto's ceiling. YouTube serves 8K; this phone cannot decode it, so it is not a choice. */
+        const val AUTO_MAX_HEIGHT = 2160
 
         /** How YouTube words a video that has not aired yet. */
         val UPCOMING_HINT = Regex("(?i)premier|schedul|upcoming|waiting|starting")

@@ -12,10 +12,12 @@ import com.presaince.glasstube.data.db.CommentCacheEntity
 import com.presaince.glasstube.data.db.GlassTubeDb
 import com.presaince.glasstube.data.db.SubscriptionEntity
 import com.presaince.glasstube.data.db.VideoEntity
+import com.presaince.glasstube.data.model.Channel
 import com.presaince.glasstube.data.model.Comment
 import com.presaince.glasstube.data.model.Page
 import com.presaince.glasstube.data.model.VideoSummary
 import com.presaince.glasstube.data.source.VideoSource
+import com.presaince.glasstube.core.FeedProgress
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -25,6 +27,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
@@ -48,7 +51,46 @@ class ContentRepository(
     private val playbackBusy: () -> Boolean = { false },
 ) {
 
-    fun observeFeed(): Flow<List<VideoEntity>> = db.videos().observeFeed()
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    fun observeFeed(): Flow<List<VideoEntity>> =
+        hideWatchedPercent.flatMapLatest { percent ->
+            if (percent <= 0) {
+                db.videos().observeFeed()
+            } else {
+                db.videos().observeFeedHidingWatched(percent)
+            }
+        }
+
+    /**
+     * How finished a video has to be before the feed drops it, 0..100. Zero is off, which is the
+     * factory default: a feed that hides things on its own is a surprise. `205752` asked for the
+     * range, and a StateFlow is what lets the slider repaint the feed without a fetch.
+     */
+    private val _hideWatchedPercent = MutableStateFlow(0)
+    val hideWatchedPercent: StateFlow<Int> = _hideWatchedPercent.asStateFlow()
+
+    fun setHideWatchedPercent(percent: Int) {
+        _hideWatchedPercent.value = percent.coerceIn(0, 100)
+    }
+
+    /**
+     * Whether a refresh asks each channel's live tab as well as its uploads. On by default: the
+     * uploads list never carries a stream that is happening now, which is why a subscribed channel
+     * that went live showed nothing (`104716`). Off costs half the requests per refresh.
+     */
+    private val _feedLive = MutableStateFlow(true)
+    val feedLive: StateFlow<Boolean> = _feedLive.asStateFlow()
+
+    fun setFeedLive(enabled: Boolean) {
+        _feedLive.value = enabled
+    }
+
+    /**
+     * How far the running refresh has got, or null when nothing is running. Published per channel,
+     * so the feed can say "12 of 47 · 26% · Hard Reset" instead of animating at nobody.
+     */
+    private val _feedProgress = MutableStateFlow<FeedProgress?>(null)
+    val feedProgress: StateFlow<FeedProgress?> = _feedProgress.asStateFlow()
 
     /**
      * A counter, not an event: a request raised while the feed is not composed is still pending
@@ -96,6 +138,9 @@ class ContentRepository(
                 val learned = runCatching {
                     db.videos().learnedCounts().associateBy { it.id }
                 }.getOrDefault(emptyMap())
+                var done = 0
+                _feedProgress.value = FeedProgress(0, subscriptions.size)
+                try {
                 for (batch in subscriptions.chunked(MAX_PARALLEL)) {
                 // Buffering owns the network: the first frame shares nothing with a feed batch.
                 while (playbackBusy()) {
@@ -105,21 +150,34 @@ class ContentRepository(
                 val results = coroutineScope {
                     batch.map { subscription ->
                         async {
-                            subscription to Pair(
-                                source.channelUploads(subscription.url),
-                                source.channelInfo(subscription.url),
-                            )
+                            val uploads = async { source.channelUploads(subscription.url) }
+                            val info = source.channelInfo(subscription.url)
+                            // The live tab is asked only when the channel reports it. YouTube's own
+                            // tab list is the authority; asking a channel with no Live tab is a
+                            // failure, and the repair path logs failures as faults.
+                            val lives = if (_feedLive.value && hasLiveTab(info)) {
+                                async { source.channelTab(subscription.url, LIVE_FILTER) }
+                            } else {
+                                null
+                            }
+                            subscription to Triple(uploads.await(), info, lives?.await())
                         }
                     }.awaitAll()
                 }
-                for ((subscription, pair) in results) {
-                    val uploads = pair.first
-                    val info = pair.second
+                for ((subscription, triple) in results) {
+                    val uploads = triple.first
+                    val info = triple.second
+                    val lives = triple.third
                     when (uploads) {
                         is AppResult.Ok -> {
                             val videos = uploads.value.items.filter { it.title.isNotBlank() }
-                            db.videos().upsertAll(videos.map { it.toEntity(now, liveSeen, learned) })
-                            stored += videos.size
+                            // A stream that is happening now lives on its own tab, so the uploads
+                            // list never carries it (`104716`). Live entries go first and the
+                            // distinct keeps them: their state is the one worth showing.
+                            val liveItems = (lives as? AppResult.Ok)?.value?.items.orEmpty()
+                            val merged = (liveItems + videos).distinctBy { it.id }
+                            db.videos().upsertAll(merged.map { it.toEntity(now, liveSeen, learned) })
+                            stored += merged.size
                         }
                         is AppResult.Err -> {
                             failures++
@@ -146,8 +204,14 @@ class ContentRepository(
                             ),
                         ),
                     )
+                    done++
+                    _feedProgress.value = FeedProgress(done, subscriptions.size, subscription.name)
                 }
-            }
+                }
+                } finally {
+                    // Never leave a half-finished count on screen because a refresh was cancelled.
+                    _feedProgress.value = null
+                }
 
             db.videos().pruneOlderThan(now - RETAIN_MS)
             log.info(
@@ -249,15 +313,25 @@ class ContentRepository(
         fetchedAt = now,
     )
 
-    private companion object {
-        const val MAX_PARALLEL = 4
-        const val PLAYBACK_RETRY_MS = 400L
-        const val FIRST_PAGE = "first"
-        const val COMMENTS_TTL_MS = 60 * 60 * 1000L
-        const val RETAIN_MS = 30L * 24 * 60 * 60 * 1000L
-        const val MAX_LOGGED_FAILURES = 5
+    companion object {
+        /** The preference behind [hideWatchedPercent]: the feed's "finished" cut, 0 = off. */
+        const val KEY_HIDE_WATCHED = "feed_hide_watched_percent"
+
+        private const val MAX_PARALLEL = 4
+        private const val PLAYBACK_RETRY_MS = 400L
+        private const val FIRST_PAGE = "first"
+        private const val COMMENTS_TTL_MS = 60 * 60 * 1000L
+        private const val RETAIN_MS = 30L * 24 * 60 * 60 * 1000L
+        private const val MAX_LOGGED_FAILURES = 5
+
+        /** The extractor's own filter name for a channel's Live tab. */
+        private const val LIVE_FILTER = "livestreams"
+
+        /** Whether a channel has a Live tab to ask. */
+        private fun hasLiveTab(info: AppResult<Channel>): Boolean =
+            (info as? AppResult.Ok)?.value?.tabs?.contains(LIVE_FILTER) == true
 
         /** How long a live badge survives a listing that claims the stream is over. */
-        const val LIVE_GRACE_MS = 3L * 60 * 60 * 1000L
+        private const val LIVE_GRACE_MS = 3L * 60 * 60 * 1000L
     }
 }

@@ -58,8 +58,10 @@ import com.presaince.glasstube.data.db.GlassTubeDb
 import com.presaince.glasstube.data.model.VideoSummary
 import com.presaince.glasstube.data.source.VideoSource
 import com.presaince.glasstube.ui.component.CardStyle
+import com.presaince.glasstube.ui.component.LinkifiedText
 import com.presaince.glasstube.ui.component.NoteCountBadge
 import com.presaince.glasstube.ui.component.ScrollToTopButton
+import com.presaince.glasstube.ui.component.Thumbnail
 import com.presaince.glasstube.ui.component.VideoRow
 import com.presaince.glasstube.ui.component.compactCount
 import com.presaince.glasstube.ui.component.noteCounts
@@ -311,10 +313,14 @@ private fun ColumnScope.VideoTab(
 private fun AboutBlock(description: String?) {
     LazyColumn(modifier = Modifier.fillMaxSize()) {
         item {
-            Text(
+            // The description is a body of text with links in it, exactly like a video's, so it
+            // gets the same treatment: a URL opens (`205649` — the About tab used to print it as
+            // words). A bare `@handle` is deliberately *not* a link: the text does not say which
+            // network it belongs to, and guessing YouTube sent the owner to the wrong site.
+            LinkifiedText(
                 text = description ?: "This channel's page carries no description.",
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                colour = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(vertical = 10.dp),
             )
         }
@@ -361,6 +367,15 @@ private fun WatchedBlock(
                     .padding(vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                // The picture the row already carried and never drew (`205625`): a Watched row
+                // without one is a line of text that could be anything.
+                Thumbnail(
+                    url = row.thumbUrl.orEmpty(),
+                    durationSec = 0,
+                    modifier = Modifier
+                        .width(112.dp)
+                        .padding(end = 10.dp),
+                )
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = row.title,
