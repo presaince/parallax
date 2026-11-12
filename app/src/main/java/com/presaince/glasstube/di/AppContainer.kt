@@ -16,6 +16,7 @@ import com.presaince.glasstube.data.auth.YouTubeAuth
 import com.presaince.glasstube.data.db.GlassTubeDb
 import com.presaince.glasstube.data.discover.DiscoverEngine
 import com.presaince.glasstube.data.discover.RecipeRepository
+import com.presaince.glasstube.data.library.CommentEngine
 import com.presaince.glasstube.data.library.ContentRepository
 import com.presaince.glasstube.data.resync.LlmClient
 import com.presaince.glasstube.data.resync.AiChaptersEngine
@@ -137,6 +138,8 @@ class AppContainer(context: Context) {
                 it.setFeedLive(prefs.getBoolean("feed_live", true))
             }
     }
+
+    val comments: CommentEngine by lazy { CommentEngine(source, db) }
 
     val resyncStore: ResyncStore by lazy {
         ResyncStore(prefs, SecurePrefs(appContext))

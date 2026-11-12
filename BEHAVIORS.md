@@ -307,11 +307,28 @@ live playhead line; the video keeps playing behind the sheet.
 
 **Enforced by** `PlayerScreen.kt` (`ShareSheet`).
 
-**Rule.** Both ends can be played to, and `Go to end` lands on the end itself, so the label and the
-picture agree. Six nudges (−30, −10, −2, +2, +10, +30 seconds) move the start and seek to it.
+**Rule.** Each dot has a chip showing its own time, and a clip puts its length between them as a
+length (`2h3m4s`, never a clock, so it cannot be read as a place in the video); tapping a chip claims
+that dot and plays to it, landing on the dot itself rather than a head start. Six nudges (−30, −10,
+−2, +2, +10, +30 seconds) move the dot touched last and seek to it, and the caption above them names
+it (`steps move the end`) beside a swatch in that dot's colour. A drag claims a dot when the finger
+lifts. The claimed dot is drawn filled and the other is a ring.
 
-**Edge.** `Sync to now` pulls the end in a clip, or the start in a moment, to the playhead; if the
-playhead is before the start, the end stays a second past it.
+**Edge.** The start dot is green and the end dot is red, so the two ends are told apart without
+reading a time; the range between them stays the theme's primary, and the playhead is a dim tick.
+Colour says which end, fill says which one the steps are on. The caption's own text stays
+`onSurfaceVariant`: a colour is a swatch here, never the colour of a small size of text.
+
+**Edge.** A start stops a second before the end, an end a second after the start, and neither leaves
+the video. A moment has one dot, so the chips show one time and the steps always move it. There is no
+"sync to now": tapping the bar near the playhead places the nearer dot there.
+
+**Edge.** The card keeps its height when a clip appears: the note above the bar holds two lines
+whether or not there is one, and the chip row always has at least one chip. The note says the thing a
+link cannot say for itself — that only GlassTube plays the end, and that YouTube starts at the start
+and plays on. The message itself is shown beside the Share button in short form
+(`youtu.be/<id>?t=42s&end=72s`), so what will be sent is read before it is sent and the times are not
+the part that gets ellipsised.
 
 **Enforced by** `PlayerScreen.kt` (`ShareSheet`).
 

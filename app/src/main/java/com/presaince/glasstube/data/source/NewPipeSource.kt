@@ -567,16 +567,7 @@ class NewPipeSource(
         // Upcoming and members-only entries come through with no title; a blank row is worse than
         // no row.
         if (title.isEmpty()) return null
-        val state = when {
-            streamType == StreamType.LIVE_STREAM ||
-                streamType == StreamType.AUDIO_LIVE_STREAM -> StreamState.LIVE
-            duration <= 0 && UPCOMING_HINT.containsMatchIn(textualUploadDate.orEmpty()) ->
-                StreamState.UPCOMING
-            duration <= 0 && LIVE_HINT.containsMatchIn(
-                "${textualUploadDate.orEmpty()} $title",
-            ) -> StreamState.LIVE
-            else -> StreamState.NORMAL
-        }
+        val state = streamStateOf(streamType, duration, textualUploadDate, title)
         // An unknown duration with no hint is either a live item the extractor did not label or a
         // video with no length. Record it so the Logs screen answers "why has this no pill?".
         if (state == StreamState.NORMAL && duration <= 0 && ambiguousSeen < MAX_AMBIGUOUS_LOGS) {
@@ -632,12 +623,6 @@ class NewPipeSource(
 
         /** Auto's ceiling. YouTube serves 8K; this phone cannot decode it, so it is not a choice. */
         const val AUTO_MAX_HEIGHT = 2160
-
-        /** How YouTube words a video that has not aired yet. */
-        val UPCOMING_HINT = Regex("(?i)premier|schedul|upcoming|waiting|starting")
-
-        /** How a listing marks something that is live right now. */
-        val LIVE_HINT = Regex("(?i)watching|live now|\\blive\\b|24/7|radio")
 
         const val MAX_AMBIGUOUS_LOGS = 3
     }

@@ -10,7 +10,7 @@ import com.presaince.glasstube.core.AppResult
 import com.presaince.glasstube.core.SortOption
 import com.presaince.glasstube.core.SortState
 import com.presaince.glasstube.data.auth.PostingManager
-import com.presaince.glasstube.data.library.ContentRepository
+import com.presaince.glasstube.data.library.CommentEngine
 import com.presaince.glasstube.data.model.Comment
 import com.presaince.glasstube.data.resync.ResyncEngine
 import com.presaince.glasstube.data.resync.ResyncStore
@@ -54,7 +54,7 @@ data class CommentsUiState(
 )
 
 class CommentsViewModel(
-    private val content: ContentRepository,
+    private val comments: CommentEngine,
     private val posting: PostingManager,
     private val resync: ResyncEngine,
     private val resyncStore: ResyncStore,
@@ -162,7 +162,7 @@ class CommentsViewModel(
                     replyErrors = it.replyErrors - comment.id,
                 )
             }
-            when (val result = content.comments(videoId, page)) {
+            when (val result = comments.comments(videoId, page)) {
                 is AppResult.Ok -> _state.update {
                     // A reply page that comes back empty is not an error, but it is worth saying:
                     // YouTube counted replies and then handed none over.
@@ -266,7 +266,7 @@ class CommentsViewModel(
     private fun fetch(page: String?, append: Boolean, refresh: Boolean = false) {
         viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
-            when (val result = content.comments(videoId, page, refresh)) {
+            when (val result = comments.comments(videoId, page, refresh)) {
                 is AppResult.Ok -> _state.update {
                     it.copy(
                         items = if (append) it.items + result.value.items else result.value.items,

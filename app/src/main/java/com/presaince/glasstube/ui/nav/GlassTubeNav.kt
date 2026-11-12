@@ -478,7 +478,7 @@ fun GlassTubeNav(container: AppContainer, theme: ThemeController) {
                         )
                         is Route.Player -> PlayerScreen(
                             source = container.source,
-                            content = container.content,
+                            comments = container.comments,
                             playback = container.playback,
                             db = container.db,
                             posting = container.posting,

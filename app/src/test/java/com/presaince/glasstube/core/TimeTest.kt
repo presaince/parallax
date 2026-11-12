@@ -27,6 +27,17 @@ class TimeTest {
     }
 
     @Test
+    fun `a length in words drops the units it does not reach`() {
+        assertEquals("0s", formatSpan(0))
+        assertEquals("4s", formatSpan(4))
+        assertEquals("3m4s", formatSpan(184))
+        assertEquals("2h3m4s", formatSpan(7384))
+        // A whole number of hours, and an hour whose minutes are zero.
+        assertEquals("1h", formatSpan(3600))
+        assertEquals("1h5s", formatSpan(3605))
+    }
+
+    @Test
     fun `time ago covers each unit`() {
         val now = 1_800_000_000_000L
         assertEquals("now", timeAgo(now - 30_000, now))
@@ -38,9 +49,12 @@ class TimeTest {
     }
 
     @Test
-    fun `a future timestamp does not go negative`() {
+    fun `a future timestamp reads as a time ahead, never as now`() {
         val now = 1_800_000_000_000L
-        assertEquals("now", timeAgo(now + 60_000, now))
+        // A scheduled stream is dated in the future, and "now" was a lie about it.
+        assertEquals("in\u00A01m", timeAgo(now + 60_000, now))
+        assertEquals("in\u00A03h", timeAgo(now + 3 * 3_600_000, now))
+        assertEquals("in\u00A02d", timeAgo(now + 2L * 86_400_000L, now))
     }
 
     @Test

@@ -131,6 +131,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
@@ -138,6 +139,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
@@ -158,6 +161,7 @@ import com.presaince.glasstube.core.AppLog
 import com.presaince.glasstube.core.SourceError
 import com.presaince.glasstube.core.activeTransport
 import com.presaince.glasstube.core.formatDuration
+import com.presaince.glasstube.core.formatSpan
 import com.presaince.glasstube.core.panelShortSidePx
 import com.presaince.glasstube.core.qualityStops
 import com.presaince.glasstube.core.timeAgo
@@ -168,7 +172,7 @@ import com.presaince.glasstube.data.discover.RelatedNode
 import com.presaince.glasstube.data.discover.RelatedWalk
 import com.presaince.glasstube.data.discover.frontierFor
 import com.presaince.glasstube.data.discover.mergePool
-import com.presaince.glasstube.data.library.ContentRepository
+import com.presaince.glasstube.data.library.CommentEngine
 import com.presaince.glasstube.data.model.VideoSummary
 import com.presaince.glasstube.data.resync.ResyncEngine
 import com.presaince.glasstube.data.resync.ResyncStore
@@ -228,7 +232,7 @@ private const val UNDO_MIN_MS = 2_000L
 @Composable
 fun PlayerScreen(
     source: VideoSource,
-    content: ContentRepository,
+    comments: CommentEngine,
     playback: PlaybackController,
     db: GlassTubeDb,
     posting: PostingManager,
@@ -261,7 +265,7 @@ fun PlayerScreen(
         factory = viewModelFactory {
             initializer {
                 CommentsViewModel(
-                    content,
+                    comments,
                     posting,
                     resync,
                     resyncStore,
@@ -3074,11 +3078,35 @@ private fun ControlsOverlay(
     }
 }
 
+/** The two dots on the share bar. The one touched last owns the nudges. */
+internal enum class ClipEdge(val label: String) { Start("start"), End("end") }
+
+/** Green for the start dot, red for the end. Fixed, because they name ends, not the theme's accent. */
+internal fun clipEdgeColor(edge: ClipEdge): Color =
+    if (edge == ClipEdge.End) Color(0xFFE53935) else Color(0xFF43A047)
+
+/**
+ * Where a boundary lands: inside the video, and a second clear of the other dot. One function for
+ * dragging, nudging and "Sync to now", so the three cannot disagree about where the edge is.
+ */
+internal fun boundaryAt(
+    at: Float,
+    edge: ClipEdge,
+    start: Float,
+    end: Float,
+    totalSeconds: Float,
+    hasClip: Boolean,
+): Float = when {
+    // No second dot on screen means no end to place, and a nudge must not invent one.
+    !hasClip && edge == ClipEdge.End -> end
+    edge == ClipEdge.End -> at.coerceIn(start + 1f, totalSeconds)
+    else -> at.coerceIn(0f, if (hasClip) end - 1f else totalSeconds - 1f)
+}
+
 /**
  * One share panel for everything a link can carry. "This moment" puts the playhead in the URL; "A
  * clip" adds an end, which has to travel in the text because a YouTube link holds only one time.
- * The bar carries a live playhead line, both ends can be played to, and "Sync to now" pulls the
- * end (or the moment) to wherever the video is.
+ * The bar carries a live playhead line, and the six steps move the dot touched last.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -3101,41 +3129,56 @@ private fun ShareSheet(
                     (positionSec + 30).coerceAtMost(total).toFloat().coerceAtLeast(start + 1f),
                 )
             }
+            // One active boundary at a time: the dot touched last, drawn filled. Without that mark
+            // six buttons look like they change their mind about what they move.
+            var edge by remember { mutableStateOf(ClipEdge.Start) }
             // The video keeps playing behind the sheet, so this line moves while you look at it.
             val playhead = (positionSec.toFloat() / total).coerceIn(0f, 1f)
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = "Share",
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.weight(1f),
-                )
-                // Pulls the end of a clip to the playhead; with a single moment, moves the moment.
-                TextButton(onClick = {
-                    val now = positionSec.toFloat()
-                    if (end - start > 1f) {
-                        end = now.coerceIn(start + 1f, total.toFloat())
-                    } else {
-                        start = now.coerceIn(0f, (total - 1).toFloat())
-                    }
-                }) { Text("Sync to now") }
+            val totalSeconds = total.toFloat()
+            // An end within a second of the start is a moment, not a flag the reader has to find.
+            val hasClip = end - start > 1f
+            // The one rule the sheet follows: the dot touched last is the dot that moves. Clamping
+            // keeps both inside the video and a second apart.
+            fun place(which: ClipEdge, at: Float) {
+                val to = boundaryAt(at, which, start, end, totalSeconds, hasClip)
+                if (which == ClipEdge.End) end = to else start = to
             }
+
+            Text(text = "Share", style = MaterialTheme.typography.titleMedium)
+            // The one thing a reader cannot learn by looking: the end is ours alone. Two lines are
+            // held whether or not there is a clip, so the card does not change height under the hand.
             Text(
-                text = "The link carries the start. Drag the second handle to add an end, or leave it " +
-                    "where it is and only the moment is shared.",
+                text = if (hasClip) {
+                    "Only GlassTube plays the end. In YouTube the link starts at " +
+                        "${formatDuration(start.toLong())} and plays on."
+                } else {
+                    "In YouTube the link starts at ${formatDuration(start.toLong())} and plays on."
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                minLines = 2,
                 modifier = Modifier.padding(top = 4.dp),
             )
 
             val trackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.30f)
-            val handleColor = MaterialTheme.colorScheme.primary
+            val rangeColor = MaterialTheme.colorScheme.primary
             val playheadColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.80f)
+            // Sizes in dp: a pixel radius is a different size on every screen, and 13 px of dot was
+            // about four dp — too small to aim at and thick enough to need. The bar is thinner than
+            // the strip that answers the finger, and inset at both ends so a dot at 0 s is not half
+            // off the card and impossible to pick up.
+            val density = LocalDensity.current
+            val dotRadius = with(density) { 7.dp.toPx() }
+            val ringWidth = with(density) { 2.5.dp.toPx() }
+            val trackWidth = with(density) { 2.dp.toPx() }
+            val rangeWidth = with(density) { 3.dp.toPx() }
+            val playheadWidth = with(density) { 1.5.dp.toPx() }
+            val playheadHeight = with(density) { 18.dp.toPx() }
             Canvas(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(64.dp)
-                    .padding(vertical = 16.dp)
+                    .height(44.dp)
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
                     .pointerInput(total) {
                         awaitEachGesture {
                             val down = awaitFirstDown(requireUnconsumed = false)
@@ -3143,15 +3186,23 @@ private fun ShareSheet(
                             val width = size.width.toFloat().coerceAtLeast(1f)
                             fun secondsAt(x: Float) =
                                 (x / width * total).coerceIn(0f, total.toFloat())
-                            var movingStart = kotlin.math.abs(
+                            // The nearer dot is the one being dragged, decided once at touch-down
+                            // so a fast drag cannot swap ends halfway.
+                            val movingStart = kotlin.math.abs(
                                 down.position.x - start / total * width,
                             ) <= kotlin.math.abs(down.position.x - end / total * width)
+                            // Dragging is also how a clip is made, so both dots clamp as a pair
+                            // here whether or not the end has moved away from the start yet.
                             fun apply(x: Float) {
                                 val at = secondsAt(x)
                                 if (movingStart) {
-                                    start = at.coerceAtMost(end - 1f).coerceAtLeast(0f)
+                                    start = boundaryAt(
+                                        at, ClipEdge.Start, start, end, total.toFloat(), hasClip = true,
+                                    )
                                 } else {
-                                    end = at.coerceAtLeast(start + 1f).coerceAtMost(total.toFloat())
+                                    end = boundaryAt(
+                                        at, ClipEdge.End, start, end, total.toFloat(), hasClip = true,
+                                    )
                                 }
                             }
                             apply(down.position.x)
@@ -3161,7 +3212,15 @@ private fun ShareSheet(
                                     ?: break
                                 change.consume()
                                 apply(change.position.x)
-                                if (!change.pressed) break
+                                if (!change.pressed) {
+                                    // The dot you let go of is the one the nudge row moves. A second
+                                    // dot within a second of the start is not drawn, so it cannot
+                                    // own the row.
+                                    if (end - start > 1f) {
+                                        edge = if (movingStart) ClipEdge.Start else ClipEdge.End
+                                    }
+                                    break
+                                }
                             }
                         }
                     },
@@ -3169,110 +3228,161 @@ private fun ShareSheet(
                 val y = size.height / 2
                 val startX = start / total * size.width
                 val endX = end / total * size.width
+                // Green is the start and red the end, so the two ends are told apart by more than
+                // position. Filled is the dot the steps move, a ring is the other one: colour says
+                // which end, fill says which one you are holding.
+                fun dot(center: Offset, color: Color, active: Boolean) {
+                    if (active) {
+                        drawCircle(color, radius = dotRadius, center = center)
+                    } else {
+                        drawCircle(
+                            color = color.copy(alpha = 0.65f),
+                            radius = dotRadius,
+                            center = center,
+                            style = Stroke(width = ringWidth),
+                        )
+                    }
+                }
                 drawLine(
                     color = trackColor,
                     start = Offset(0f, y),
                     end = Offset(size.width, y),
-                    strokeWidth = 6f,
+                    strokeWidth = trackWidth,
                 )
                 if (end - start > 1f) {
                     drawLine(
-                        color = handleColor,
+                        color = rangeColor,
                         start = Offset(startX, y),
                         end = Offset(endX, y),
-                        strokeWidth = 8f,
+                        strokeWidth = rangeWidth,
                     )
-                    drawCircle(handleColor, radius = 13f, center = Offset(startX, y))
-                    drawCircle(handleColor, radius = 13f, center = Offset(endX, y))
+                    dot(Offset(startX, y), clipEdgeColor(ClipEdge.Start), edge == ClipEdge.Start)
+                    dot(Offset(endX, y), clipEdgeColor(ClipEdge.End), edge == ClipEdge.End)
                 } else {
-                    drawCircle(handleColor, radius = 13f, center = Offset(startX, y))
+                    dot(Offset(startX, y), clipEdgeColor(ClipEdge.Start), active = true)
                 }
                 // The video's own position, not a third handle: thin, dim, never grabbable.
                 val px = playhead * size.width
                 drawLine(
                     color = playheadColor,
-                    start = Offset(px, 4f),
-                    end = Offset(px, size.height - 4f),
-                    strokeWidth = 3f,
+                    start = Offset(px, y - playheadHeight / 2f),
+                    end = Offset(px, y + playheadHeight / 2f),
+                    strokeWidth = playheadWidth,
                 )
             }
 
+            // One chip per dot, the clip's length between them as one line. The pill is the dot's
+            // own label, so choosing a dot is tapping the time it already shows.
             Row(
                 modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    text = if (end - start > 1f) {
-                        "${formatDuration(start.toLong())} – ${formatDuration(end.toLong())}"
-                    } else {
-                        "at ${formatDuration(start.toLong())}"
+                FilterChip(
+                    selected = edge == ClipEdge.Start,
+                    onClick = {
+                        edge = ClipEdge.Start
+                        onSeek(start.toLong())
                     },
-                    style = MaterialTheme.typography.titleSmall,
-                    modifier = Modifier.weight(1f),
+                    label = { Text(formatDuration(start.toLong())) },
                 )
-                if (end - start > 1f) {
+                if (hasClip) {
                     Text(
-                        text = formatDuration((end - start).toLong()),
+                        text = formatSpan((end - start).toLong()),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 8.dp),
+                    )
+                    FilterChip(
+                        selected = edge == ClipEdge.End,
+                        onClick = {
+                            edge = ClipEdge.End
+                            onSeek(end.toLong())
+                        },
+                        label = { Text(formatDuration(end.toLong())) },
                     )
                 }
             }
-            // Play to an end to check it. "Go to end" lands on the end itself, which is what the
-            // label promises; the two-second head start made the last moment of the clip
-            // impossible to check.
             // The shared text is only the link. A clip adds &end, which YouTube ignores but GlassTube
             // reads, so the same link works for both.
-            val shareText = if (end - start > 1f) {
+            val shareText = if (hasClip) {
                 "$watchUrl&t=${start.toLong()}s&end=${end.toLong()}s"
             } else {
                 "$watchUrl&t=${start.toLong()}s"
             }
-            // Small seeks by name. Dragging a handle on a two-hour video cannot land on a second,
-            // so the sheet carries the step a video reviewer actually uses, and each one moves the
-            // picture as well as the start, because a clip boundary you cannot watch is a guess.
+            // Small seeks by name. Dragging a dot on a two-hour video cannot land on a second, so
+            // the sheet carries the step a video reviewer actually uses. Each one moves the dot
+            // touched last and takes the picture with it: a boundary you cannot watch is a guess.
             fun nudge(by: Float) {
-                val at = (start + by).coerceIn(0f, (total - 1).toFloat())
-                start = if (end - start > 1f) at.coerceAtMost(end - 1f) else at
-                onSeek(start.toLong())
+                if (edge == ClipEdge.End) {
+                    place(ClipEdge.End, end + by)
+                    onSeek(end.toLong())
+                } else {
+                    place(ClipEdge.Start, start + by)
+                    onSeek(start.toLong())
+                }
+            }
+            // Which dot the six steps will move, said in the row that moves it. The dot's colour is
+            // a swatch rather than the text's colour: 11 sp of green on glass is the one place in
+            // this sheet that was hard to read, and a colour a reader cannot read names nothing.
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(clipEdgeColor(edge)),
+                )
+                Text(
+                    text = "steps move the ${edge.label}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 6.dp),
+                )
             }
             Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                horizontalArrangement = Arrangement.Center,
             ) {
                 listOf(-30f, -10f, -2f, 2f, 10f, 30f).forEach { step ->
                     TextButton(
                         onClick = { nudge(step) },
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                            horizontal = 6.dp,
-                            vertical = 4.dp,
-                        ),
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
                     ) {
                         Text(
                             text = formatSeekDelta((step * 1000).toLong()),
                             style = MaterialTheme.typography.labelMedium,
+                            // Read out with its owner: six identical "+10s" buttons are six
+                            // guesses for anyone using TalkBack.
+                            modifier = Modifier.clearAndSetSemantics {
+                                contentDescription = formatNudgeSpeech(step, edge)
+                            },
                         )
                     }
                 }
             }
 
             Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                TextButton(onClick = { onSeek(start.toLong()) }) { Text("Go to start") }
-                if (end - start > 1f) {
-                    TextButton(onClick = {
-                        onSeek(end.toLong())
-                    }) { Text("Go to end") }
-                }
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
+                // What actually gets sent, in the short form a message shows it: same video, same
+                // times, nothing in front of the part that changes. The scheme and the long host
+                // were the characters that pushed the times into an ellipsis.
+                Text(
+                    text = "youtu.be/${watchUrl.substringAfter("v=")}?t=${start.toLong()}s" +
+                        if (hasClip) "&end=${end.toLong()}s" else "",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
                 Button(onClick = {
                     val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
                         type = "text/plain"
@@ -3528,3 +3638,10 @@ internal fun restoreSystemBrightness(window: Window?) {
 /** "-12s" / "+12s": the size of the jump is the headline, so the sign stays visible. */
 private fun formatSeekDelta(deltaMs: Long): String =
     com.presaince.glasstube.core.seekDelta(deltaMs / 1000)
+
+/** The same jump said out loud, with the dot it will move: the row has six of these. */
+internal fun formatNudgeSpeech(stepSeconds: Float, edge: ClipEdge): String {
+    val size = if (stepSeconds < 0) -stepSeconds else stepSeconds
+    val direction = if (stepSeconds < 0) "earlier" else "later"
+    return "${size.roundToInt()} seconds $direction, ${edge.label}"
+}

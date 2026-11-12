@@ -21,10 +21,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import com.presaince.glasstube.core.timeAgo
+import com.presaince.glasstube.core.timeUntil
+import com.presaince.glasstube.data.model.StreamState
 import com.presaince.glasstube.data.model.VideoSummary
 import com.presaince.glasstube.data.source.Thumbnails
 
@@ -69,7 +77,7 @@ fun VideoRow(
     // navigation the list stays composed while that screen is open.
     val revision = CardStyle.revision
     val style = remember(revision) { CardStyle.read(context) }
-    val line = meta ?: metaFor(video, watches, style)
+    val line = meta?.let { AnnotatedString(it) } ?: metaFor(video, watches, style)
     // A caller that writes its own line owns the whole line: the name is only taken out of the
     // facts when the facts are ours to take it out of.
     val channel = if (meta == null && style.channel) {
@@ -242,7 +250,7 @@ fun VideoTile(
 @Composable
 private fun CardWords(
     title: String,
-    line: String,
+    line: AnnotatedString,
     channel: String?,
     onChannelClick: (() -> Unit)?,
     subscribed: Boolean,
@@ -259,7 +267,7 @@ private fun CardWords(
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        if (channel != null || line.isNotBlank()) {
+        if (channel != null || line.text.isNotBlank()) {
             Column(modifier = Modifier.padding(top = if (showTitle) 4.dp else 0.dp)) {
                 // The name is its own control and its own line: it opens the channel, and the
                 // facts below get the full width instead of half of a shared row, which is what
@@ -283,7 +291,7 @@ private fun CardWords(
                         },
                     )
                 }
-                if (line.isNotBlank()) {
+                if (line.text.isNotBlank()) {
                     Text(
                         text = line,
                         style = CardText.meta,
@@ -312,15 +320,51 @@ private const val NO_BREAK_DOT = "\u00A0·\u00A0"
  */
 private fun fact(count: String, noun: String): String = "$count\u00A0$noun"
 
-private fun metaFor(video: VideoSummary, watches: Int?, style: CardStyle): String = buildList {
-    if (style.age) video.publishedAtMs?.let { add(timeAgo(it)) }
-    if (style.views) video.viewCount?.let { add(fact(compactCount(it), "views")) }
-    if (style.likes) video.likeCount?.let { add(fact(compactCount(it), "likes")) }
-    if (style.watches && watches != null && watches > 1) {
-        add("watched\u00A0$watches\u00A0times")
+/** The on-air red. A scheduled stream borrows it, so the eye finds it in a list of grey facts. */
+internal val LIVE_RED = Color(0xFFFF3B30)
+
+internal fun metaFor(
+    video: VideoSummary,
+    watches: Int?,
+    style: CardStyle,
+    now: Long = System.currentTimeMillis(),
+): AnnotatedString {
+    val parts = mutableListOf<AnnotatedString>()
+    if (style.age) {
+        video.publishedAtMs?.let { published ->
+            // A premiere is not "3h ago" and not "now": it is a thing that has not happened, and
+            // the card says when it will. Red and lit, because it is the one row that is counting
+            // down rather than reporting.
+            parts += if (video.streamState == StreamState.UPCOMING) {
+                buildAnnotatedString {
+                    withStyle(
+                        SpanStyle(
+                            color = LIVE_RED,
+                            shadow = Shadow(color = LIVE_RED, blurRadius = 12f),
+                        ),
+                    ) { append("live\u00A0${timeUntil(published, now)}") }
+                }
+            } else {
+                AnnotatedString(timeAgo(published, now))
+            }
+        }
     }
-    if (style.comments) video.commentCount?.let { add(fact(compactCount(it), "comments")) }
-}.joinToString(NO_BREAK_DOT)
+    val facts = buildList {
+        if (style.views) video.viewCount?.let { add(fact(compactCount(it), "views")) }
+        if (style.likes) video.likeCount?.let { add(fact(compactCount(it), "likes")) }
+        if (style.watches && watches != null && watches > 1) {
+            add("watched\u00A0$watches\u00A0times")
+        }
+        if (style.comments) video.commentCount?.let { add(fact(compactCount(it), "comments")) }
+    }
+    if (facts.isNotEmpty()) parts += AnnotatedString(facts.joinToString(NO_BREAK_DOT))
+    return buildAnnotatedString {
+        parts.forEachIndexed { index, part ->
+            if (index > 0) append(NO_BREAK_DOT)
+            append(part)
+        }
+    }
+}
 
 /** 1.2M rather than 1200000: a list row has no space to waste. */
 fun compactCount(value: Long): String = when {

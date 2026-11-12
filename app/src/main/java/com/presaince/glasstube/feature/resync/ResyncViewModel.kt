@@ -7,7 +7,7 @@ package com.presaince.glasstube.feature.resync
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.presaince.glasstube.core.AppResult
-import com.presaince.glasstube.data.library.ContentRepository
+import com.presaince.glasstube.data.library.CommentEngine
 import com.presaince.glasstube.data.model.Comment
 import com.presaince.glasstube.data.resync.AlignedMoment
 import com.presaince.glasstube.data.resync.ResyncEngine
@@ -34,7 +34,7 @@ data class ResyncUiState(
 )
 
 class ResyncViewModel(
-    private val content: ContentRepository,
+    private val comments: CommentEngine,
     private val engine: ResyncEngine,
     private val store: ResyncStore,
     private val videoId: String,
@@ -74,7 +74,7 @@ class ResyncViewModel(
             var pages = 0
             while (pages < PAGES) {
                 pages++
-                when (val result = content.comments(videoId, page)) {
+                when (val result = comments.comments(videoId, page)) {
                     is AppResult.Ok -> {
                         loaded += result.value.items
                         page = result.value.next

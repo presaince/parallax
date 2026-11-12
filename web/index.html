@@ -20,11 +20,11 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>GlassTube — NewPipe and LibreTube, reimagined</title>
+    <title>GlassTube — YouTube reimagined</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#07070b" />
     <meta name="robots" content="noindex" />
-    <meta name="description" content="GlassTube is a free, open-source YouTube client for Android 13 and newer: no Google account, no ads — YouTube's or its own — and the audio keeps playing with the screen off. Direct APK." />
+    <meta name="description" content="GlassTube is a free, open-source YouTube client for Android 13 and newer: no Google account and no ads at all — no pre-roll, no mid-roll, and the sponsor reads inside the video are skipped. Direct APK." />
     <link rel="icon" href="img/favicon.svg" type="image/svg+xml" />
 
     <!-- The card chat clients draw for the shared link. og.png is the GlassTube mark and name,
@@ -32,8 +32,8 @@
          page. -->
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://odesaplay.com.ua/other_apps/glasstube/" />
-    <meta property="og:title" content="GlassTube — NewPipe and LibreTube, reimagined" />
-    <meta property="og:description" content="Free and open source. No Google account and no ads, YouTube's or its own. Subscriptions, history and notes stay on the phone, and the audio keeps playing with the screen off. Android 13 and newer, GPLv3." />
+    <meta property="og:title" content="GlassTube — YouTube reimagined" />
+    <meta property="og:description" content="Free and open source. No Google account and no ads at all — no pre-roll, no mid-roll, no sponsor reads. Subscriptions, history and notes stay on the phone. Android 13 and newer, GPLv3." />
     <meta property="og:image" content="https://odesaplay.com.ua/other_apps/glasstube/img/og.png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
@@ -41,8 +41,8 @@
     <meta property="og:locale" content="en_US" />
 
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="GlassTube — NewPipe and LibreTube, reimagined" />
-    <meta name="twitter:description" content="Free and open source. No account, no ads, plays with the screen off. Android 13 and newer, GPLv3." />
+    <meta name="twitter:title" content="GlassTube — YouTube reimagined" />
+    <meta name="twitter:description" content="Free and open source. No account, no ads at all — not even the sponsor reads. Android 13 and newer, GPLv3." />
     <meta name="twitter:image" content="https://odesaplay.com.ua/other_apps/glasstube/img/og.png" />
     <style>
       :root {
@@ -104,7 +104,7 @@
       }
       h1 {
         margin: 1rem 0 0;
-        font-size: clamp(2.3rem, 1.6rem + 3.2vw, 3.3rem);
+        font-size: clamp(2.1rem, 1.4rem + 2.6vw, 2.9rem);
         line-height: 1.1;
         font-weight: 600;
         letter-spacing: -0.02em;
@@ -149,9 +149,9 @@
       }
       .fine { margin: 1rem 0 0; max-width: 28rem; color: var(--text-muted); font-size: 0.8125rem; line-height: 1.6; text-wrap: pretty; }
 
-      .hero { display: grid; align-items: center; gap: 2.5rem; padding: 3.5rem 0 2.5rem; }
+      .hero { display: grid; align-items: center; gap: 2.5rem; padding: 1.5rem 0 2.5rem; }
       @media (min-width: 768px) {
-        .hero { grid-template-columns: 1fr 1fr; gap: 3.5rem; padding: 4.5rem 0 3.5rem; }
+        .hero { grid-template-columns: 1fr 1fr; gap: 3.5rem; padding: 2rem 0 3.5rem; }
       }
       .phone {
         position: relative;
@@ -213,18 +213,15 @@
         color: var(--text-muted);
       }
 
-      /* ShareSheet: a bar with a start, an end and the video's own playhead. It is the one mock that
-         moves, because the bar is the control: drag either end, and dragging the end onto the start
-         turns a clip back into a single moment. */
-      .share-sync {
-        border: 0;
-        background: none;
-        padding: 0;
-        font: inherit;
-        font-size: var(--sm);
-        font-weight: 600;
-        color: var(--accent);
-        cursor: pointer;
+      /* ShareSheet: a bar with a start, an end and the video's own playhead. One dot is filled at a
+         time — the one the chips, the steps and the share text act on — and the other is a ring. */
+      .share-title { margin: 0; font-size: var(--sm); font-weight: 600; }
+      .share-note {
+        margin: 0.25rem 0 0;
+        min-height: 2.9em;
+        font-size: var(--2xs);
+        line-height: 1.45;
+        color: var(--text-muted);
       }
       .share-bar { position: relative; height: 4rem; margin-top: 0.5rem; touch-action: none; }
       .share-bar [hidden] { display: none !important; }
@@ -251,6 +248,11 @@
         cursor: grab;
         touch-action: none;
       }
+      .share-handle[data-active='false'] {
+        background: transparent;
+        box-shadow: inset 0 0 0 5px var(--accent);
+        opacity: 0.55;
+      }
       .share-handle:active { cursor: grabbing; }
       .share-now {
         position: absolute;
@@ -261,17 +263,40 @@
         background: rgb(255 255 255 / 0.55);
         pointer-events: none;
       }
-      .share-labels {
+      .share-chips {
         display: flex;
-        align-items: baseline;
-        justify-content: space-between;
+        align-items: center;
+        justify-content: center;
         gap: 0.5rem;
-        flex-wrap: wrap;
+        margin-top: 0.25rem;
       }
-      .share-range { font-size: var(--sm); font-weight: 600; }
-      .share-length { font-size: var(--2xs); color: var(--text-muted); }
+      .share-chip {
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 0.2rem 0.7rem;
+        background: none;
+        color: var(--text-muted);
+        font: inherit;
+        font-size: var(--2xs);
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+        cursor: pointer;
+      }
+      .share-chip[aria-pressed='true'] {
+        border-color: var(--accent);
+        background: rgb(var(--aurora-1) / 0.16);
+        color: var(--accent);
+      }
+      .share-length { font-size: var(--2xs); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+      .share-steps {
+        margin: 0.5rem 0 0;
+        text-align: center;
+        font-size: var(--3xs);
+        font-weight: 500;
+        color: var(--accent);
+      }
       .share-row { display: flex; align-items: center; gap: 0.25rem; margin-top: 0.5rem; flex-wrap: wrap; }
-      .share-nudges { gap: 0; margin-top: 0.75rem; flex-wrap: nowrap; }
+      .share-nudges { gap: 0; margin-top: 0.25rem; flex-wrap: nowrap; }
       .share-nudges .share-btn { flex: 1 1 0; padding-left: 0; padding-right: 0; }
       .share-btn {
         border: 0;
@@ -379,15 +404,22 @@
       }
 
       .try { display: grid; gap: 0.75rem; justify-items: center; }
+      .try-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        width: 100%;
+        flex-wrap: wrap;
+      }
       .try-note {
         margin: 0;
         font-size: var(--2xs);
         letter-spacing: 0.1em;
         text-transform: uppercase;
         color: var(--text-muted);
-        text-align: center;
       }
-      .try-tabs { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.375rem; }
+      .try-tabs { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.375rem; }
       .try-tab {
         border: 1px solid var(--border);
         border-radius: 999px;
@@ -845,15 +877,16 @@
       <main>
         <section class="hero">
           <div>
-            <p class="eyebrow">A new take on an old project · free and open source</p>
+            <p class="eyebrow">Free and open source · direct APK</p>
             <h1>
-              <span>NewPipe and LibreTube,</span>
-              <span class="brand">reimagined.</span>
+              <span>A new take on an old project.</span>
+              <span class="brand">YouTube reimagined.</span>
             </h1>
             <p class="sub">
-              GlassTube plays YouTube without a Google account, and without ads — YouTube's or its
-              own. Subscriptions, history and notes live in a database on the phone, and the audio
-              keeps playing after the screen goes dark.
+              GlassTube takes the idea NewPipe and LibreTube started and builds it again: no Google
+              account, and no ads at all — no pre-roll, no mid-roll, and the sponsor reads inside the
+              video are skipped by default. Subscriptions, history and notes are a database on the
+              phone.
             </p>
             <a class="cta" href="app-release.apk">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -868,11 +901,13 @@
             </p>
           </div>
           <div class="try">
-            <p class="try-note">These are the app's own screens. Drag them.</p>
-            <div class="try-tabs" role="tablist" aria-label="Try the app">
-              <button type="button" class="try-tab" role="tab" id="tab-gestures" aria-controls="scene-gestures" aria-selected="true" data-scene="gestures">Gestures</button>
-              <button type="button" class="try-tab" role="tab" id="tab-share" aria-controls="scene-share" aria-selected="false" data-scene="share">Share</button>
-              <button type="button" class="try-tab" role="tab" id="tab-look" aria-controls="scene-look" aria-selected="false" data-scene="look">Appearance</button>
+            <div class="try-head">
+              <p class="try-note">Try the app here</p>
+              <div class="try-tabs" role="tablist" aria-label="Try the app">
+                <button type="button" class="try-tab" role="tab" id="tab-gestures" aria-controls="scene-gestures" aria-selected="true" data-scene="gestures">Gestures</button>
+                <button type="button" class="try-tab" role="tab" id="tab-share" aria-controls="scene-share" aria-selected="false" data-scene="share">Share</button>
+                <button type="button" class="try-tab" role="tab" id="tab-look" aria-controls="scene-look" aria-selected="false" data-scene="look">Appearance</button>
+              </div>
             </div>
 
             <div class="demo" id="demo" data-theme="glass" data-base="dark" data-layout="side" role="group" aria-label="GlassTube, running in the page">
@@ -1031,11 +1066,8 @@
                       </div>
                     </div>
                     <div class="share-panel">
-                      <div class="mock-head">
-                        <span class="mock-title">Share</span>
-                        <button type="button" class="share-sync" data-share="sync">Sync to now</button>
-                      </div>
-                      <p class="mock-copy">The link carries the start. Drag the second handle to add an end, or leave it where it is and only the moment is shared.</p>
+                      <p class="share-title">Share</p>
+                      <p class="share-note" data-share="note">Only GlassTube plays the end. In YouTube the link starts at 1:36 and plays on.</p>
                       <div class="share-bar" data-share="bar">
                         <div class="share-track"></div>
                         <div class="share-segment" data-share="segment"></div>
@@ -1043,10 +1075,12 @@
                         <span class="share-handle" role="slider" tabindex="0" data-handle="start" aria-label="Clip start" aria-valuemin="0" aria-valuemax="300" aria-valuenow="96" aria-valuetext="1:36"></span>
                         <span class="share-handle" role="slider" tabindex="0" data-handle="end" aria-label="Clip end" aria-valuemin="0" aria-valuemax="300" aria-valuenow="126" aria-valuetext="2:06"></span>
                       </div>
-                      <div class="share-labels" aria-live="polite">
-                        <span class="share-range" data-share="range">1:36 – 2:06</span>
+                      <div class="share-chips" role="group" aria-label="Clip ends">
+                        <button type="button" class="share-chip" data-edge="start" aria-pressed="true">1:36</button>
                         <span class="share-length" data-share="length">0:30</span>
+                        <button type="button" class="share-chip" data-edge="end" aria-pressed="false">2:06</button>
                       </div>
+                      <p class="share-steps" data-share="steps">steps move the start</p>
                       <div class="share-row share-nudges">
                         <button type="button" class="share-btn" data-nudge="-30">&minus;30s</button>
                         <button type="button" class="share-btn" data-nudge="-10">&minus;10s</button>
@@ -1054,10 +1088,6 @@
                         <button type="button" class="share-btn" data-nudge="2">+2s</button>
                         <button type="button" class="share-btn" data-nudge="10">+10s</button>
                         <button type="button" class="share-btn" data-nudge="30">+30s</button>
-                      </div>
-                      <div class="share-row">
-                        <button type="button" class="share-btn" data-share="gostart">Go to start</button>
-                        <button type="button" class="share-btn" data-share="goend">Go to end</button>
                       </div>
                       <div class="share-row share-actions">
                         <button type="button" class="share-send" data-share="send">Share</button>
@@ -1110,7 +1140,7 @@
                 </svg>
               </span>
               <h3>SponsorBlock, by category</h3>
-              <p>SponsorBlock is a public list of where the sponsor reads are. Tick the categories and the player skips those stretches; the rest is left alone.</p>
+              <p>SponsorBlock is a public list of where the sponsor reads are. Five categories are skipped by default, so the ad inside the video goes too; the rest is left alone.</p>
             </div>
             <div>
               <span class="icon" aria-hidden="true">
@@ -1120,6 +1150,17 @@
               </span>
               <h3>Speed in 0.1 steps</h3>
               <p>Hold the speed pill and slide between 0.25× and 5×, or tap the presets you set.</p>
+            </div>
+            <div>
+              <span class="icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M4 18v-6a8 8 0 0 1 16 0v6" />
+                  <rect x="2" y="14" width="4" height="7" rx="1.5" />
+                  <rect x="18" y="14" width="4" height="7" rx="1.5" />
+                </svg>
+              </span>
+              <h3>Screen off, sound on</h3>
+              <p>Lock the phone and the audio keeps going; the notification carries the picture, the title and the controls.</p>
             </div>
             <div>
               <span class="icon" aria-hidden="true">
@@ -1850,7 +1891,7 @@
         const TOTAL = 300 // 5:00, short enough that a thirty-second clip is a visible gap
         // Big Buck Bunny: a real public video, so a pasted link works.
         const WATCH = 'https://www.youtube.com/watch?v=aqz-KE-bpKQ'
-        const state = { playhead: 96, start: 96, end: 126 }
+        const state = { playhead: 96, start: 96, end: 126, edge: 'start' }
 
         const clamp = (value, low, high) => Math.min(high, Math.max(low, value))
         const format = (seconds) => {
@@ -1869,9 +1910,11 @@
         const playhead = sheet.querySelector('[data-share="now"]')
         const startHandle = sheet.querySelector('[data-handle="start"]')
         const endHandle = sheet.querySelector('[data-handle="end"]')
-        const range = sheet.querySelector('[data-share="range"]')
+        const chipStart = sheet.querySelector('[data-edge="start"]')
+        const chipEnd = sheet.querySelector('[data-edge="end"]')
         const length = sheet.querySelector('[data-share="length"]')
-        const goEnd = sheet.querySelector('[data-share="goend"]')
+        const note = sheet.querySelector('[data-share="note"]')
+        const steps = sheet.querySelector('[data-share="steps"]')
         const send = sheet.querySelector('[data-share="send"]')
 
         const render = () => {
@@ -1883,11 +1926,19 @@
           segment.style.left = at(state.start)
           segment.style.width = `${((state.end - state.start) / TOTAL) * 100}%`
           playhead.style.left = at(state.playhead)
-          range.textContent = clip
-            ? `${format(state.start)} \u2013 ${format(state.end)}`
-            : `at ${format(state.start)}`
+          startHandle.dataset.active = String(state.edge === 'start')
+          endHandle.dataset.active = String(state.edge === 'end')
+          chipStart.textContent = format(state.start)
+          chipStart.setAttribute('aria-pressed', String(state.edge === 'start'))
+          chipEnd.textContent = format(state.end)
+          chipEnd.setAttribute('aria-pressed', String(state.edge === 'end'))
+          chipEnd.hidden = !clip
+          length.hidden = !clip
           length.textContent = clip ? format(state.end - state.start) : ''
-          goEnd.hidden = !clip
+          note.textContent = clip
+            ? `Only GlassTube plays the end. In YouTube the link starts at ${format(state.start)} and plays on.`
+            : `In YouTube the link starts at ${format(state.start)} and plays on.`
+          steps.textContent = `steps move the ${state.edge}`
           startHandle.setAttribute('aria-valuenow', String(Math.round(state.start)))
           startHandle.setAttribute('aria-valuetext', format(state.start))
           endHandle.setAttribute('aria-valuenow', String(Math.round(state.end)))
@@ -1926,6 +1977,7 @@
           if (event.pointerType === 'mouse' && event.button !== 0) return
           event.preventDefault()
           const handle = nearest(event.clientX)
+          state.edge = handle
           moveHandle(handle, event.clientX)
           try {
             bar.setPointerCapture(event.pointerId)
@@ -1951,6 +2003,7 @@
             else if (event.key === 'ArrowRight' || event.key === 'ArrowUp') delta = step
             else return
             event.preventDefault()
+            state.edge = name
             if (name === 'start') setStart(state.start + delta)
             else setEnd(state.end + delta)
             render()
@@ -1979,33 +2032,23 @@
         }
 
         sheet.addEventListener('click', (event) => {
-          if (event.target.closest('[data-share="sync"]')) {
-            if (isClip()) {
-              state.end = clamp(
-                Math.max(state.playhead, state.start + 1),
-                state.start + 1,
-                TOTAL,
-              )
-            } else {
-              setStart(state.playhead)
-            }
-            render()
-            return
-          }
-          if (event.target.closest('[data-share="gostart"]')) {
-            state.playhead = state.start
-            render()
-            return
-          }
-          if (event.target.closest('[data-share="goend"]')) {
-            state.playhead = state.end
+          const edge = event.target.closest('[data-edge]')
+          if (edge) {
+            state.edge = edge.dataset.edge
+            state.playhead = edge.dataset.edge === 'end' ? state.end : state.start
             render()
             return
           }
           const nudge = event.target.closest('[data-nudge]')
           if (nudge) {
-            setStart(state.start + Number(nudge.dataset.nudge))
-            state.playhead = state.start
+            const by = Number(nudge.dataset.nudge)
+            if (state.edge === 'end') {
+              setEnd(state.end + by)
+              state.playhead = state.end
+            } else {
+              setStart(state.start + by)
+              state.playhead = state.start
+            }
             render()
             return
           }

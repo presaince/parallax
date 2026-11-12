@@ -8,6 +8,51 @@ place. The shell and the second UI pass landed 2026-11-05 (bottom navigation, th
 inline comments, mini-player, pull-to-refresh); the device check for that pass is still pending.
 No git repo — Bodi tests a build for a few days first.
 
+## The nudge belongs to the dot you touched, 2026-11-12
+
+Six nudges moved the start and nothing else, so an end dragged two seconds too far could only be
+fixed by dragging again on a 64 dp bar. The one boundary a reader actually overshoots had no fine
+control at all.
+
+- **One owner.** `ClipEdge` is the dot touched last: a drag claims it when the finger lifts, a time
+  chip when tapped. The filled dot is the one the row moves and the other is a ring, because six
+  buttons with two possible targets and no mark read as six buttons that change their mind.
+- **The times are the picker.** `0:42` and `1:12` became `FilterChip`s — the selector language already
+  in Settings and Discover — so choosing a dot is tapping the label it already carries, and the
+  picture goes there with it. That made `Go to start` and `Go to end` duplicates, so both rows went.
+- **One clamp.** `boundaryAt` is the only place a dot lands, for a drag and a nudge alike, so the two
+  cannot disagree about the second of separation or about the ends of the video. A moment has one dot,
+  so an end with no dot on screen keeps still instead of inventing one.
+- **`Sync to now` is gone.** The owner called it confusing, and it was a third way to do what tapping
+  the bar already does: the nearer dot lands where the finger is. The header is now just the word
+  Share, and the sheet is chips, bar, steps, button.
+- **The copy was wrong**, not just stale. It said leaving the second handle where it is shares only
+  the moment; the sheet opens with a thirty-second clip (`position + 30`). The note above the bar now
+  says the thing a link cannot say for itself: only GlassTube plays the end, and YouTube starts at the
+  start and plays on.
+- **The card keeps its height.** The clip's length used to arrive as a second line under the times, so
+  the sheet jumped the moment a clip appeared. The length now sits between the two chips on one line,
+  a moment shows its one chip, and the note holds two lines whether or not there is a clip.
+- **The steps say what they move.** A caption over the six buttons reads `steps move the end` (or
+  `start`) next to a swatch in that dot's colour, because two selected chips and a clean bar still left
+  the buttons ambiguous. The swatch carries the colour, not the letters: 11 sp of green on dark glass
+  was the one unreadable line in the sheet.
+- **The bar is a bar.** The dots were 13 px — about four dp on the phone, too small to aim at — and the
+  start dot sat with half of itself off the card, which is what made the far left awkward to pick up.
+  Sizes are in dp now, the strip is 44 dp instead of 64, the track is 2 dp and the ends are inset 12 dp.
+  Green is the start, red is the end, the range between them stays primary.
+- **A length is written as a length.** `formatSpan` gives `4s`, `3m4s`, `2h3m4s` for the clip's
+  duration, which sat between two clock times and read as a third position. Pure, so it has a test.
+- **The message is previewed.** The exact text that will be sent sits beside the Share button, in the
+  short form (`youtu.be/<id>?t=42s&end=72s`) rather than the long host: the scheme and `youtube.com/
+  watch?v=` were what pushed the times into an ellipsis, and the times are the whole point of the line.
+- **`ShareBoundaryTest`** (6 cases) holds the clamp rules on the JVM. Which dot is filled, and whether
+  the row follows the one you touched, is a finger check.
+
+Verified: `:app:testDebugUnitTest` green including `ShareBoundaryTest` (6) and the new `formatSpan`
+cases in `TimeTest`; `:app:assembleDebug`; the debug build installed over the existing one on the
+Pixel 7. **The gate is the hand check**: drag an end, nudge it, drag a start, nudge that.
+
 ## The stall the ladder could not see, 2026-11-12
 
 Owner: `110306`, "loading video buffers then stops then reverts to previous video". He would not file
@@ -102,6 +147,16 @@ card were pointless; PiP is table stakes; "playhead" is jargon.
   in the eyebrow and "no ads — YouTube's or its own" in the first sentence. The drag line moved out
   of the paragraph to above the demo: "These are the app's own screens. Drag them." The page's and
   the portfolio's titles, OG and Twitter cards follow.
+- **Hero, second pass**: `A new take on an old project.` over `YouTube reimagined.`, "free and open
+  source" in the eyebrow, and the first sentence says no ads at all — no pre-roll, no mid-roll, no
+  sponsor reads (the app skips five SponsorBlock categories by default). Screen-off moved out of the
+  hero, because every client does it, into its own feature tile. The hero's top padding halved.
+- **The try row** is one line: `Try the app here` left, the three scene tabs right.
+- **The share card was remade to the sheet the app has now**: no Sync to now and no Go to start/end.
+  One active dot (filled; the other a ring), two time chips that pick it, a note that says only
+  GlassTube plays the end, a `steps move the start/end` caption, and the six nudges move the active
+  edge. A moment (end within a second) drops the end chip and shortens the note.
+- The portfolio's copy carries the same headline, eyebrow, sub and screen-off tile.
 
 ## The page is the demo, 2026-11-11
 

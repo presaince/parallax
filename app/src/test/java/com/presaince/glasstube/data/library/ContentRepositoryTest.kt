@@ -117,49 +117,6 @@ class ContentRepositoryTest {
     private class BusyState(var busy: Boolean)
 
     @Test
-    fun `a fresh comments page is served from cache until a refresh forces it`() = runTest {
-        val source = CountingCommentsSource()
-        val repo = ContentRepository(
-            source = source,
-            db = db,
-            log = AppLog(File(requireNotNull(System.getProperty("java.io.tmpdir")))),
-        )
-
-        repo.comments("vid1", null)
-        repo.comments("vid1", null)
-        assertEquals("the second read is the cached page", 1, source.commentCalls)
-
-        repo.comments("vid1", null, refresh = true)
-        assertEquals("a forced read goes to the extractor", 2, source.commentCalls)
-    }
-
-    private class CountingCommentsSource : FakeSource() {
-        var commentCalls = 0
-
-        override suspend fun comments(id: String, page: String?): AppResult<Page<Comment>> {
-            commentCalls++
-            return AppResult.Ok(
-                Page(
-                    items = listOf(
-                        Comment(
-                            id = "c$commentCalls",
-                            author = "someone",
-                            text = "seen it once",
-                            likeCount = 0,
-                            publishedText = "1 day ago",
-                            timestampSec = null,
-                            pinned = false,
-                            replyCount = 0,
-                            repliesPage = null,
-                        ),
-                    ),
-                    total = 1,
-                ),
-            )
-        }
-    }
-
-    @Test
     fun `a fresh video has no learned counts`() = runTest {
         db.subscriptions().insertAll(
             listOf(SubscriptionEntity(url = "https://youtube.com/c/a", name = "A", addedAt = 0)),

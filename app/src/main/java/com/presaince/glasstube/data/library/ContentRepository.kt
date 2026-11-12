@@ -6,16 +6,12 @@ package com.presaince.glasstube.data.library
 
 import com.presaince.glasstube.core.AppLog
 import com.presaince.glasstube.core.AppResult
-import com.presaince.glasstube.data.cache.CommentCodec
 import com.presaince.glasstube.data.db.ChannelEntity
-import com.presaince.glasstube.data.db.CommentCacheEntity
 import com.presaince.glasstube.data.db.GlassTubeDb
 import com.presaince.glasstube.data.db.SubscriptionEntity
 import com.presaince.glasstube.data.db.VideoEntity
 import com.presaince.glasstube.data.model.Channel
-import com.presaince.glasstube.data.model.Comment
 import com.presaince.glasstube.data.db.toVideo
-import com.presaince.glasstube.data.model.Page
 import com.presaince.glasstube.data.model.Video
 import com.presaince.glasstube.data.model.VideoSummary
 import com.presaince.glasstube.data.source.VideoSource
@@ -236,56 +232,6 @@ class ContentRepository(
             )
         }
 
-    /**
-     * [refresh] skips the cache even when the stored page is still inside its hour. The reader's
-     * long press on the comments header is the only caller: a stale page has no other way out.
-     */
-    suspend fun comments(
-        videoId: String,
-        page: String?,
-        refresh: Boolean = false,
-    ): AppResult<Page<Comment>> =
-        withContext(Dispatchers.IO) {
-            val key = page?.takeIf { it.isNotBlank() } ?: FIRST_PAGE
-            val cached = runCatching { db.commentCache().find(videoId, key) }.getOrNull()
-            val now = System.currentTimeMillis()
-
-            // A cached page can predate a parser change. A top-level comment that claims replies
-            // but carries no token is such a page: refetch instead of showing a dead button.
-            val decoded = cached?.let { CommentCodec.decode(it.json) }?.takeIf { cachedPage ->
-                cachedPage.items.none { it.replyCount > 0 && it.repliesPage.isNullOrBlank() }
-            }
-            val isFresh = !refresh && cached != null && now - cached.fetchedAt < COMMENTS_TTL_MS
-            if (decoded != null && isFresh) {
-                return@withContext AppResult.Ok(decoded)
-            }
-
-            when (val result = source.comments(videoId, page)) {
-                is AppResult.Ok -> {
-                    // The first page carries the video's comment total; store it on the row so the
-                    // list can show it without another network call.
-                    result.value.total?.let { total ->
-                        runCatching { db.videos().setCommentCount(videoId, total) }
-                    }
-                    runCatching {
-                        db.commentCache().save(
-                            CommentCacheEntity(
-                                videoId = videoId,
-                                pageKey = key,
-                                json = CommentCodec.encode(result.value),
-                                fetchedAt = now,
-                            ),
-                        )
-                        db.commentCache().pruneOlderThan(now - RETAIN_MS)
-                    }
-                    result
-                }
-                // A stale page beats an error banner when the extractor is having a bad day.
-                is AppResult.Err ->
-                    cached?.let { CommentCodec.decode(it.json) }?.let { AppResult.Ok(it) } ?: result
-            }
-        }
-
     private fun VideoSummary.toEntity(
         now: Long,
         liveSeen: Map<String, Long>,
@@ -328,8 +274,6 @@ class ContentRepository(
 
         private const val MAX_PARALLEL = 4
         private const val PLAYBACK_RETRY_MS = 400L
-        private const val FIRST_PAGE = "first"
-        private const val COMMENTS_TTL_MS = 60 * 60 * 1000L
         private const val RETAIN_MS = 30L * 24 * 60 * 60 * 1000L
         private const val MAX_LOGGED_FAILURES = 5
 
