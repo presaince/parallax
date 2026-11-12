@@ -7,8 +7,9 @@ package com.presaince.glasstube.feature.collections
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.presaince.glasstube.data.db.GlassTubeDb
-import com.presaince.glasstube.data.db.VideoEntity
+import com.presaince.glasstube.data.db.toVideo
 import com.presaince.glasstube.data.model.VideoSummary
+import com.presaince.glasstube.data.model.toSummary
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -60,7 +61,7 @@ class CollectionsViewModel(private val db: GlassTubeDb) : ViewModel() {
     }
 
     private suspend fun compute(now: Long): Map<CollectionKind, List<VideoSummary>> {
-        val videos = db.videos().recent(400)
+        val videos = db.videos().recent(400).map { it.toVideo() }
         val history = db.history().recent(400).map { it.videoId }.toSet()
         val progress = db.progress().allOnce()
 
@@ -76,7 +77,7 @@ class CollectionsViewModel(private val db: GlassTubeDb) : ViewModel() {
             .sortedByDescending { it.updatedAt }
             .mapNotNull { saved -> videos.find { it.id == saved.videoId }?.toSummary() }
 
-        val byChannel = videos.groupBy { it.channelId ?: it.channelName }
+        val byChannel = videos.groupBy { it.channelUrl ?: it.channelName }
         val dormant = byChannel.values.mapNotNull { list ->
             val sorted = list.filter { it.publishedAt != null }.sortedByDescending { it.publishedAt }
             val newest = sorted.firstOrNull() ?: return@mapNotNull null
@@ -88,7 +89,7 @@ class CollectionsViewModel(private val db: GlassTubeDb) : ViewModel() {
 
         val unseen = videos
             .filter { it.id !in history }
-            .sortedByDescending { it.publishedAt ?: it.fetchedAt }
+            .sortedByDescending { it.publishedAt ?: it.lastSeenAt }
             .take(50)
             .map { it.toSummary() }
 
@@ -100,17 +101,3 @@ class CollectionsViewModel(private val db: GlassTubeDb) : ViewModel() {
         )
     }
 }
-
-private fun VideoEntity.toSummary() = VideoSummary(
-    id = id,
-    url = "https://www.youtube.com/watch?v=$id",
-    title = title,
-    channelName = channelName,
-    durationSec = durationSec,
-    thumbnailUrl = thumbUrl,
-    channelUrl = channelId,
-    publishedAtMs = publishedAt,
-    viewCount = viewCount,
-    likeCount = likeCount,
-    commentCount = commentCount,
-)

@@ -60,9 +60,9 @@ import com.presaince.glasstube.R
 import com.presaince.glasstube.data.db.GlassTubeDb
 import com.presaince.glasstube.data.db.ProgressEntity
 import com.presaince.glasstube.data.db.SubscriptionEntity
-import com.presaince.glasstube.data.db.VideoEntity
 import com.presaince.glasstube.data.library.ContentRepository
 import com.presaince.glasstube.data.model.VideoSummary
+import com.presaince.glasstube.data.model.toSummary
 import com.presaince.glasstube.feature.collections.CollectionsSection
 import com.presaince.glasstube.ui.component.CardStyle
 import com.presaince.glasstube.ui.component.ChannelAvatar
@@ -396,18 +396,4 @@ private fun ProgressEntity.toSummary() = VideoSummary(
     channelName = "",
     durationSec = durationMs / 1000,
     thumbnailUrl = thumbUrl,
-)
-
-private fun VideoEntity.toSummary() = VideoSummary(
-    id = id,
-    url = "https://www.youtube.com/watch?v=$id",
-    title = title,
-    channelName = channelName,
-    durationSec = durationSec,
-    thumbnailUrl = thumbUrl,
-    channelUrl = channelId,
-    publishedAtMs = publishedAt,
-    viewCount = viewCount,
-    likeCount = likeCount,
-    commentCount = commentCount,
 )

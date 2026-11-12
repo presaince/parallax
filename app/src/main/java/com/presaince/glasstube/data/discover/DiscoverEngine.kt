@@ -8,7 +8,9 @@ import com.presaince.glasstube.core.AppResult
 import com.presaince.glasstube.core.attempt
 import com.presaince.glasstube.data.db.GlassTubeDb
 import com.presaince.glasstube.data.db.SubscriptionEntity
-import com.presaince.glasstube.data.db.VideoEntity
+import com.presaince.glasstube.data.db.toVideo
+import com.presaince.glasstube.data.model.Video
+import com.presaince.glasstube.data.model.toSummary
 import com.presaince.glasstube.data.model.VideoSummary
 import com.presaince.glasstube.data.source.ChannelFeed
 import com.presaince.glasstube.data.source.VideoSource
@@ -30,16 +32,17 @@ interface DiscoverStore {
     suspend fun recentHistory(limit: Int): List<com.presaince.glasstube.data.db.HistoryEntity>
     suspend fun progressIds(): List<String>
     suspend fun subscriptions(): List<SubscriptionEntity>
-    suspend fun findVideo(id: String): VideoEntity?
-    suspend fun recentVideos(limit: Int): List<VideoEntity>
+    suspend fun findVideo(id: String): Video?
+    suspend fun recentVideos(limit: Int): List<Video>
 }
 
 class RoomDiscoverStore(private val db: GlassTubeDb) : DiscoverStore {
     override suspend fun recentHistory(limit: Int) = db.history().recent(limit)
     override suspend fun progressIds(): List<String> = db.progress().videoIds()
     override suspend fun subscriptions(): List<SubscriptionEntity> = db.subscriptions().all()
-    override suspend fun findVideo(id: String): VideoEntity? = db.videos().find(id)
-    override suspend fun recentVideos(limit: Int): List<VideoEntity> = db.videos().recent(limit)
+    override suspend fun findVideo(id: String): Video? = db.videos().find(id)?.toVideo()
+    override suspend fun recentVideos(limit: Int): List<Video> =
+        db.videos().recent(limit).map { it.toVideo() }
 }
 
 data class WalkStep(
@@ -305,20 +308,6 @@ class DiscoverEngine(
 
         else -> store.recentVideos(seed.count).map { it.toSummary() }
     }
-
-    private fun VideoEntity.toSummary() = VideoSummary(
-        id = id,
-        url = "https://www.youtube.com/watch?v=$id",
-        title = title,
-        channelName = channelName,
-        durationSec = durationSec,
-        thumbnailUrl = thumbUrl,
-        channelUrl = channelId,
-        publishedAtMs = publishedAt,
-        viewCount = viewCount,
-        likeCount = likeCount,
-        commentCount = commentCount,
-    )
 
     private companion object {
         /** The free channel feed publishes the latest fifteen, which is a page on its own. */

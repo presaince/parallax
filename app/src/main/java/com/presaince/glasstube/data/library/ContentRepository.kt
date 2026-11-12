@@ -14,7 +14,9 @@ import com.presaince.glasstube.data.db.SubscriptionEntity
 import com.presaince.glasstube.data.db.VideoEntity
 import com.presaince.glasstube.data.model.Channel
 import com.presaince.glasstube.data.model.Comment
+import com.presaince.glasstube.data.db.toVideo
 import com.presaince.glasstube.data.model.Page
+import com.presaince.glasstube.data.model.Video
 import com.presaince.glasstube.data.model.VideoSummary
 import com.presaince.glasstube.data.source.VideoSource
 import com.presaince.glasstube.core.FeedProgress
@@ -28,6 +30,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
@@ -57,14 +60,14 @@ class ContentRepository(
 ) {
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    fun observeFeed(): Flow<List<VideoEntity>> =
+    fun observeFeed(): Flow<List<Video>> =
         hideWatchedPercent.flatMapLatest { percent ->
             if (percent <= 0) {
                 db.videos().observeFeed()
             } else {
                 db.videos().observeFeedHidingWatched(percent)
             }
-        }
+        }.map { rows -> rows.map { it.toVideo() } }
 
     /**
      * How finished a video has to be before the feed drops it, 0..100. Zero is off, which is the
@@ -115,8 +118,8 @@ class ContentRepository(
 
     /** One video row as the cards read it. The feed and search listings carry views but no likes;
      *  the likes arrive the first time the video is opened. */
-    suspend fun video(id: String): VideoEntity? = withContext(Dispatchers.IO) {
-        db.videos().find(id)
+    suspend fun video(id: String): Video? = withContext(Dispatchers.IO) {
+        db.videos().find(id)?.toVideo()
     }
 
     suspend fun refreshFeed(now: Long = System.currentTimeMillis()): FeedRefresh =

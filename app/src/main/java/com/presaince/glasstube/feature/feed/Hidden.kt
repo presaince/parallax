@@ -5,17 +5,18 @@
 package com.presaince.glasstube.feature.feed
 
 import com.presaince.glasstube.data.db.HiddenRow
-import com.presaince.glasstube.data.db.VideoEntity
+import com.presaince.glasstube.data.model.StreamState
+import com.presaince.glasstube.data.model.Video
 import com.presaince.glasstube.data.model.VideoSummary
 
 /** The key a hidden channel's live streams are stored under. One per channel, stable across streams. */
 fun liveChannelKey(channelUrl: String): String = "live:$channelUrl"
 
 /** A row that hides exactly one video. */
-fun hiddenVideo(video: VideoEntity, reason: String, now: Long = System.currentTimeMillis()) = HiddenRow(
+fun hiddenVideo(video: Video, reason: String, now: Long = System.currentTimeMillis()) = HiddenRow(
     key = video.id,
     videoId = video.id,
-    channelUrl = video.channelId,
+    channelUrl = video.channelUrl,
     title = video.title,
     thumbUrl = video.thumbUrl,
     liveOnly = false,
@@ -64,11 +65,11 @@ fun hiddenLiveChannel(
  * this channel's lives — have to agree with what the Hidden section lists, and a database query
  * cannot be read in a test without a device.
  */
-fun visibleVideos(videos: List<VideoEntity>, hidden: List<HiddenRow>): List<VideoEntity> {
+fun visibleVideos(videos: List<Video>, hidden: List<HiddenRow>): List<Video> {
     if (hidden.isEmpty()) return videos
     val ids = hidden.filterNot { it.liveOnly }.mapNotNull { it.videoId }.toSet()
     val liveChannels = hidden.filter { it.liveOnly }.mapNotNull { it.channelUrl }.toSet()
     return videos.filterNot { video ->
-        video.id in ids || (video.streamState == "LIVE" && video.channelId in liveChannels)
+        video.id in ids || (video.streamState == StreamState.LIVE && video.channelUrl in liveChannels)
     }
 }

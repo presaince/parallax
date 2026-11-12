@@ -20,11 +20,11 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>GlassTube — YouTube, without the account</title>
+    <title>GlassTube — NewPipe and LibreTube, reimagined</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#07070b" />
     <meta name="robots" content="noindex" />
-    <meta name="description" content="Direct APK downloads for GlassTube, a local-first YouTube client for Android 13 and newer. No account, no server, no analytics, and it plays with the screen off." />
+    <meta name="description" content="GlassTube is a free, open-source YouTube client for Android 13 and newer: no Google account, no ads — YouTube's or its own — and the audio keeps playing with the screen off. Direct APK." />
     <link rel="icon" href="img/favicon.svg" type="image/svg+xml" />
 
     <!-- The card chat clients draw for the shared link. og.png is the GlassTube mark and name,
@@ -32,8 +32,8 @@
          page. -->
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://odesaplay.com.ua/other_apps/glasstube/" />
-    <meta property="og:title" content="GlassTube — YouTube, without the account" />
-    <meta property="og:description" content="No account, no server, no analytics, and it plays with the screen off. Subscriptions, history, progress and notes stay on the phone. Android 13 and newer, GPLv3. Install the APK directly." />
+    <meta property="og:title" content="GlassTube — NewPipe and LibreTube, reimagined" />
+    <meta property="og:description" content="Free and open source. No Google account and no ads, YouTube's or its own. Subscriptions, history and notes stay on the phone, and the audio keeps playing with the screen off. Android 13 and newer, GPLv3." />
     <meta property="og:image" content="https://odesaplay.com.ua/other_apps/glasstube/img/og.png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
@@ -41,8 +41,8 @@
     <meta property="og:locale" content="en_US" />
 
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="GlassTube — YouTube, without the account" />
-    <meta name="twitter:description" content="No account, no server, no analytics. Plays with the screen off. Android 13 and newer, GPLv3." />
+    <meta name="twitter:title" content="GlassTube — NewPipe and LibreTube, reimagined" />
+    <meta name="twitter:description" content="Free and open source. No account, no ads, plays with the screen off. Android 13 and newer, GPLv3." />
     <meta name="twitter:image" content="https://odesaplay.com.ua/other_apps/glasstube/img/og.png" />
     <style>
       :root {
@@ -93,25 +93,6 @@
       :focus-visible { outline: 2px solid var(--brand-b); outline-offset: 3px; border-radius: 6px; }
       .wrap { max-width: 72rem; margin: 0 auto; padding: 0 1rem; }
       @media (min-width: 640px) { .wrap { padding: 0 1.5rem; } }
-
-      /* One recipe for every surface that sits above the aurora. The fill stays dark enough that
-         muted text clears 4.5:1 over the brightest blob; the blur is what makes it glass. */
-      .glass, .card, .mock, .builds {
-        position: relative;
-        border: 1px solid var(--border);
-        border-radius: var(--radius);
-        background-color: rgb(var(--glass) / 0.46);
-        background-image: linear-gradient(160deg, rgb(255 255 255 / 0.09), rgb(255 255 255 / 0.015) 45%, rgb(255 255 255 / 0.045));
-        -webkit-backdrop-filter: blur(22px) saturate(150%);
-        backdrop-filter: blur(22px) saturate(150%);
-        box-shadow:
-          inset 0 1px 0 rgb(255 255 255 / 0.16),
-          inset 0 -1px 0 rgb(0 0 0 / 0.28),
-          0 28px 56px -36px rgb(0 0 0 / 0.95);
-      }
-      @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-        .glass, .card, .mock, .builds { background-color: rgb(12 16 22 / 0.95); }
-      }
 
       .eyebrow {
         margin: 0;
@@ -189,10 +170,6 @@
           0 0 80px -24px rgb(var(--aurora-1) / 0.4);
       }
       .phone img { width: 100%; height: 100%; object-fit: cover; object-position: top; }
-
-      .card { padding: 1.25rem; }
-      @media (min-width: 640px) { .card { padding: 1.5rem; } }
-      .card h2 { margin: 0; font-size: 1.125rem; font-weight: 600; }
 
       section.block { margin-top: 4rem; }
       h2.section { margin: 0; font-size: clamp(1.4rem, 1.2rem + 0.7vw, 1.7rem); font-weight: 600; letter-spacing: -0.01em; text-wrap: balance; }
@@ -402,6 +379,14 @@
       }
 
       .try { display: grid; gap: 0.75rem; justify-items: center; }
+      .try-note {
+        margin: 0;
+        font-size: var(--2xs);
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--text-muted);
+        text-align: center;
+      }
       .try-tabs { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.375rem; }
       .try-tab {
         border: 1px solid var(--border);
@@ -538,8 +523,8 @@
       .gesture-watched { display: block; height: 100%; width: 24%; background: var(--accent); }
       .gesture-head { position: absolute; top: -3px; width: 3px; height: 9px; border-radius: 2px; background: #fff; }
 
-      .repair-copy { display: grid; gap: 0.9rem; max-width: 46rem; margin-top: 1rem; }
-      .repair-copy p {
+      .prose { display: grid; gap: 0.9rem; max-width: 46rem; margin-top: 1rem; }
+      .prose p {
         margin: 0;
         color: var(--text-muted);
         font-size: var(--sm);
@@ -812,43 +797,20 @@
         color: var(--text-muted);
       }
 
-      .split { display: grid; gap: 2rem; margin-top: 0; }
-      @media (min-width: 768px) { .split { grid-template-columns: 1fr 1fr; } }
-      .points { margin: 0.75rem 0 0; padding: 0; list-style: none; }
-      .points li { display: flex; gap: 0.5rem; margin-top: 0.5rem; font-size: var(--sm); line-height: 1.65; color: var(--text-muted); }
-      .points li::before {
-        content: '';
-        flex-shrink: 0;
-        width: 0.25rem;
-        height: 0.25rem;
-        margin-top: 0.6rem;
-        border-radius: 999px;
-        background: rgb(var(--aurora-1) / 0.8);
+      /* The last ask: one line, the button, the sentence Android will show. */
+      .closing {
+        display: grid;
+        justify-items: start;
+        gap: 1rem;
+        margin-top: 4rem;
+        padding: 2rem;
+        border: 1px solid rgb(var(--aurora-1) / 0.35);
+        border-radius: var(--radius);
+        background: linear-gradient(160deg, rgb(var(--aurora-1) / 0.12), transparent 60%);
       }
-      .cta-link {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.5rem;
-        margin-top: 1.25rem;
-        color: var(--accent);
-        font-size: var(--sm);
-        font-weight: 600;
-        text-decoration: underline;
-        text-decoration-color: rgb(76 194 232 / 0.4);
-        text-underline-offset: 4px;
-      }
-      .cta-link:hover { color: var(--text); }
-
-      .builds { margin-top: 1.5rem; padding: 0 1.25rem; list-style: none; }
-      .builds li { padding: 1.25rem 0; border-bottom: 1px solid var(--border); }
-      .builds li:last-child { border-bottom: 0; }
-      .build-row { display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem; }
-      .build-name { font-weight: 600; }
-      .build-meta { color: var(--text-muted); font-size: 0.8125rem; }
-      .build-notes { margin: 0.5rem 0 0; white-space: pre-line; font-size: 0.8125rem; line-height: 1.7; color: #c6ced6; }
-      .build-hash { margin-top: 0.5rem; font: 0.75rem/1.6 ui-monospace, Consolas, monospace; color: var(--text-muted); word-break: break-all; }
-      .builds a { color: var(--accent); font-weight: 600; text-decoration: none; white-space: nowrap; }
-      .builds a:hover { text-decoration: underline; }
+      .closing h2 { margin: 0; font-size: clamp(1.4rem, 1.2rem + 0.7vw, 1.7rem); font-weight: 600; }
+      .closing .cta { margin-top: 0; }
+      .closing .fine { margin: 0; }
 
       footer {
         display: flex;
@@ -883,15 +845,15 @@
       <main>
         <section class="hero">
           <div>
-            <p class="eyebrow">Android 13 and newer · direct APK · GPLv3</p>
+            <p class="eyebrow">A new take on an old project · free and open source</p>
             <h1>
-              <span>YouTube,</span>
-              <span class="brand">without the account.</span>
+              <span>NewPipe and LibreTube,</span>
+              <span class="brand">reimagined.</span>
             </h1>
             <p class="sub">
-              GlassTube needs no Google account. Subscriptions, history and notes live in a database
-              on the phone, and the audio keeps playing after the screen goes dark. What you can drag
-              on this page is the app, not a picture of it.
+              GlassTube plays YouTube without a Google account, and without ads — YouTube's or its
+              own. Subscriptions, history and notes live in a database on the phone, and the audio
+              keeps playing after the screen goes dark.
             </p>
             <a class="cta" href="app-release.apk">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -906,6 +868,7 @@
             </p>
           </div>
           <div class="try">
+            <p class="try-note">These are the app's own screens. Drag them.</p>
             <div class="try-tabs" role="tablist" aria-label="Try the app">
               <button type="button" class="try-tab" role="tab" id="tab-gestures" aria-controls="scene-gestures" aria-selected="true" data-scene="gestures">Gestures</button>
               <button type="button" class="try-tab" role="tab" id="tab-share" aria-controls="scene-share" aria-selected="false" data-scene="share">Share</button>
@@ -1109,6 +1072,23 @@
           </div>
         </section>
 
+        <section class="block notes" aria-labelledby="notes">
+          <p class="eyebrow">Notes</p>
+          <h2 class="section" id="notes">The best bits, kept at the second you heard them</h2>
+          <div class="prose">
+            <p>
+              Hold the microphone and talk: the note is saved with the time you were at, so the
+              argument in a three-hour podcast is a line you can return to instead of a memory. Notes
+              live with the video, in the same database as everything else — no second app, no
+              clipboard, no audio file to keep.
+            </p>
+            <p>
+              A note is a thought you can answer later. The video's own captions are what the AI mode
+              reads when you turn it on, so the parts you kept are the parts it works from.
+            </p>
+          </div>
+        </section>
+
         <section class="block" aria-labelledby="rest">
           <h2 class="section" id="rest">The rest of it</h2>
           <div class="features">
@@ -1130,7 +1110,7 @@
                 </svg>
               </span>
               <h3>SponsorBlock, by category</h3>
-              <p>The categories you tick are skipped in the player. The rest is left alone.</p>
+              <p>SponsorBlock is a public list of where the sponsor reads are. Tick the categories and the player skips those stretches; the rest is left alone.</p>
             </div>
             <div>
               <span class="icon" aria-hidden="true">
@@ -1140,28 +1120,6 @@
               </span>
               <h3>Speed in 0.1 steps</h3>
               <p>Hold the speed pill and slide between 0.25× and 5×, or tap the presets you set.</p>
-            </div>
-            <div>
-              <span class="icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M12 19v3" />
-                  <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                  <rect x="9" y="2" width="6" height="13" rx="3" />
-                </svg>
-              </span>
-              <h3>Notes, dictated</h3>
-              <p>Speak a note while the video plays; it keeps the time you were at. Playing pauses while you talk and resumes when you save.</p>
-            </div>
-            <div>
-              <span class="icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                  <rect x="3" y="5" width="18" height="14" rx="3" />
-                  <path d="M10 10.5a2.5 2.5 0 1 0 0 3" />
-                  <path d="M17 10.5a2.5 2.5 0 1 0 0 3" />
-                </svg>
-              </span>
-              <h3>Captions</h3>
-              <p>The video's own tracks, in three sizes, drawn by the app rather than the platform.</p>
             </div>
             <div>
               <span class="icon" aria-hidden="true">
@@ -1192,8 +1150,8 @@
                   <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
                 </svg>
               </span>
-              <h3>One file, the whole phone</h3>
-              <p>Subscriptions, settings, Bored recipes, notes, history and where each video stopped export to one JSON file, and import on the next phone.</p>
+              <h3>A backup you can hold</h3>
+              <p>Subscriptions, settings, Bored recipes, notes, history and where each video stopped export to one JSON file — a backup you own, and the thing you import on the next phone.</p>
             </div>
             <div>
               <span class="icon" aria-hidden="true">
@@ -1220,19 +1178,17 @@
 
         <section class="block repair" aria-labelledby="repair">
           <p class="eyebrow">Self-repair</p>
-          <h2 class="section" id="repair">When YouTube breaks, it recovers — or updates itself</h2>
-          <div class="repair-copy">
+          <h2 class="section" id="repair">It repairs itself before you notice</h2>
+          <div class="prose">
             <p>
-              Every client that reads YouTube's pages breaks the same way: one morning the page is not
-              the shape the parser knows. GlassTube has several layers before it shows you an error —
-              it resets the extractor and retries, refetches a stalled stream and retries twice, and
-              gives a failed search a second try. Old clients sat broken until a person shipped a
-              version.
+              YouTube changes its pages, and every client that reads them breaks the same way.
+              GlassTube has layers for it: it resets the extractor and retries, fetches fresh streams
+              when playback stalls and tries twice, and gives an empty search another go. Most days
+              you never see any of it.
             </p>
             <p>
-              None of that patches a changed page shape. That needs a new build, and About installs it
-              from this page; the old one keeps working if the check fails. The log under Settings
-              records what failed, what was reset and what recovered.
+              Some breaks are bigger than a retry. Those need a new build, and About installs it from
+              this page — no store, and the old one keeps working if the check fails.
             </p>
           </div>
         </section>
@@ -1261,45 +1217,17 @@
           </div>
         </section>
 
-        <section class="block split" aria-labelledby="limits">
-          <div>
-            <h2 class="section" id="limits">What it is not</h2>
-            <ul class="points">
-              <li>This page and the APK are the distribution.</li>
-              <li>Not a downloader yet. Nothing is saved for offline playback.</li>
-              <li>Posting comments and replies needs your own Google OAuth client, so it stays off until one is supplied.</li>
-              <li>Android 13 or newer. The extractor uses APIs that only exist from there.</li>
-            </ul>
-          </div>
-          <div class="card">
-            <h2>If it breaks</h2>
-            <p class="sub" style="margin-top: 0.5rem; font-size: var(--sm)">
-              It's one person's project. Tell me what happened and which screen you were on;
-              the app keeps its own log and a bug report attaches a screenshot.
-            </p>
-            <a class="cta-link" href="app-release.apk">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                <path d="M7 10l5 5 5-5" />
-                <path d="M12 15V3" />
-              </svg>
-              Download the latest APK
-            </a>
-          </div>
-        </section>
-
-        <section class="block" aria-labelledby="builds">
-          <h2 class="section" id="builds">Builds</h2>
-          <p class="fine" style="margin-top: 0.5rem">
-            One build is published at a time. Each row carries the notes and the sha256 of the
-            signed file.
-          </p>
-          <ol class="builds" id="versions">
-            <li class="build-meta">Loading…</li>
-          </ol>
-          <noscript>
-            <p class="fine"><a href="app-release.apk" style="color: var(--accent)">Download the latest APK</a></p>
-          </noscript>
+        <section class="closing" aria-labelledby="install">
+          <h2 id="install">Install it</h2>
+          <a class="cta" href="app-release.apk">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <path d="M7 10l5 5 5-5" />
+              <path d="M12 15V3" />
+            </svg>
+            <span id="cta-label-2">Download GlassTube</span>
+          </a>
+          <p class="fine">Android 13 and newer. Android will ask once whether this source can install apps.</p>
         </section>
 
         <footer>
@@ -2089,40 +2017,23 @@
     </script>
 
     <script>
-      const esc = (s) =>
-        String(s ?? '').replace(/[&<>"']/g, (c) => ({
-          '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-        })[c])
-
-      const list = document.getElementById('versions')
-      const label = document.getElementById('cta-label')
+      /* The only thing the page needs from the manifest is the version on the two buttons. If it
+         cannot be read, the buttons keep their generic label and still download the file. */
+      const labels = [
+        document.getElementById('cta-label'),
+        document.getElementById('cta-label-2'),
+      ].filter(Boolean)
 
       fetch('version.json?_=' + Date.now(), { cache: 'no-store' })
-        .then((r) => {
-          if (!r.ok) throw new Error('HTTP ' + r.status)
-          return r.json()
+        .then((response) => {
+          if (!response.ok) throw new Error('HTTP ' + response.status)
+          return response.json()
         })
-        .then((v) => {
-          const notes = v.notes && v.notes.en ? v.notes.en : ''
-          if (v.versionName) label.textContent = 'Download GlassTube ' + v.versionName
-          list.innerHTML = `
-            <li>
-              <div class="build-row">
-                <span class="build-name">Version ${esc(v.versionName)}</span>
-                <a href="${esc(v.apkUrl)}">Download</a>
-              </div>
-              <div class="build-meta">build ${esc(v.versionCode)}</div>
-              ${notes ? `<p class="build-notes">${esc(notes)}</p>` : ''}
-              <div class="build-hash">sha256 ${esc(v.sha256)}</div>
-            </li>`
+        .then((manifest) => {
+          if (!manifest.versionName) return
+          for (const label of labels) label.textContent = 'Download GlassTube ' + manifest.versionName
         })
-        .catch(() => {
-          list.innerHTML = `
-            <li class="build-meta">
-              The manifest could not be read.
-              <a href="app-release.apk">Download the latest APK</a>
-            </li>`
-        })
+        .catch(() => {})
     </script>
   </body>
 </html>

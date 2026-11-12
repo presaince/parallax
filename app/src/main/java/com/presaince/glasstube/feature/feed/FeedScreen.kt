@@ -81,7 +81,8 @@ import com.presaince.glasstube.core.refreshLabel
 import com.presaince.glasstube.core.timeAgo
 import kotlin.math.roundToInt
 import com.presaince.glasstube.data.db.GlassTubeDb
-import com.presaince.glasstube.data.db.VideoEntity
+import com.presaince.glasstube.data.model.Video
+import com.presaince.glasstube.data.model.toSummary
 import com.presaince.glasstube.data.importer.importSubscriptions
 import com.presaince.glasstube.data.library.ContentRepository
 import com.presaince.glasstube.data.model.StreamState
@@ -293,12 +294,12 @@ private fun FeedList(
     hideLive: Boolean,
     pictureOnly: Boolean,
     cardStyle: CardStyle,
-    onHideVideo: (VideoEntity, String) -> Unit,
+    onHideVideo: (Video, String) -> Unit,
     onHideLiveChannel: (String, String) -> Unit,
 ) {
     // The long press target. A dialog rather than a swipe: hiding is rare, and a gesture that
     // removes things by accident needs an undo the feed does not have.
-    var hideTarget by remember { mutableStateOf<VideoEntity?>(null) }
+    var hideTarget by remember { mutableStateOf<Video?>(null) }
     fun noteBadge(videoId: String): (@Composable () -> Unit)? {
         if (!cardStyle.notes) return null
         val n = state.noteCounts[videoId] ?: return null
@@ -308,7 +309,7 @@ private fun FeedList(
     val watchCounts = state.history.associate { it.videoId to it.watches }
     val videos = state.videos
         .filter { video -> video.title.any { it.isLetterOrDigit() } }
-        .filter { video -> !hideLive || video.streamState == "NORMAL" }
+        .filter { video -> !hideLive || video.streamState == StreamState.NORMAL }
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         state.message?.let { message ->
@@ -470,7 +471,7 @@ private fun FeedList(
     // The long press's one question. Hiding is not destructive — the Hidden section puts any of
     // it back — but it is a change the reader did not ask for by tapping, so it is confirmed.
     hideTarget?.let { video ->
-        val live = video.streamState == "LIVE"
+        val live = video.streamState == StreamState.LIVE
         AlertDialog(
             onDismissRequest = { hideTarget = null },
             title = { Text("Leave this out of the feed?") },
@@ -496,10 +497,10 @@ private fun FeedList(
             },
             dismissButton = {
                 Row {
-                    if (live && video.channelId != null) {
+                    if (live && video.channelUrl != null) {
                         TextButton(
                             onClick = {
-                                onHideLiveChannel(video.channelId, video.channelName)
+                                onHideLiveChannel(video.channelUrl, video.channelName)
                                 hideTarget = null
                             },
                         ) { Text("Hide this channel's lives") }
@@ -880,22 +881,6 @@ private fun EmptyFeed(
         }
     }
 }
-
-fun VideoEntity.toSummary() = VideoSummary(
-    id = id,
-    url = "https://www.youtube.com/watch?v=$id",
-    title = title,
-    channelName = channelName,
-    durationSec = durationSec,
-    thumbnailUrl = thumbUrl,
-    channelUrl = channelId,
-    publishedAtMs = publishedAt,
-    viewCount = viewCount,
-    likeCount = likeCount,
-    commentCount = commentCount,
-    streamState = runCatching { StreamState.valueOf(streamState) }
-        .getOrDefault(StreamState.NORMAL),
-)
 
 /** Only the sorts the list can honour: likes exist for opened videos, watches only in history. */
 private val FEED_SORTS = listOf(

@@ -5,24 +5,28 @@
 package com.presaince.glasstube.feature.feed
 
 import com.presaince.glasstube.data.db.HiddenRow
-import com.presaince.glasstube.data.db.VideoEntity
+import com.presaince.glasstube.data.model.StreamState
+import com.presaince.glasstube.data.model.Video
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class HiddenTest {
 
-    private fun video(id: String, channel: String? = "https://youtube.com/@a", state: String = "NORMAL") =
-        VideoEntity(
-            id = id,
-            title = "Video $id",
-            channelId = channel,
-            channelName = "A",
-            durationSec = 300,
-            thumbUrl = null,
-            publishedAt = 1L,
-            fetchedAt = 1L,
-            streamState = state,
-        )
+    private fun video(
+        id: String,
+        channel: String? = "https://youtube.com/@a",
+        state: StreamState = StreamState.NORMAL,
+    ) = Video(
+        id = id,
+        title = "Video $id",
+        channelUrl = channel,
+        channelName = "A",
+        durationSec = 300,
+        thumbUrl = null,
+        publishedAt = 1L,
+        lastSeenAt = 1L,
+        streamState = state,
+    )
 
     @Test
     fun `nothing hidden leaves the feed alone`() {
@@ -39,9 +43,9 @@ class HiddenTest {
 
     @Test
     fun `a hidden channel's live stream leaves, its videos stay`() {
-        val live = video("live1", "https://youtube.com/@perm", state = "LIVE")
+        val live = video("live1", "https://youtube.com/@perm", state = StreamState.LIVE)
         val upload = video("upload1", "https://youtube.com/@perm")
-        val other = video("live2", "https://youtube.com/@other", state = "LIVE")
+        val other = video("live2", "https://youtube.com/@other", state = StreamState.LIVE)
         val hidden = listOf(hiddenLiveChannel("https://youtube.com/@perm", "Perm", "live streams hidden by you"))
         assertEquals(
             listOf("upload1", "live2"),
@@ -51,7 +55,7 @@ class HiddenTest {
 
     @Test
     fun `a hidden video that is also live is not rescued by the channel rule`() {
-        val live = video("live1", "https://youtube.com/@perm", state = "LIVE")
+        val live = video("live1", "https://youtube.com/@perm", state = StreamState.LIVE)
         val hidden = listOf(
             hiddenVideo(live, "hidden by you"),
             hiddenLiveChannel("https://youtube.com/@nobody", "Nobody", "live streams hidden by you"),
@@ -61,7 +65,7 @@ class HiddenTest {
 
     @Test
     fun `the two kinds of row are keyed apart`() {
-        val live = video("live1", "https://youtube.com/@perm", state = "LIVE")
+        val live = video("live1", "https://youtube.com/@perm", state = StreamState.LIVE)
         val rows: List<HiddenRow> = listOf(
             hiddenVideo(live, "hidden by you"),
             hiddenLiveChannel("https://youtube.com/@perm", "Perm", "live streams hidden by you"),
@@ -73,11 +77,17 @@ class HiddenTest {
 
     @Test
     fun `a hidden row keeps the words it needs to be listed later`() {
-        val live = video("live1", "https://youtube.com/@perm", state = "LIVE")
+        val live = video("live1", "https://youtube.com/@perm", state = StreamState.LIVE)
         val row = hiddenVideo(live, "private or removed")
         assertEquals("Video live1", row.title)
         assertEquals("private or removed", row.reason)
         assertEquals(false, row.liveOnly)
         assertEquals(live.id, row.videoId)
+    }
+
+    @Test
+    fun `a hidden row keeps the channel, which is what the live rule matches on`() {
+        val live = video("live1", "https://youtube.com/@perm", state = StreamState.LIVE)
+        assertEquals("https://youtube.com/@perm", hiddenVideo(live, "hidden by you").channelUrl)
     }
 }

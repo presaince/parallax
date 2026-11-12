@@ -7,7 +7,7 @@ package com.presaince.glasstube.data.discover
 import com.presaince.glasstube.core.AppResult
 import com.presaince.glasstube.data.db.HistoryEntity
 import com.presaince.glasstube.data.db.SubscriptionEntity
-import com.presaince.glasstube.data.db.VideoEntity
+import com.presaince.glasstube.data.model.Video
 import com.presaince.glasstube.data.model.Channel
 import com.presaince.glasstube.data.model.Comment
 import com.presaince.glasstube.data.model.Page
@@ -73,15 +73,15 @@ class DiscoverEngineTest {
         viewCount = 1_000,
     )
 
-    private fun videoEntity(id: String, title: String = id) = VideoEntity(
+    private fun videoEntity(id: String, title: String = id) = Video(
         id = id,
         title = title,
-        channelId = "https://youtube.com/c/a",
+        channelUrl = "https://youtube.com/c/a",
         channelName = "channel",
         durationSec = 600,
         thumbUrl = null,
         publishedAt = System.currentTimeMillis(),
-        fetchedAt = 0,
+        lastSeenAt = 0,
     )
 
     @Test
@@ -265,7 +265,7 @@ class DiscoverEngineTest {
     }
 
     private class FakeStore(
-        private val videos: List<VideoEntity>,
+        private val videos: List<Video>,
         private val historyIds: List<String> = emptyList(),
         private val progress: List<String> = emptyList(),
         private val subscriptions: List<SubscriptionEntity> = emptyList(),
@@ -277,9 +277,9 @@ class DiscoverEngineTest {
 
         override suspend fun subscriptions(): List<SubscriptionEntity> = subscriptions
 
-        override suspend fun findVideo(id: String): VideoEntity? = videos.firstOrNull { it.id == id }
+        override suspend fun findVideo(id: String): Video? = videos.firstOrNull { it.id == id }
 
-        override suspend fun recentVideos(limit: Int): List<VideoEntity> = videos.take(limit)
+        override suspend fun recentVideos(limit: Int): List<Video> = videos.take(limit)
     }
 
     private class FakeSource(

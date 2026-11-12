@@ -13,7 +13,8 @@ import com.presaince.glasstube.data.db.HistoryEntity
 import com.presaince.glasstube.data.db.GlassTubeDb
 import com.presaince.glasstube.data.db.ProgressEntity
 import com.presaince.glasstube.data.db.SubscriptionEntity
-import com.presaince.glasstube.data.db.VideoEntity
+import com.presaince.glasstube.data.db.toVideo
+import com.presaince.glasstube.data.model.Video
 import com.presaince.glasstube.data.importer.ImportedSubscription
 import com.presaince.glasstube.data.importer.ImportResult
 import com.presaince.glasstube.data.importer.SubscriptionExporter
@@ -25,6 +26,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -34,7 +36,7 @@ enum class LibraryMode { GRID, SECTIONS, COLLECTIONS }
 data class LibraryUiState(
     val subscriptions: List<SubscriptionEntity> = emptyList(),
     val channels: Map<String, ChannelEntity> = emptyMap(),
-    val videos: List<VideoEntity> = emptyList(),
+    val videos: List<Video> = emptyList(),
     val continueWatching: List<ProgressEntity> = emptyList(),
     val progress: Map<String, ProgressEntity> = emptyMap(),
     val mode: LibraryMode = LibraryMode.GRID,
@@ -43,9 +45,9 @@ data class LibraryUiState(
 ) {
     fun avatarFor(url: String): String? = channels[url]?.avatarUrl
 
-    fun videosFor(subscription: SubscriptionEntity): List<VideoEntity> =
+    fun videosFor(subscription: SubscriptionEntity): List<Video> =
         videos.filter { video ->
-            video.channelId == subscription.url || video.channelName == subscription.name
+            video.channelUrl == subscription.url || video.channelName == subscription.name
         }.take(6)
 
     fun watchedFraction(videoId: String): Float? {
@@ -82,7 +84,7 @@ class LibraryViewModel(
     private val data = combine(
         db.subscriptions().observeAll(),
         db.channels().observeAll(),
-        db.videos().observeFeed(),
+        db.videos().observeFeed().map { rows -> rows.map { it.toVideo() } },
         db.progress().observeAll(),
     ) { subscriptions, channels, videos, progress ->
         LibraryUiState(

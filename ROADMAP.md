@@ -88,6 +88,20 @@ card were pointless; PiP is table stakes; "playhead" is jargon.
   the same sentence.
 - **Search repair is no longer named.** It was a specific fallback nobody meets; the self-repair
   block now says "several layers" (reset, stall refetch, search retry) and keeps the honest limit.
+- **Notes are the main feature**, in their own block: the note is saved with the second you were
+  at, lives in the same database, and the captions are what the AI mode reads when it is on. The
+  tile it had is gone.
+- **Captions tile cut.** **SponsorBlock now says what it is** (a public list of sponsor segments).
+  **The export is framed as a backup** you own, not "one file, the whole phone".
+- **The self-repair block is warmer** ("It repairs itself before you notice") and still admits the
+  one break a retry cannot fix.
+- **The tail is gone**: "What it is not", "If it breaks" and the Builds list are deleted; a closing
+  "Install it" block with the big button replaces them. The manifest now only feeds the two button
+  labels, and a failed read leaves them generic.
+- **The headline names the lineage**: "NewPipe and LibreTube, reimagined", with free and open source
+  in the eyebrow and "no ads — YouTube's or its own" in the first sentence. The drag line moved out
+  of the paragraph to above the demo: "These are the app's own screens. Drag them." The page's and
+  the portfolio's titles, OG and Twitter cards follow.
 
 ## The page is the demo, 2026-11-11
 
@@ -1772,6 +1786,14 @@ feed state. Each is listed in ARCHITECTURE "Known gaps".
 - Manual dependency injection; ask before adding a library.
 
 ## Queued
+
+- **Feature packages still import storage rows they have not been given a port for** — `Video` is
+  the model now, but `feature/feed/Hidden.kt` still builds `HiddenRow`, `FeedViewModel` still
+  builds `HistoryEntity`, and `LibraryViewModel`, `LibraryScreen` and `CollectionsViewModel` still
+  read `GlassTubeDb`, `ProgressEntity`, `SubscriptionEntity` and `ChannelEntity` directly.
+  `LayerBoundaryTest` guards `VideoEntity` only, so this debt is invisible to the build. Cost to
+  leave it: a schema change still reaches the UI through history, progress and notes. Found
+  2026-11-12, tracked in `C:\Users\Bodi\.opencode\plan\parallax-domain-split.md`, steps 5 and 6.
 
 - **The player's ladder is tested as a rule, not as a player** — `tickAction` is pure and has 14
   cases, but `degrade()`, `giveUp()` and the session preference are only reachable through a real

@@ -58,7 +58,7 @@ One Activity, one Compose tree, one playback session.
 
 | State | Owner | Rule |
 |---|---|---|
-| ExoPlayer, speed, volume, PiP | `PlaybackController` | Only it may call the player. Screens send intentions. |
+| ExoPlayer, speed, volume, PiP | `PlaybackController` | Only it may drive the player. Screens send intentions. `SponsorPrefetch` may build a throwaway player to warm the cache, and nothing else may. |
 | Media notification | `PlaybackService` + session | Declared in the manifest, foreground type mediaPlayback. |
 | Route stack, selected tab | `GlassTubeNav` (`remember`) | Not persisted; a cold start is always Feed. |
 | Theme, accent, glass base, daily accent | `ThemeController` | Live state; never recreates the Activity. |
@@ -76,7 +76,7 @@ One Activity, one Compose tree, one playback session.
    that disagree cannot make the badge blink.
 4. Upsert channels; prune videos older than 30 days; log start, finish, failures, duration.
 
-**Screens** observe Room (`Flow`) and render; there is no view-state cache between screens. Search
+**Screens** observe `Video` flows and render; there is no view-state cache between screens. Search
 and channel pages go straight to `VideoSource`, because they are about the network, not the library.
 
 **Comments** are paged by continuation token (`Page.getId()`), cached for an hour in
@@ -150,7 +150,10 @@ playback   →  core
 di         →  everything (composition root only)
 ```
 
-No feature package imports another feature package; navigation is the go-between.
+No feature package imports another feature package; navigation is the go-between. `data.model` is
+the domain: `Video`, `VideoSummary` and `AppResult` are what a screen is allowed to know. A screen
+that imports `data.db.VideoEntity` is reading the schema, and `LayerBoundaryTest` fails the build
+for it. The extractor is the same rule: only `data/source` may import `org.schabi.newpipe`.
 
 ## Deliberate tradeoffs and risks
 

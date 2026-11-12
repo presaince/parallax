@@ -15,7 +15,7 @@ import com.presaince.glasstube.data.db.HiddenRow
 import com.presaince.glasstube.data.db.HistoryGroup
 import com.presaince.glasstube.data.db.GlassTubeDb
 import com.presaince.glasstube.data.db.ProgressEntity
-import com.presaince.glasstube.data.db.VideoEntity
+import com.presaince.glasstube.data.model.Video
 import com.presaince.glasstube.data.library.ContentRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -28,7 +28,7 @@ import kotlinx.coroutines.launch
 enum class FeedTab { FEED, HISTORY, HIDDEN }
 
 data class FeedUiState(
-    val videos: List<VideoEntity> = emptyList(),
+    val videos: List<Video> = emptyList(),
     val history: List<HistoryGroup> = emptyList(),
     val progress: Map<String, ProgressEntity> = emptyMap(),
     val noteCounts: Map<String, Int> = emptyMap(),
@@ -88,7 +88,7 @@ class FeedViewModel(
             videos = sortList(
                 videos,
                 current.sortFeed,
-                date = { it.publishedAt ?: it.fetchedAt },
+                date = { it.publishedAt ?: it.lastSeenAt },
                 likes = { it.likeCount },
                 duration = { it.durationSec },
                 views = { it.viewCount },
@@ -207,7 +207,7 @@ class FeedViewModel(
     }
 
     /** Leaves this one video out of the feed. It is not deleted: the Hidden section lists it. */
-    fun hideVideo(video: VideoEntity, reason: String = "hidden by you") {
+    fun hideVideo(video: Video, reason: String = "hidden by you") {
         viewModelScope.launch {
             dbRef.hidden().hide(hiddenVideo(video, reason))
         }
