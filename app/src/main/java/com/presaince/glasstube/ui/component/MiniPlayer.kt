@@ -138,7 +138,7 @@ fun MiniPlayer(
 
             Text(
                 text = title,
-                style = MaterialTheme.typography.bodySmall,
+                style = CardText.title,
                 maxLines = if (level == 0) 2 else 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),

@@ -31,6 +31,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.presaince.glasstube.R
 import com.presaince.glasstube.ui.theme.glassTubeFilterChipColors
@@ -113,6 +114,10 @@ fun SortControl(
                 text = state.option.label,
                 style = MaterialTheme.typography.labelLarge,
                 color = accentTextColour(),
+                // The feed's header gives this cell what the three mode buttons leave; a word
+                // that wrapped there would make the header two lines again.
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
             Icon(
                 painter = painterResource(

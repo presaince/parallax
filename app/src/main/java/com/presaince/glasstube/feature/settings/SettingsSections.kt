@@ -7,15 +7,18 @@ package com.presaince.glasstube.feature.settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import android.content.Context
+import android.os.SystemClock
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import com.presaince.glasstube.ui.component.LevelPill
 import com.presaince.glasstube.ui.component.levelPercent
-import com.presaince.glasstube.ui.component.LevelReadout
-import com.presaince.glasstube.ui.component.readoutLeft
-import com.presaince.glasstube.ui.component.readoutTop
+import com.presaince.glasstube.ui.component.Hud
+import com.presaince.glasstube.ui.component.HudPill
+import com.presaince.glasstube.ui.component.LevelTravel
+import com.presaince.glasstube.ui.component.LocalPageScrollLock
+import com.presaince.glasstube.ui.component.PageScrollLock
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -64,6 +67,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -106,28 +111,41 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.presaince.glasstube.R
 import com.presaince.glasstube.core.AppLog
+import com.presaince.glasstube.core.DEGRADE_TOLERANCE_MAX
 import com.presaince.glasstube.core.Transport
 import com.presaince.glasstube.core.activeTransport
+import com.presaince.glasstube.core.formatDuration
 import com.presaince.glasstube.core.panelShortSidePx
+import com.presaince.glasstube.core.plural
 import com.presaince.glasstube.core.qualityKey
 import com.presaince.glasstube.core.qualityStops
+import com.presaince.glasstube.core.seekDelta
 import com.presaince.glasstube.core.snapToLadder
 import com.presaince.glasstube.core.timeAgo
 import com.presaince.glasstube.data.backup.BackupFiles
 import com.presaince.glasstube.data.backup.FoundFile
 import com.presaince.glasstube.data.auth.PostingManager
 import com.presaince.glasstube.data.db.GlassTubeDb
+import com.presaince.glasstube.data.discover.RelatedDirection
 import com.presaince.glasstube.data.library.ContentRepository
 import com.presaince.glasstube.data.resync.ResyncSettings
 import com.presaince.glasstube.data.resync.ResyncStore
 import com.presaince.glasstube.data.source.flag
 import com.presaince.glasstube.data.source.readContentRegions
+import com.presaince.glasstube.data.sponsorblock.SponsorBarStyle
 import com.presaince.glasstube.data.sponsorblock.SponsorCategories
+import com.presaince.glasstube.feature.player.CaptionSize
 import com.presaince.glasstube.feature.player.ChaptersStyle
 import com.presaince.glasstube.feature.player.PlayerSection
 import com.presaince.glasstube.feature.player.resolveSectionOrder
 import com.presaince.glasstube.feature.player.sectionOrderPref
+import com.presaince.glasstube.feature.player.gesture.LadderStep
 import com.presaince.glasstube.feature.player.gesture.SeekRate
+import com.presaince.glasstube.feature.player.gesture.Zone
+import com.presaince.glasstube.feature.player.gesture.ladderStep
+import com.presaince.glasstube.feature.player.gesture.playbackGestures
+import com.presaince.glasstube.playback.SOUND_MAX_LEVEL_DB
+import com.presaince.glasstube.playback.SoundPreset
 import com.presaince.glasstube.playback.PlaybackController
 import com.presaince.glasstube.ui.theme.Accents
 import com.presaince.glasstube.ui.theme.ContrastPolicy
@@ -168,8 +186,10 @@ fun SettingsSectionScreen(
 ) {
     when (section) {
         SettingsSectionId.APPEARANCE -> AppearanceSection(theme)
-        SettingsSectionId.PLAYBACK -> PlaybackSection(playback, content)
-        SettingsSectionId.FEEDBACK -> FeedbackSection()
+        SettingsSectionId.PLAYBACK -> PlaybackSection(playback)
+        SettingsSectionId.SOUND -> SoundSection(playback)
+        SettingsSectionId.FEED -> FeedSection(playback, content)
+        SettingsSectionId.HAPTICS -> HapticsSection()
         SettingsSectionId.REGION -> RegionSection(onRegionChange)
         SettingsSectionId.SPONSOR -> SponsorSection(playback)
         SettingsSectionId.ACCOUNTS -> AccountsSection(resyncStore, posting, auth)
@@ -185,6 +205,114 @@ fun SettingsSectionScreen(
         SettingsSectionId.DIAGNOSTICS -> DiagnosticsSection(onOpenLogs, log)
         // One About page, not two: the section is the whole thing.
         SettingsSectionId.ABOUT -> com.presaince.glasstube.feature.about.AboutScreen()
+    }
+}
+
+/**
+ * Sound: the equaliser, the level, and the compressor. Nothing here is per video, because none
+ * of it is measured per video: these are shape and gain choices, applied to whatever plays next.
+ */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun SoundSection(playback: PlaybackController) {
+    val sound = playback.sound()
+    var enabled by remember { mutableStateOf(sound.enabled) }
+    var preset by remember { mutableStateOf(sound.preset) }
+    var level by remember { mutableFloatStateOf(sound.levelDb.toFloat()) }
+    var evenOut by remember { mutableStateOf(sound.evenOut) }
+
+    Page {
+        SwitchRow(
+            title = "Equaliser and level",
+            summary = "Shapes the sound of every video. Off leaves the audio exactly as YouTube " +
+                "sent it.",
+            checked = enabled,
+            onCheckedChange = { on ->
+                enabled = on
+                playback.setSoundEnabled(on)
+            },
+        )
+
+        Caption("Shape")
+        Text(
+            text = "Voice lifts the speech band, Bass and Treble move the ends. Flat is the " +
+                "same as leaving it alone.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        FlowRow(
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            SoundPreset.entries.forEach { choice ->
+                FilterChip(
+                    selected = preset == choice,
+                    onClick = {
+                        preset = choice
+                        if (!enabled) {
+                            // Choosing a shape is a clear enough ask for the effects to come on;
+                            // a chip that does nothing would read as broken.
+                            enabled = true
+                            playback.setSoundEnabled(true)
+                        }
+                        playback.setSoundPreset(choice)
+                    },
+                    label = { Text(choice.label) },
+                    colors = glassTubeFilterChipColors(),
+                )
+            }
+        }
+
+        Caption("Level")
+        Text(
+            text = "Up to +12 dB for a quiet video. The limiter holds the peaks so a louder " +
+                "setting cannot break up.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Slider(
+                value = level,
+                onValueChange = { next ->
+                    val steps = next.roundToInt()
+                    if (steps != level.roundToInt()) {
+                        level = next.toFloat()
+                        playback.setSoundLevel(steps)
+                        if (!enabled) {
+                            enabled = true
+                            playback.setSoundEnabled(true)
+                        }
+                    }
+                },
+                valueRange = 0f..SOUND_MAX_LEVEL_DB.toFloat(),
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(Modifier.width(12.dp))
+            Text(
+                text = "+${level.roundToInt()} dB",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.secondary,
+            )
+        }
+
+        Caption("Even out volume")
+        SwitchRow(
+            title = "Even out volume",
+            summary = "A compressor lifts quiet speech and settles loud music, with the limiter " +
+                "catching the peaks. Useful for a video whose ads are twice as loud as the rest.",
+            checked = evenOut,
+            onCheckedChange = { on ->
+                evenOut = on
+                playback.setSoundEvenOut(on)
+                if (on && !enabled) {
+                    enabled = true
+                    playback.setSoundEnabled(true)
+                }
+            },
+        )
     }
 }
 
@@ -216,19 +344,24 @@ private fun AccountsSection(
 
 @Composable
 private fun Page(content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-    ) {
-        content()
+    // The gesture lesson sits on this page and freezes it while a finger is on its stage.
+    val lock = remember { PageScrollLock() }
+    CompositionLocalProvider(LocalPageScrollLock provides lock) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState(), enabled = !lock.locked)
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+        ) {
+            content()
+        }
     }
 }
 
 @Composable
 private fun AppearanceSection(theme: ThemeController) {
     val context = LocalContext.current
+    val prefs = context.getSharedPreferences("glasstube", Context.MODE_PRIVATE)
     // One copy of the card style for the page: the switches and the preview above them must agree
     // the moment a switch moves, not after a round trip.
     var cardStyle by remember { mutableStateOf(CardStyle.read(context)) }
@@ -264,32 +397,7 @@ private fun AppearanceSection(theme: ThemeController) {
 
         Caption("Motion")
         var animations by remember {
-            mutableStateOf(
-                context.getSharedPreferences("glasstube", Context.MODE_PRIVATE)
-                    .getBoolean("animations_enabled", true),
-            )
-        }
-        var videoTint by remember {
-            mutableStateOf(
-                context.getSharedPreferences("glasstube", Context.MODE_PRIVATE)
-                    .getBoolean("theme_from_video", false),
-            )
-        }
-        SwitchRow(
-            title = "Tint from video",
-            summary = "Advanced: tints the player page with the video's dominant colour. Off by default.",
-            checked = videoTint,
-            onCheckedChange = { on ->
-                videoTint = on
-                context.getSharedPreferences("glasstube", Context.MODE_PRIVATE)
-                    .edit().putBoolean("theme_from_video", on).apply()
-            },
-        )
-        var loadingStyle by remember {
-            mutableIntStateOf(
-                context.getSharedPreferences("glasstube", Context.MODE_PRIVATE)
-                    .getInt("loading_style", 0),
-            )
+            mutableStateOf(prefs.getBoolean("animations_enabled", true))
         }
         SwitchRow(
             title = "Animations",
@@ -298,13 +406,13 @@ private fun AppearanceSection(theme: ThemeController) {
             checked = animations,
             onCheckedChange = { on ->
                 animations = on
-                context.getSharedPreferences("glasstube", Context.MODE_PRIVATE)
-                    .edit().putBoolean("animations_enabled", on).apply()
+                prefs.edit().putBoolean("animations_enabled", on).apply()
             },
         )
         // Its own subsection: what the wait looks like is a second question under Motion, not a
         // row of its own inside the switch's description.
         Caption("While a video loads")
+        var loadingStyle by remember { mutableIntStateOf(prefs.getInt("loading_style", 0)) }
         ChoiceChips(
             options = listOf(
                 0 to "Kinetic",
@@ -315,8 +423,125 @@ private fun AppearanceSection(theme: ThemeController) {
             selected = loadingStyle,
             onPick = { style ->
                 loadingStyle = style
-                context.getSharedPreferences("glasstube", Context.MODE_PRIVATE)
-                    .edit().putInt("loading_style", style).apply()
+                prefs.edit().putInt("loading_style", style).apply()
+            },
+        )
+
+        // What the player draws over the picture is the same question as the theme: chrome, not
+        // behaviour. It sat in Playback beside quality and cache, where nobody looks for it.
+        Caption("The player")
+        var progressInFullscreen by remember {
+            mutableStateOf(prefs.getBoolean("progress_in_fullscreen", true))
+        }
+        SwitchRow(
+            title = "Progress bar in fullscreen",
+            summary = "The bar along the bottom edge with the two times, and the strip that " +
+                "scrubs it. Off means a completely clean picture when the phone is turned or " +
+                "fullscreen is entered.",
+            checked = progressInFullscreen,
+            onCheckedChange = { enabled ->
+                progressInFullscreen = enabled
+                prefs.edit().putBoolean("progress_in_fullscreen", enabled).apply()
+            },
+        )
+        var notificationRestart by remember {
+            mutableStateOf(prefs.getBoolean("notification_restart", true))
+        }
+        SwitchRow(
+            title = "Restart button in the notification",
+            summary = "The far-left media button, which jumps back to the start. Off removes it " +
+                "and leaves the notification to play, pause and seek. Takes effect from the next " +
+                "playback session.",
+            checked = notificationRestart,
+            onCheckedChange = { enabled ->
+                notificationRestart = enabled
+                prefs.edit().putBoolean("notification_restart", enabled).apply()
+            },
+        )
+
+        // The page under the picture. Order, shape and labels are the page's look, so they belong
+        // here with the theme rather than with the speed and the quality ceiling.
+        Caption("The video page")
+        var videoTint by remember { mutableStateOf(prefs.getBoolean("theme_from_video", false)) }
+        SwitchRow(
+            title = "Tint from video",
+            summary = "Advanced: tints the player page with the video's dominant colour. Off by " +
+                "default.",
+            checked = videoTint,
+            onCheckedChange = { on ->
+                videoTint = on
+                prefs.edit().putBoolean("theme_from_video", on).apply()
+            },
+        )
+        var chaptersStyle by remember {
+            mutableStateOf(prefs.getInt("chapters_style", ChaptersStyle.Row.stored).let(ChaptersStyle::of))
+        }
+        ChoiceChips(
+            options = listOf(
+                ChaptersStyle.Row to "Row",
+                ChaptersStyle.List to "List",
+                ChaptersStyle.Hidden to "Hidden",
+            ),
+            selected = chaptersStyle,
+            onPick = { picked ->
+                chaptersStyle = picked
+                prefs.edit().putInt("chapters_style", picked.stored).apply()
+            },
+            title = "Chapters",
+        )
+        Text(
+            text = "Row swipes sideways with a thumbnail for each, List is a plain column, " +
+                "Hidden leaves the chapter panel out. The description keeps its own timestamps " +
+                "either way, so Hidden is how you read a chapter list as plain text.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 8.dp),
+        )
+        Caption("Video page order")
+        Text(
+            text = "The sections under the picture, top to bottom. Hold a row and drag it.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        var sectionOrder by remember {
+            mutableStateOf(
+                resolveSectionOrder(
+                    prefs.getString("player_sections", null)
+                        .orEmpty()
+                        .split(",")
+                        .filter { it.isNotBlank() },
+                ),
+            )
+        }
+        SectionOrderEditor(
+            order = sectionOrder,
+            onChange = { next ->
+                sectionOrder = next
+                prefs.edit().putString("player_sections", sectionOrderPref(next)).apply()
+            },
+        )
+        var chapterTimestamps by remember {
+            mutableStateOf(prefs.getBoolean("chapter_timestamps", true))
+        }
+        SwitchRow(
+            title = "Chapter timestamps",
+            summary = "The time beside each chapter. Off leaves the titles alone, and the " +
+                "timestamps in the description are untouched either way.",
+            checked = chapterTimestamps,
+            onCheckedChange = { enabled ->
+                chapterTimestamps = enabled
+                prefs.edit().putBoolean("chapter_timestamps", enabled).apply()
+            },
+        )
+        var labelsRight by remember { mutableStateOf(prefs.getBoolean("player_labels_right", false)) }
+        SwitchRow(
+            title = "Section labels",
+            summary = "Description, Chapters, My notes, Comments and Up next. Off puts them on " +
+                "the left, in line with the text they name, which is where the eye already is.",
+            checked = labelsRight,
+            onCheckedChange = { enabled ->
+                labelsRight = enabled
+                prefs.edit().putBoolean("player_labels_right", enabled).apply()
             },
         )
     }
@@ -349,12 +574,11 @@ private fun ContrastCard(theme: ThemeController) {
     val inkMoved = kotlin.math.abs(
         ink.toHsl().third - scheme.primary.toHsl().third,
     ) > 0.015f
-    val aurora = remember(theme.accent, theme.dark, theme.solidSurfaces, theme.contrast) {
+    val aurora = remember(theme.accent, theme.dark, theme.contrast) {
         if (glass) {
             com.presaince.glasstube.ui.theme.auroraScale(
                 theme.accent,
                 theme.dark,
-                theme.solidSurfaces,
                 theme.contrast,
             )
         } else {
@@ -978,7 +1202,7 @@ private fun PreviewWords(
 }
 
 /**
- * The Glass theme's own button: just Glass, no Solid word. The whole tile is the fill, in the
+ * The Glass theme's own button: just Glass, no second half. The whole tile is the fill, in the
  * volume/brightness language: the tile's color rises from the bottom with the level, 0..1,
  * with the glass icon riding on it like the other theme tiles. It slides up and down anywhere on
  * the tile. Tapping turns Glass on from another theme at the remembered level; off is picking
@@ -1028,10 +1252,7 @@ private fun androidx.compose.foundation.layout.RowScope.GlassTile(theme: ThemeCo
                     onDragCancel = { theme.chooseGlassLevel(theme.glassLevel) },
                 )
             }
-            .clickable {
-                theme.chooseSolidSurfaces(false)
-                theme.chooseMode(ThemeMode.GLASS)
-            },
+            .clickable { theme.chooseMode(ThemeMode.GLASS) },
         contentAlignment = Alignment.Center,
     ) {
         // Same fill as the volume/brightness pills: LevelPill owns the fill, the tile is its
@@ -1080,43 +1301,6 @@ private fun androidx.compose.foundation.layout.RowScope.GlassTile(theme: ThemeCo
     }
 }
 
-@Composable
-private fun SurfaceHalf(
-    label: String,
-    selected: Boolean,
-    active: Boolean,
-    brush: Brush,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .background(brush)
-            .then(
-                if (selected) {
-                    Modifier.background(MaterialTheme.colorScheme.primary.copy(alpha = 0.20f))
-                } else {
-                    Modifier
-                },
-            )
-            .clickable(onClick = onClick)
-            .heightIn(min = 30.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelMedium,
-            color = when {
-                active && selected -> tileInk()
-                selected -> MaterialTheme.colorScheme.onSurface
-                else -> MaterialTheme.colorScheme.onSurfaceVariant
-            },
-            maxLines = 1,
-        )
-    }
-}
-
 /** Accent text for a selected tile: the picked hue, walked until it reads on this surface. */
 @Composable
 private fun tileInk(): Color = com.presaince.glasstube.ui.theme.accentTextColour()
@@ -1129,9 +1313,8 @@ private fun ThemePicker(theme: ThemeController) {
     ) {
         ThemeMode.entries.forEach { mode ->
             if (mode == ThemeMode.GLASS) {
-                // The Glass button is the surface control. One tile cut across: Glass on top,
-                // Solid underneath, and the chosen half tinted. Choosing Glass any other way
-                // would put the same question on the page twice.
+                // The Glass tile is its own control: a vertical drag sets the fill, a tap picks
+                // the theme. One tile, one question.
                 GlassTile(theme)
                 return@forEach
             }
@@ -1308,244 +1491,19 @@ internal fun AccentGrid(theme: ThemeController) {
 
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-private fun PlaybackSection(playback: PlaybackController, content: ContentRepository) {
+private fun PlaybackSection(playback: PlaybackController) {
     val context = LocalContext.current
-    var hideLive by remember {
-        mutableStateOf(
-            context.getSharedPreferences("glasstube", android.content.Context.MODE_PRIVATE)
-                .getBoolean("hide_live", false),
-        )
-    }
-    var feedLive by remember {
-        mutableStateOf(
-            context.getSharedPreferences("glasstube", android.content.Context.MODE_PRIVATE)
-                .getBoolean("feed_live", true),
-        )
-    }
+    val playbackState by playback.state.collectAsStateWithLifecycle()
+    val prefs = context.getSharedPreferences("glasstube", Context.MODE_PRIVATE)
     var speedPresets by remember { mutableStateOf(playback.speedPresets()) }
-    var pipOnLeave by remember {
-        mutableStateOf(
-            context.getSharedPreferences("glasstube", android.content.Context.MODE_PRIVATE)
-                .getBoolean("pip_on_leave", true),
-        )
-    }
-    var progressInFullscreen by remember {
-        mutableStateOf(
-            context.getSharedPreferences("glasstube", android.content.Context.MODE_PRIVATE)
-                .getBoolean("progress_in_fullscreen", true),
-        )
-    }
-    var notificationRestart by remember {
-        mutableStateOf(
-            context.getSharedPreferences("glasstube", android.content.Context.MODE_PRIVATE)
-                .getBoolean("notification_restart", true),
-        )
-    }
-    var chaptersStyle by remember {
-        mutableStateOf(
-            ChaptersStyle.of(
-                context.getSharedPreferences("glasstube", android.content.Context.MODE_PRIVATE)
-                    .getInt("chapters_style", ChaptersStyle.Row.stored),
-            ),
-        )
-    }
-    var sectionOrder by remember {
-        mutableStateOf(
-            resolveSectionOrder(
-                context.getSharedPreferences("glasstube", android.content.Context.MODE_PRIVATE)
-                    .getString("player_sections", null)
-                    .orEmpty()
-                    .split(",")
-                    .filter { it.isNotBlank() },
-            ),
-        )
-    }
-    var chapterTimestamps by remember {
-        mutableStateOf(
-            context.getSharedPreferences("glasstube", android.content.Context.MODE_PRIVATE)
-                .getBoolean("chapter_timestamps", true),
-        )
-    }
-    var labelsRight by remember {
-        mutableStateOf(
-            context.getSharedPreferences("glasstube", android.content.Context.MODE_PRIVATE)
-                .getBoolean("player_labels_right", false),
-        )
-    }
-    var endRelated by remember {
-        mutableStateOf(
-            context.getSharedPreferences("glasstube", android.content.Context.MODE_PRIVATE)
-                .getBoolean("end_related_enabled", true),
-        )
-    }
-    var seekBase by remember {
-        mutableStateOf(
-            context.getSharedPreferences("glasstube", android.content.Context.MODE_PRIVATE)
-                .getInt("seek_base_seconds", 5),
-        )
-    }
-    var watchThreshold by remember { mutableStateOf(playback.watchThreshold()) }
+    var pipOnLeave by remember { mutableStateOf(prefs.getBoolean("pip_on_leave", true)) }
+    var seekBase by remember { mutableIntStateOf(prefs.getInt("seek_base_seconds", 5)) }
+    var captionsOn by remember { mutableStateOf(playback.state.value.captionsOn) }
+    var captionSize by remember { mutableIntStateOf(playback.state.value.captionSize) }
 
     Page {
         Caption("Gestures")
         GestureTutorial()
-
-        SwitchRow(
-            title = "Restart button in the notification",
-            summary = "The far-left media button, which jumps back to the start. Off removes it " +
-                "and leaves the notification to play, pause and seek. Takes effect from the next " +
-                "playback session.",
-            checked = notificationRestart,
-            onCheckedChange = { enabled ->
-                notificationRestart = enabled
-                context.getSharedPreferences("glasstube", android.content.Context.MODE_PRIVATE)
-                    .edit()
-                    .putBoolean("notification_restart", enabled)
-                    .apply()
-            },
-        )
-
-        SwitchRow(
-            title = "Progress bar in fullscreen",
-            summary = "The bar along the bottom edge with the two times, and the strip that " +
-                "scrubs it. Off means a completely clean picture when the phone is turned or " +
-                "fullscreen is entered.",
-            checked = progressInFullscreen,
-            onCheckedChange = { enabled ->
-                progressInFullscreen = enabled
-                context.getSharedPreferences("glasstube", android.content.Context.MODE_PRIVATE)
-                    .edit()
-                    .putBoolean("progress_in_fullscreen", enabled)
-                    .apply()
-            },
-        )
-
-        SwitchRow(
-            title = "Pop out when you leave the app",
-            summary = "Keeps the picture in a floating window while a video plays. Off means " +
-                "leaving the app simply pauses nothing and hides the video.",
-            checked = pipOnLeave,
-            onCheckedChange = { enabled ->
-                pipOnLeave = enabled
-                context.getSharedPreferences("glasstube", android.content.Context.MODE_PRIVATE)
-                    .edit()
-                    .putBoolean("pip_on_leave", enabled)
-                    .apply()
-            },
-        )
-
-        SwitchRow(
-            title = "Related at the end",
-            summary = "Shows Up next under the comments while the video plays and on the end " +
-                "screen. Off means the page simply ends.",
-            checked = endRelated,
-            onCheckedChange = { enabled ->
-                endRelated = enabled
-                context.getSharedPreferences("glasstube", android.content.Context.MODE_PRIVATE)
-                    .edit()
-                    .putBoolean("end_related_enabled", enabled)
-                    .apply()
-            },
-        )
-
-        ChoiceChips(
-            options = listOf(
-                ChaptersStyle.Row to "Row",
-                ChaptersStyle.List to "List",
-                ChaptersStyle.Hidden to "Hidden",
-            ),
-            selected = chaptersStyle,
-            onPick = { picked ->
-                chaptersStyle = picked
-                context.getSharedPreferences("glasstube", android.content.Context.MODE_PRIVATE)
-                    .edit()
-                    .putInt("chapters_style", picked.stored)
-                    .apply()
-            },
-            title = "Chapters",
-        )
-        Text(
-            text = "Row swipes sideways with a thumbnail for each, List is a plain column, " +
-                "Hidden leaves the chapter panel out. The description keeps its own timestamps " +
-                "either way, so Hidden is how you read a chapter list as plain text.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(bottom = 8.dp),
-        )
-
-        Caption("Video page order")
-        Text(
-            text = "The sections under the picture, top to bottom. Hold a row and drag it.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        SectionOrderEditor(
-            order = sectionOrder,
-            onChange = { next ->
-                sectionOrder = next
-                context.getSharedPreferences("glasstube", android.content.Context.MODE_PRIVATE)
-                    .edit()
-                    .putString("player_sections", sectionOrderPref(next))
-                    .apply()
-            },
-        )
-
-        SwitchRow(
-            title = "Chapter timestamps",
-            summary = "The time beside each chapter. Off leaves the titles alone, and the " +
-                "timestamps in the description are untouched either way.",
-            checked = chapterTimestamps,
-            onCheckedChange = { enabled ->
-                chapterTimestamps = enabled
-                context.getSharedPreferences("glasstube", android.content.Context.MODE_PRIVATE)
-                    .edit()
-                    .putBoolean("chapter_timestamps", enabled)
-                    .apply()
-            },
-        )
-
-        SwitchRow(
-            title = "Section labels on the right",
-            summary = "Description, Chapters, My notes, Comments and Up next. Off puts them on " +
-                "the left, in line with the text they name, which is where the eye already is.",
-            checked = labelsRight,
-            onCheckedChange = { enabled ->
-                labelsRight = enabled
-                context.getSharedPreferences("glasstube", android.content.Context.MODE_PRIVATE)
-                    .edit()
-                    .putBoolean("player_labels_right", enabled)
-                    .apply()
-            },
-        )
-
-        Caption("The feed")
-        SwitchRow(
-            title = "Hide live and upcoming",
-            summary = "Leaves them out of the feed, search and channel pages.",
-            checked = hideLive,
-            onCheckedChange = { enabled ->
-                hideLive = enabled
-                context.getSharedPreferences("glasstube", android.content.Context.MODE_PRIVATE)
-                    .edit()
-                    .putBoolean("hide_live", enabled)
-                    .apply()
-            },
-        )
-
-        SwitchRow(
-            title = "Live streams in the feed",
-            summary = "A channel's live tab is asked too, because the uploads list never carries a " +
-                "stream that is happening now. Off halves the requests per refresh and no live " +
-                "stream ever appears in the feed.",
-            checked = feedLive,
-            onCheckedChange = { enabled ->
-                feedLive = enabled
-                context.getSharedPreferences("glasstube", android.content.Context.MODE_PRIVATE)
-                    .edit()
-                    .putBoolean("feed_live", enabled)
-                    .apply()
-            },
-        )
 
         // How far one swipe moves the picture. The rate climbs as the finger travels, so this is
         // the precision at the start, not the speed of the whole gesture.
@@ -1565,10 +1523,7 @@ private fun PlaybackSection(playback: PlaybackController, content: ContentReposi
                     selected = seekBase == seconds,
                     onClick = {
                         seekBase = seconds
-                        context.getSharedPreferences("glasstube", android.content.Context.MODE_PRIVATE)
-                            .edit()
-                            .putInt("seek_base_seconds", seconds)
-                            .apply()
+                        prefs.edit().putInt("seek_base_seconds", seconds).apply()
                     },
                     label = { Text(label) },
                     colors = glassTubeFilterChipColors(),
@@ -1576,95 +1531,7 @@ private fun PlaybackSection(playback: PlaybackController, content: ContentReposi
             }
         }
 
-        // How much playing counts an open as a watch. Opens enter History at once;
-        // this is only when the same open is also stamped watched.
-        Caption("Count a watch after")
-        Text(
-            text = "History records every open at once. This only decides when an open is " +
-                "also counted as a watch. 30 seconds is the usual default; shorter values " +
-                "count quick opens too.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            listOf(
-                "30s" to "30s",
-                "60s" to "1 min",
-                "300s" to "5 min",
-                "600s" to "10 min",
-            ).forEach { (token, label) ->
-                FilterChip(
-                    selected = watchThreshold == token,
-                    onClick = {
-                        watchThreshold = token
-                        playback.setWatchThreshold(token)
-                    },
-                    label = { Text(label, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()) },
-                    colors = glassTubeFilterChipColors(),
-                    modifier = Modifier.width(80.dp),
-                )
-            }
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            listOf(
-                "10%" to "10%",
-                "25%" to "25%",
-                "50%" to "50%",
-                "90%" to "90%",
-            ).forEach { (token, label) ->
-                FilterChip(
-                    selected = watchThreshold == token,
-                    onClick = {
-                        watchThreshold = token
-                        playback.setWatchThreshold(token)
-                    },
-                    label = { Text(label, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()) },
-                    colors = glassTubeFilterChipColors(),
-                    modifier = Modifier.width(80.dp),
-                )
-            }
-        }
 
-        // The feed's own cut, separate from the history one above: that decides when an open is
-        // a watch, this decides when a watched video stops being offered.
-        Caption("Feed")
-        var hideWatched by remember { mutableIntStateOf(content.hideWatchedPercent.value) }
-        Text(
-            text = if (hideWatched <= 0) {
-                "Off. Every fetched video stays in the feed, however much of it you have watched."
-            } else {
-                "Videos you have watched past $hideWatched% leave the feed. A video your " +
-                    "history already counts as watched leaves it too, whatever this says."
-            },
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Slider(
-            value = hideWatched.toFloat(),
-            onValueChange = { raw ->
-                val percent = raw.roundToInt()
-                hideWatched = percent
-                // Live, so the feed behind the screen repaints as the slider moves; the stored
-                // copy is written once the finger lifts.
-                content.setHideWatchedPercent(percent)
-            },
-            onValueChangeFinished = {
-                context.getSharedPreferences("glasstube", Context.MODE_PRIVATE)
-                    .edit()
-                    .putInt(ContentRepository.KEY_HIDE_WATCHED, hideWatched)
-                    .apply()
-            },
-            valueRange = 0f..100f,
-            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-        )
-
-        // "Price is right" speed editor: pick the numbers the slider offers.
         Caption("Video quality")
         Text(
             text = "The ceiling for new videos, kept separately for Wi-Fi and mobile data. A " +
@@ -1790,6 +1657,44 @@ private fun PlaybackSection(playback: PlaybackController, content: ContentReposi
             }
         }
 
+        Caption("Choppy water")
+        SwitchRow(
+            title = "Drop the picture when it cannot keep up",
+            summary = "When the stream arrives slower than it plays — a thin connection, or 2x " +
+                "speed — the picture steps one rung down, three times at most, for this video " +
+                "only. The stop you chose is not changed, so the next video starts where you " +
+                "left it. On by default.",
+            checked = playbackState.autoDegrade,
+            onCheckedChange = playback::setAutoDegrade,
+        )
+        if (playbackState.autoDegrade) {
+            var tolerance by remember { mutableIntStateOf(playbackState.degradeTolerance) }
+            Text(
+                text = "The picture gives up a rung after " +
+                    "${plural(tolerance.toLong(), "stall")} in half a minute. One thin moment " +
+                    "is noise and the player rides it out; several is a connection that cannot " +
+                    "carry the speed. Ten is close to never.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 4.dp),
+            )
+            Slider(
+                value = tolerance.toFloat(),
+                onValueChange = { raw ->
+                    val next = raw.roundToInt()
+                    if (next != tolerance) {
+                        tolerance = next
+                        // Live, so a video already playing is judged by the new patience; the
+                        // stored copy follows the finger, which is the whole point of a slider.
+                        playback.setDegradeTolerance(next)
+                    }
+                },
+                valueRange = 1f..DEGRADE_TOLERANCE_MAX.toFloat(),
+                steps = DEGRADE_TOLERANCE_MAX - 2,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+
         Caption("Stream cache")
         Text(
             text = "The bytes you have just watched are kept on disk, so reopening a video " +
@@ -1859,13 +1764,241 @@ private fun PlaybackSection(playback: PlaybackController, content: ContentReposi
                 }
             }
         }
+
+        SwitchRow(
+            title = "Pop out when you leave the app",
+            summary = "Keeps the picture in a floating window while a video plays. Off means " +
+                "leaving the app simply pauses nothing and hides the video.",
+            checked = pipOnLeave,
+            onCheckedChange = { enabled ->
+                pipOnLeave = enabled
+                prefs.edit().putBoolean("pip_on_leave", enabled).apply()
+            },
+        )
+
+        // Captions: on or off and how big. The language is the player's CC control, because it
+        // depends on what the video offers; this page only says whether to show them and how.
+        Caption("Captions")
+        Text(
+            text = "The CC control in the player lists the tracks this video offers. This switch " +
+                "is the same choice, remembered across videos.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        SwitchRow(
+            title = "Show captions",
+            summary = "",
+            checked = captionsOn,
+            onCheckedChange = { enabled ->
+                captionsOn = enabled
+                playback.setCaptionsEnabled(enabled)
+            },
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            CaptionSize.entries.forEach { size ->
+                FilterChip(
+                    selected = captionSize == size.ordinal,
+                    onClick = {
+                        captionSize = size.ordinal
+                        playback.setCaptionSize(size.ordinal)
+                    },
+                    label = {
+                        Text(size.label, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+                    },
+                    colors = glassTubeFilterChipColors(),
+                    modifier = Modifier.width(100.dp),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * What the lists and the end of a video offer: live, watched, related, Bored. These were rows in
+ * Playback, which is about how a video plays, not about which videos are on screen.
+ */
+@Composable
+private fun FeedSection(playback: PlaybackController, content: ContentRepository) {
+    val context = LocalContext.current
+    val prefs = context.getSharedPreferences("glasstube", Context.MODE_PRIVATE)
+    var hideLive by remember { mutableStateOf(prefs.getBoolean("hide_live", false)) }
+    var feedLive by remember { mutableStateOf(prefs.getBoolean("feed_live", true)) }
+    var endRelated by remember { mutableStateOf(prefs.getBoolean("end_related_enabled", true)) }
+    var hideWatched by remember { mutableIntStateOf(content.hideWatchedPercent.value) }
+    var watchThreshold by remember { mutableStateOf(playback.watchThreshold()) }
+    var boredSkipSubscribed by remember {
+        mutableStateOf(prefs.getBoolean("bored_hide_subscribed", true))
+    }
+
+    Page {
+        Caption("Live")
+        SwitchRow(
+            title = "Hide live and upcoming",
+            summary = "Leaves them out of the feed, search and channel pages.",
+            checked = hideLive,
+            onCheckedChange = { enabled ->
+                hideLive = enabled
+                prefs.edit().putBoolean("hide_live", enabled).apply()
+            },
+        )
+
+        SwitchRow(
+            title = "Ask channels for live streams",
+            summary = if (hideLive) {
+                "Not asked while live is hidden: every stream would be filtered out anyway. " +
+                    "The fetch resumes with the switch above."
+            } else {
+                "A channel's live tab is asked too, because the uploads list never carries a " +
+                    "stream that is happening now. Off halves the requests per refresh and no " +
+                    "live stream ever appears in the feed."
+            },
+            checked = feedLive,
+            onCheckedChange = { enabled ->
+                feedLive = enabled
+                prefs.edit().putBoolean("feed_live", enabled).apply()
+                // The repository is what asks, so the switch has to tell it now, not at the next
+                // launch. It was stored and never applied until a restart.
+                content.setFeedLive(enabled)
+            },
+        )
+
+        // How much playing counts an open as a watch. Opens enter History at once;
+        // this is only when the same open is also stamped watched.
+        Caption("Watched")
+        Text(
+            text = "History records every open at once. This only decides when an open is " +
+                "also counted as a watch. 30 seconds is the usual default; shorter values " +
+                "count quick opens too.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            listOf(
+                "30s" to "30s",
+                "60s" to "1 min",
+                "300s" to "5 min",
+                "600s" to "10 min",
+            ).forEach { (token, label) ->
+                FilterChip(
+                    selected = watchThreshold == token,
+                    onClick = {
+                        watchThreshold = token
+                        playback.setWatchThreshold(token)
+                    },
+                    label = { Text(label, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()) },
+                    colors = glassTubeFilterChipColors(),
+                    modifier = Modifier.width(80.dp),
+                )
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            listOf(
+                "10%" to "10%",
+                "25%" to "25%",
+                "50%" to "50%",
+                "90%" to "90%",
+            ).forEach { (token, label) ->
+                FilterChip(
+                    selected = watchThreshold == token,
+                    onClick = {
+                        watchThreshold = token
+                        playback.setWatchThreshold(token)
+                    },
+                    label = { Text(label, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()) },
+                    colors = glassTubeFilterChipColors(),
+                    modifier = Modifier.width(80.dp),
+                )
+            }
+        }
+
+        // The feed's own cut, separate from the history one above: that decides when an open is
+        // a watch, this decides when a watched video stops being offered.
+        Caption("Hide watched")
+        Text(
+            text = if (hideWatched <= 0) {
+                "Off. Every fetched video stays in the feed, however much of it you have watched."
+            } else {
+                "Videos you have watched past $hideWatched% leave the feed. A video your " +
+                    "history already counts as watched leaves it too, whatever this says."
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Slider(
+            value = hideWatched.toFloat(),
+            onValueChange = { raw ->
+                val percent = raw.roundToInt()
+                hideWatched = percent
+                // Live, so the feed behind the screen repaints as the slider moves; the stored
+                // copy is written once the finger lifts.
+                content.setHideWatchedPercent(percent)
+            },
+            onValueChangeFinished = {
+                prefs.edit()
+                    .putInt(ContentRepository.KEY_HIDE_WATCHED, hideWatched)
+                    .apply()
+            },
+            valueRange = 0f..100f,
+            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+        )
+
+        Caption("Recommendations")
+        SwitchRow(
+            title = "Related at the end",
+            summary = "Shows Up next under the comments while the video plays and on the end " +
+                "screen. Off means the page simply ends, whatever the page order says.",
+            checked = endRelated,
+            onCheckedChange = { enabled ->
+                endRelated = enabled
+                prefs.edit().putBoolean("end_related_enabled", enabled).apply()
+            },
+        )
+        if (endRelated) {
+            // Two modes, one row: the subtext is the mode in force, and a tap asks for the other.
+            // A chip with nowhere to put a sentence would be a worse answer than this.
+            var relatedDirection by remember {
+                mutableStateOf(RelatedDirection.fromKey(prefs.getString("related_direction", null)))
+            }
+            ValueRow(
+                title = "Refresh Up next",
+                value = relatedDirection.label,
+                summary = relatedDirection.summary,
+                onClick = {
+                    val next = relatedDirection.other
+                    relatedDirection = next
+                    prefs.edit().putString("related_direction", next.key).apply()
+                },
+            )
+        }
+
+        // The same switch as the gear on Bored: one setting, two doors, one stored key.
+        Caption("Bored")
+        SwitchRow(
+            title = "Skip subscribed channels",
+            summary = "Leaves out the channels you already follow. Their videos are the feed's " +
+                "job, not the walk's.",
+            checked = boredSkipSubscribed,
+            onCheckedChange = { enabled ->
+                boredSkipSubscribed = enabled
+                prefs.edit().putBoolean("bored_hide_subscribed", enabled).apply()
+            },
+        )
     }
 }
 
 /** One home for what the app feels like, not just what it shows. Haptics lives here and
  *  anything else the phone can sense goes here too instead of a new top-level section. */
 @Composable
-private fun FeedbackSection() {
+private fun HapticsSection() {
     val context = LocalContext.current
     fun pref(name: String): Boolean =
         context.getSharedPreferences("glasstube", android.content.Context.MODE_PRIVATE)
@@ -1990,6 +2123,30 @@ private fun SponsorSection(playback: PlaybackController) {
                             },
                         )
                     }
+            }
+
+            // One line has to carry two facts. These are the three ways to divide it, and the
+            // reader keeps the one that reads best over their videos. Drawn live by the player,
+            // so the choice applies to the video already open.
+            Caption("Progress bar")
+            Text(
+                text = "One line holds the playhead and the segments. This picks how they share it.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            FlowRow(
+                modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                SponsorBarStyle.entries.forEach { style ->
+                    FilterChip(
+                        selected = playbackState.sponsorBarStyle == style,
+                        onClick = { playback.setSponsorBarStyle(style) },
+                        label = { Text(style.label) },
+                        colors = glassTubeFilterChipColors(),
+                    )
+                }
             }
         }
     }
@@ -2884,9 +3041,13 @@ private fun BarLesson() {
     }
 }
 
+/** The stand-in video's length. There is no video, but the seek pill needs one to fill. */
+private const val LESSON_DURATION_MS = 7 * 60 * 1000L
+
 /**
  * The gestures, learnt by doing them: a stand-in video you can tap, slide and flick. Every gesture
- * draws the same readout the player draws, so the lesson is the muscle memory, not a table of text.
+ * runs the player's own detector and draws the player's own readout, so the lesson is the muscle
+ * memory, not a table of text. Only the picture is a wireframe.
  *
  * The fourth gesture is the real ladder: normal, mini, super-mini, and the way back up. The step
  * completes only after the bar was reached and the card returned to normal.
@@ -2894,19 +3055,26 @@ private fun BarLesson() {
 @Composable
 internal fun GestureTutorial() {
     val context = LocalContext.current
+    val pageScroll = LocalPageScrollLock.current
     val seekBaseSeconds = context.getSharedPreferences(
         "glasstube",
         android.content.Context.MODE_PRIVATE,
     ).getInt("seek_base_seconds", 5).coerceIn(1, 30).toFloat()
     var tap by remember { mutableStateOf<Offset?>(null) }
-    var seekSeconds by remember { mutableStateOf<Int?>(null) }
-    var seekTravel by remember { mutableFloatStateOf(0f) }
-    var seekDeltaMs by remember { mutableLongStateOf(0L) }
+    var hud by remember { mutableStateOf<Hud?>(null) }
     var volumeLevel by remember { mutableFloatStateOf(0.5f) }
     var brightnessLevel by remember { mutableFloatStateOf(0.5f) }
-    var sideActive by remember { mutableStateOf(false) }
-    var activeBrightness by remember { mutableStateOf(false) }
-    var levelAnchor by remember { mutableStateOf(Offset(0.5f, 0.5f)) }
+    // The stand-in video's playhead. The lesson has no video, but the seek pill needs a position
+    // and a length to say what the player says, so it gets a seven-minute wireframe.
+    var positionMs by remember { mutableLongStateOf(LESSON_DURATION_MS / 2) }
+    var scrubStartMs by remember { mutableLongStateOf(LESSON_DURATION_MS / 2) }
+    var scrubTargetMs by remember { mutableStateOf<Long?>(null) }
+    var scrubTravel by remember { mutableFloatStateOf(0f) }
+    // The centre drag's travel, in the player's own units, so the ladder steps on the same rule.
+    var dragDown by remember { mutableFloatStateOf(0f) }
+    var dragUp by remember { mutableFloatStateOf(0f) }
+    var dragZone by remember { mutableStateOf(Zone.Centre) }
+    var dragStartedAt by remember { mutableLongStateOf(0L) }
     var ladderLevel by remember { mutableIntStateOf(GestureLesson.NORMAL) }
     var reachedBar by remember { mutableStateOf(false) }
     var started by remember { mutableStateOf(false) }
@@ -2927,6 +3095,12 @@ internal fun GestureTutorial() {
             delay(900)
             tap = null
         }
+    }
+
+    // A press that never reported its release, because the composable left, must not leave the
+    // page frozen.
+    DisposableEffect(Unit) {
+        onDispose { pageScroll.locked = false }
     }
 
     Column(
@@ -2952,155 +3126,178 @@ internal fun GestureTutorial() {
 
         // The stage keeps its 16:9 size while the card inside it walks the ladder. The pointer
         // input is on the stage, not the shrinking card, so a swipe still lands when the card is
-        // a bar at the bottom.
+        // a bar at the bottom. It is the player's own detector, so the slop, the zones, the level
+        // travel and the ladder rule are the ones the player answers to; only the effects are
+        // stand-ins. The corner tap zone is dropped: the lesson has no back arrow to protect.
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(16f / 9f)
-                .pointerInput(seekBaseSeconds) {
+                // The page's scroll goes off for the length of the press. An enclosing
+                // `verticalScroll` sees the drag before this stage does, so consuming cannot win;
+                // freezing the page for the press does.
+                .pointerInput(Unit) {
                     awaitEachGesture {
-                        val down = awaitFirstDown(requireUnconsumed = false)
-                        val width = size.width.toFloat().coerceAtLeast(1f)
-                        val height = size.height.toFloat().coerceAtLeast(1f)
-                        val onSide = down.position.x < width * 0.28f ||
-                            down.position.x > width * 0.72f
-                        var last = down.position
-                        var totalX = 0f
-                        var totalY = 0f
-                        var axis = 0
-                        while (true) {
-                            val event = awaitPointerEvent()
-                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                            change.consume()
-                            val dx = change.position.x - last.x
-                            val dy = change.position.y - last.y
-                            totalX += dx
-                            totalY += dy
-                            last = change.position
-                            if (axis == 0 &&
-                                (kotlin.math.abs(totalX) > 24f ||
-                                    kotlin.math.abs(totalY) > 24f)
-                            ) {
-                                axis = if (
-                                    kotlin.math.abs(totalX) > kotlin.math.abs(totalY)
-                                ) {
-                                    1
-                                } else {
-                                    2
-                                }
-                                if (axis == 1) {
-                                    seekTravel = 0f
-                                    seekDeltaMs = 0L
-                                    seekSeconds = 0
-                                }
+                        awaitFirstDown(requireUnconsumed = false)
+                        pageScroll.locked = true
+                        try {
+                            var pressed = true
+                            while (pressed) {
+                                pressed = awaitPointerEvent().changes.any { it.pressed }
                             }
-                            when (axis) {
-                                1 -> if (ladderLevel == GestureLesson.NORMAL) {
-                                    val fraction = dx / width
-                                    seekDeltaMs += SeekRate.movedMs(
-                                        fraction,
-                                        seekTravel,
-                                        seekBaseSeconds,
-                                    )
-                                    seekTravel += kotlin.math.abs(fraction)
-                                    seekSeconds = (seekDeltaMs / 1000L).toInt()
-                                    hint = "Longer slides move faster."
-                                }
-                                2 -> when {
-                                    onSide && ladderLevel == GestureLesson.NORMAL -> {
-                                        val left = change.position.x < width / 2f
-                                        val next = (0.5f - totalY / height).coerceIn(0f, 1f)
-                                        activeBrightness = !left
-                                        sideActive = true
-                                        // The readout travels with the finger, so the demo
-                                        // shows the same tracking the player does.
-                                        levelAnchor = Offset(
-                                            change.position.x / width,
-                                            change.position.y / height,
-                                        )
-                                        if (left) volumeLevel = next else brightnessLevel = next
-                                        hint = "Slide across to the other control while your " +
-                                            "finger is down."
-                                    }
-                                    !onSide -> hint = if (totalY > 0) {
-                                        "One step down the ladder"
-                                    } else {
-                                        "One step up the ladder"
-                                    }
-                                }
-                            }
-                            if (!change.pressed) {
-                                when (axis) {
-                                    0 -> if (
-                                        started && ladderLevel == GestureLesson.NORMAL
-                                    ) {
-                                        tap = Offset(
-                                            down.position.x / width,
-                                            down.position.y / height,
-                                        )
-                                        if (step == 0) step = 1
-                                        hint = "Controls appear where you tap"
-                                    }
-                                    1 -> if (
-                                        ladderLevel == GestureLesson.NORMAL &&
-                                        step == 1
-                                    ) {
-                                        step = 2
-                                        hint = "Keep your finger down and slide across to use " +
-                                            "the other side."
-                                    }
-                                    2 -> if (
-                                        onSide && ladderLevel == GestureLesson.NORMAL
-                                    ) {
-                                        if (step == 2) {
-                                            step = 3
-                                            hint = "Flick down twice, then up twice."
-                                            if (
-                                                GestureLesson.isComplete(
-                                                    step,
-                                                    ladderLevel,
-                                                    reachedBar,
-                                                )
-                                            ) {
-                                                step = 4
-                                            }
-                                        }
-                                    } else if (!onSide) {
-                                        val before = ladderLevel
-                                        ladderLevel = GestureLesson.nextLevel(
-                                            ladderLevel,
-                                            totalY,
-                                            height * 0.12f,
-                                        )
-                                        if (ladderLevel == GestureLesson.BAR) reachedBar = true
-                                        if (ladderLevel != before) {
-                                            hint = when (ladderLevel) {
-                                                GestureLesson.NORMAL -> "Back to the player"
-                                                GestureLesson.MINI ->
-                                                    "One step down: the mini player"
-                                                else -> "The bar. Swipe up twice to return."
-                                            }
-                                        }
-                                        if (
-                                            step == 3 &&
-                                            GestureLesson.isComplete(
-                                                step,
-                                                ladderLevel,
-                                                reachedBar,
-                                            )
-                                        ) {
-                                            step = 4
-                                            hint = "All four. Those are the real gestures."
-                                        }
-                                    }
-                                }
-                                seekSeconds = null
-                                sideActive = false
-                                break
-                            }
+                        } finally {
+                            pageScroll.locked = false
                         }
                     }
-                },
+                }
+                .playbackGestures(
+                    enabled = true,
+                    onVerticalStart = { zone, _ ->
+                        dragDown = 0f
+                        dragUp = 0f
+                        dragZone = zone
+                        dragStartedAt = SystemClock.uptimeMillis()
+                        hud = null
+                    },
+                    onVerticalDelta = { zone, fraction, finger, reach ->
+                        when (zone) {
+                            Zone.Left -> {
+                                dragZone = Zone.Left
+                                // The magnet at each end of the band is the player's, so a drag
+                                // that ran out of thumbnail still finishes the range.
+                                volumeLevel = when {
+                                    reach > 0 -> 1f
+                                    reach < 0 -> 0f
+                                    else -> volumeLevel + fraction * LevelTravel
+                                }.coerceIn(0f, 1f)
+                                hud = Hud(
+                                    fraction = volumeLevel,
+                                    icon = R.drawable.ic_volume,
+                                    anchor = finger,
+                                )
+                            }
+                            Zone.Right -> {
+                                dragZone = Zone.Right
+                                brightnessLevel = when {
+                                    reach > 0 -> 1f
+                                    reach < 0 -> 0.01f
+                                    else -> brightnessLevel + fraction * LevelTravel
+                                }.coerceIn(0.01f, 1f)
+                                hud = Hud(
+                                    fraction = brightnessLevel,
+                                    icon = R.drawable.ic_sun,
+                                    anchor = finger,
+                                )
+                            }
+                            else -> {
+                                dragZone = Zone.Centre
+                                dragDown = (dragDown + -fraction).coerceIn(0f, 1f)
+                                dragUp = (dragUp + fraction).coerceIn(0f, 1f)
+                            }
+                        }
+                    },
+                    onVerticalEnd = {
+                        hud = null
+                        val elapsed = SystemClock.uptimeMillis() - dragStartedAt
+                        if (dragZone == Zone.Left || dragZone == Zone.Right) {
+                            if (step == 2) {
+                                step = 3
+                                hint = "Flick down twice, then up twice."
+                            }
+                        } else {
+                            when (ladderStep(dragDown, dragUp, elapsed)) {
+                                LadderStep.Down -> {
+                                    val next = GestureLesson.stepped(ladderLevel, LadderStep.Down)
+                                    if (next != ladderLevel) {
+                                        ladderLevel = next
+                                        if (next == GestureLesson.BAR) reachedBar = true
+                                        hint = when (next) {
+                                            GestureLesson.MINI ->
+                                                "One step down: the mini player"
+                                            GestureLesson.BAR ->
+                                                "The bar. Swipe up twice to return."
+                                            else -> "Back to the player"
+                                        }
+                                    }
+                                }
+                                LadderStep.Up -> {
+                                    val next = GestureLesson.stepped(ladderLevel, LadderStep.Up)
+                                    if (next != ladderLevel) {
+                                        ladderLevel = next
+                                        hint = when (next) {
+                                            GestureLesson.NORMAL -> "Back to the player"
+                                            else -> "One step up: the mini player"
+                                        }
+                                    }
+                                }
+                                LadderStep.None -> Unit
+                            }
+                            if (
+                                step == 3 &&
+                                GestureLesson.isComplete(step, ladderLevel, reachedBar)
+                            ) {
+                                step = 4
+                                hint = "All four. Those are the real gestures."
+                            }
+                        }
+                        dragDown = 0f
+                        dragUp = 0f
+                    },
+                    onHorizontalStart = { yFraction ->
+                        scrubStartMs = positionMs
+                        scrubTargetMs = positionMs
+                        scrubTravel = 0f
+                        hud = Hud(
+                            label = seekDelta(0),
+                            secondary = formatDuration(positionMs / 1000),
+                            progress = positionMs.toFloat() / LESSON_DURATION_MS,
+                            anchor = Offset(0.5f, yFraction),
+                        )
+                    },
+                    onHorizontalDelta = { fraction, yFraction ->
+                        val movedMs = SeekRate.movedMs(fraction, scrubTravel, seekBaseSeconds)
+                        scrubTravel += kotlin.math.abs(fraction)
+                        val target = ((scrubTargetMs ?: positionMs) + movedMs)
+                            .coerceIn(0L, LESSON_DURATION_MS)
+                        scrubTargetMs = target
+                        hud = Hud(
+                            label = seekDelta((target - scrubStartMs) / 1000),
+                            secondary = formatDuration(target / 1000),
+                            progress = target.toFloat() / LESSON_DURATION_MS,
+                            anchor = Offset(0.5f, yFraction),
+                        )
+                    },
+                    onHorizontalEnd = {
+                        scrubTargetMs?.let { positionMs = it }
+                        scrubTargetMs = null
+                        scrubTravel = 0f
+                        hud = null
+                        if (ladderLevel == GestureLesson.NORMAL && step == 1) {
+                            step = 2
+                            hint = "Keep your finger down and slide across to use the other side."
+                        }
+                    },
+                    onHorizontalCancel = {
+                        scrubTargetMs = null
+                        scrubTravel = 0f
+                        hud = null
+                    },
+                    // The picture's bottom band puts the playhead under the finger with no pill,
+                    // exactly as the player's progress bar does. The wireframe has no bar to draw,
+                    // so only the answer is borrowed.
+                    onBarDrag = { fraction ->
+                        positionMs = (fraction * LESSON_DURATION_MS).toLong()
+                            .coerceIn(0L, LESSON_DURATION_MS)
+                    },
+                    tapZones = emptyList(),
+                    onTap = { point ->
+                        if (started && ladderLevel == GestureLesson.NORMAL) {
+                            tap = point
+                            if (step == 0) step = 1
+                            hint = "Controls appear where you tap"
+                        }
+                    },
+                ),
         ) {
             Box(
                 modifier = Modifier
@@ -3159,63 +3356,6 @@ internal fun GestureTutorial() {
                                 )
                             }
 
-                            seekSeconds?.let { seconds ->
-                                val signed = when {
-                                    seconds > 0 -> "+${seconds}s"
-                                    seconds < 0 -> "\u2212${-seconds}s"
-                                    else -> "0s"
-                                }
-                                // The lesson has no video to name a target for, so it shows the
-                                // distance the finger moved, not a fake position.
-                                Box(
-                                    modifier = Modifier
-                                        .align(Alignment.TopCenter)
-                                        .padding(top = 8.dp)
-                                        .width(130.dp)
-                                        .height(40.dp)
-                                        .clip(RoundedCornerShape(20.dp))
-                                        .background(Color(0xE6101014)),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    Text(
-                                        text = signed,
-                                        style = MaterialTheme.typography.titleMedium,
-                                        color = Color.White,
-                                    )
-                                }
-                            }
-
-                            if (sideActive) {
-                                val activeLevel = if (activeBrightness) {
-                                    brightnessLevel
-                                } else {
-                                    volumeLevel
-                                }
-                                BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-                                    // The seek pill's capsule with the level's own icon, above
-                                    // the finger and travelling with it: the demo cannot
-                                    // promise a readout the real gesture lacks.
-                                    LevelReadout(
-                                        icon = if (activeBrightness) {
-                                            R.drawable.ic_sun
-                                        } else {
-                                            R.drawable.ic_volume
-                                        },
-                                        level = activeLevel,
-                                        modifier = Modifier.offset(
-                                            x = readoutLeft(
-                                                maxWidth * levelAnchor.x,
-                                                maxWidth,
-                                            ),
-                                            y = readoutTop(
-                                                maxHeight * levelAnchor.y,
-                                                maxHeight,
-                                            ),
-                                        ),
-                                    )
-                                }
-                            }
-
                             tap?.let { point ->
                                 BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                                     val disc = 44.dp
@@ -3248,6 +3388,10 @@ internal fun GestureTutorial() {
                     }
                 }
             }
+
+            // The player's own readouts, over the whole stage rather than the shrinking card, so
+            // a seek pill still has its air when the card is a bar.
+            hud?.let { HudPill(it) }
 
             if (!started) {
                 // The invitation lives on the picture, where the finger is going.
@@ -3311,12 +3455,14 @@ internal fun GestureTutorial() {
                     tap = null
                     volumeLevel = 0.5f
                     brightnessLevel = 0.5f
-                    sideActive = false
-                    activeBrightness = false
-                    seekSeconds = null
-                    seekTravel = 0f
-                    seekDeltaMs = 0L
-                    levelAnchor = Offset(0.5f, 0.5f)
+                    hud = null
+                    positionMs = LESSON_DURATION_MS / 2
+                    scrubStartMs = LESSON_DURATION_MS / 2
+                    scrubTargetMs = null
+                    scrubTravel = 0f
+                    dragDown = 0f
+                    dragUp = 0f
+                    dragZone = Zone.Centre
                     hint = ""
                 },
                 modifier = Modifier.align(Alignment.CenterHorizontally),

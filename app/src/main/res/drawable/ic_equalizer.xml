@@ -1,0 +1,13 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Three faders at different heights: the equaliser, drawn as its own mark. -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M4,10h2v10H4zM4,4h2v3H4zM9,4h2v11H9zM9,18h2v2H9zM14,4h2v5h-2zM14,12h2v8h-2zM19,4h2v8h-2zM19,15h2v5h-2z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M3,8h4v2H3zM8,16h4v2H8zM13,10h4v2h-4zM18,13h4v2h-4z" />
+</vector>

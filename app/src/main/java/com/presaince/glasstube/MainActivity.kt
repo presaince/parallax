@@ -99,7 +99,6 @@ class MainActivity : ComponentActivity() {
             GlassTubeTheme(
                 mode = theme.mode,
                 accent = theme.accent,
-                solidSurfaces = theme.solidSurfaces,
                 glassDark = theme.glassDark,
                 glassLevel = theme.glassLevel,
                 contrast = theme.contrast,

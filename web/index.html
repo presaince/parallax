@@ -20,7 +20,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>GlassTube — a YouTube client that does the things YouTube won't</title>
+    <title>GlassTube — YouTube, without the account</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#07070b" />
     <meta name="robots" content="noindex" />
@@ -32,7 +32,7 @@
          page. -->
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://odesaplay.com.ua/other_apps/glasstube/" />
-    <meta property="og:title" content="GlassTube — a YouTube client that does the things YouTube won't" />
+    <meta property="og:title" content="GlassTube — YouTube, without the account" />
     <meta property="og:description" content="No account, no server, no analytics, and it plays with the screen off. Subscriptions, history, progress and notes stay on the phone. Android 13 and newer, GPLv3. Install the APK directly." />
     <meta property="og:image" content="https://odesaplay.com.ua/other_apps/glasstube/img/og.png" />
     <meta property="og:image:width" content="1200" />
@@ -41,7 +41,7 @@
     <meta property="og:locale" content="en_US" />
 
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="GlassTube — a YouTube client that does the things YouTube won't" />
+    <meta name="twitter:title" content="GlassTube — YouTube, without the account" />
     <meta name="twitter:description" content="No account, no server, no analytics. Plays with the screen off. Android 13 and newer, GPLv3." />
     <meta name="twitter:image" content="https://odesaplay.com.ua/other_apps/glasstube/img/og.png" />
     <style>
@@ -192,107 +192,42 @@
 
       .card { padding: 1.25rem; }
       @media (min-width: 640px) { .card { padding: 1.5rem; } }
-      .install {
-        border-color: rgb(var(--aurora-1) / 0.4);
-        background-image:
-          linear-gradient(160deg, rgb(var(--aurora-1) / 0.13), transparent 55%),
-          linear-gradient(160deg, rgb(255 255 255 / 0.06), rgb(255 255 255 / 0.012) 45%, rgb(255 255 255 / 0.03));
-        box-shadow:
-          inset 0 1px 0 rgb(255 255 255 / 0.14),
-          inset 0 0 0 1px rgb(var(--aurora-1) / 0.05),
-          0 28px 56px -36px rgb(0 0 0 / 0.95),
-          0 0 90px -34px rgb(var(--aurora-1) / 0.55);
-      }
-      .install h2, .card h2 { margin: 0; font-size: 1.125rem; font-weight: 600; }
-      .steps { display: grid; gap: 1rem; margin: 1rem 0 0; padding: 0; list-style: none; }
-      @media (min-width: 640px) { .steps { grid-template-columns: repeat(3, 1fr); } }
-      .steps li { display: flex; gap: 0.75rem; }
-      .num {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        flex-shrink: 0;
-        width: 1.5rem;
-        height: 1.5rem;
-        border: 1px solid rgb(var(--aurora-1) / 0.45);
-        border-radius: 999px;
-        background: rgb(var(--aurora-1) / 0.12);
-        color: var(--accent);
-        font-size: var(--2xs);
-        font-weight: 600;
-      }
-      .steps h3 { margin: 0; font-size: var(--sm); font-weight: 600; }
-      .steps p { margin: 0.25rem 0 0; font-size: 0.8125rem; line-height: 1.6; color: var(--text-muted); }
+      .card h2 { margin: 0; font-size: 1.125rem; font-weight: 600; }
 
       section.block { margin-top: 4rem; }
       h2.section { margin: 0; font-size: clamp(1.4rem, 1.2rem + 0.7vw, 1.7rem); font-weight: 600; letter-spacing: -0.01em; text-wrap: balance; }
 
-      .showcase { display: grid; gap: 2.5rem; margin-top: 2rem; }
-      .showcase > div { display: grid; gap: 1.5rem; align-items: center; }
-      @media (min-width: 768px) {
-        .showcase > div { grid-template-columns: 1fr 1fr; gap: 3rem; }
-        .showcase > div:nth-child(even) :is(.mock, .phone) { order: 2; }
+      /* The share scene: a dimmed player behind the sheet, the way the app leaves the video playing
+         when the sheet opens. */
+      .share-scene { display: flex; flex-direction: column; height: 100%; margin: -0.75rem -0.75rem -1rem; }
+      .share-stage {
+        flex: 1;
+        display: grid;
+        place-items: center;
+        padding: 1rem 1.25rem;
+        text-align: center;
+        background:
+          radial-gradient(80% 70% at 30% 25%, rgb(var(--aurora-1) / 0.22), transparent 70%),
+          #06070a;
+        color: var(--text);
       }
-      .showcase h3 { margin: 0.5rem 0 0; font-size: 1.125rem; font-weight: 600; }
-      .showcase p { margin: 0.5rem 0 0; max-width: 34rem; font-size: var(--sm); line-height: 1.65; color: var(--text-muted); text-wrap: pretty; }
-      .showcase .note { margin-top: 0.75rem; font-size: var(--2xs); letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-muted); opacity: 0.7; }
+      .share-video { margin: 0; font-size: var(--sm); font-weight: 600; }
+      .share-video-sub { margin: 0.25rem 0 0; font-size: 0.6875rem; color: var(--text-muted); }
+      .share-panel {
+        border-radius: 1.5rem 1.5rem 0 0;
+        background: var(--panel);
+        padding: 0.75rem 1rem 1rem;
+        box-shadow: 0 -20px 44px -26px rgb(0 0 0 / 0.9);
+      }
 
       /* The share panel and the appearance panel, rebuilt in markup rather than captured: they stay
-         crisp at any width, and the share one shows the constraint the copy describes. */
-      .mock { padding: 1.25rem; }
-      .chips { display: flex; flex-wrap: wrap; gap: 0.5rem; }
-      .chip {
-        border: 1px solid var(--border);
-        border-radius: 999px;
-        padding: 0.25rem 0.75rem;
-        font-size: var(--2xs);
-        color: var(--text-muted);
-      }
-      .chip.on {
-        border-color: rgb(var(--aurora-1) / 0.5);
-        background: rgb(var(--aurora-1) / 0.15);
-        color: var(--accent);
-        font-weight: 500;
-      }
+         crisp at any width, and both carry the controls the app actually has. Labels, order and
+         proportions are read from ShareSheet in PlayerScreen.kt and PreviewSection in
+         SettingsSections.kt, so a change to either screen is a change to this page. */
       .mock-head { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
       .mock-title { font-size: var(--sm); font-weight: 600; }
-      .mock .mock-copy { margin: 0.75rem 0 0; font-size: var(--2xs); line-height: 1.65; color: var(--text-muted); }
-      .range { position: relative; height: 2rem; margin-top: 1.5rem; }
-      .range-track {
-        position: absolute;
-        inset: 50% 0 auto;
-        height: 0.375rem;
-        transform: translateY(-50%);
-        border-radius: 999px;
-        background: rgb(255 255 255 / 0.16);
-      }
-      .range-fill {
-        position: absolute;
-        top: 50%;
-        left: 18%;
-        width: 30%;
-        height: 0.375rem;
-        transform: translateY(-50%);
-        border-radius: 999px;
-        background: var(--accent);
-      }
-      .range-handle {
-        position: absolute;
-        top: 50%;
-        width: 1.25rem;
-        height: 1.25rem;
-        transform: translate(-50%, -50%);
-        border-radius: 999px;
-        background: var(--accent);
-        box-shadow: 0 0 0 4px rgb(var(--aurora-1) / 0.18);
-      }
-      .range-now { position: absolute; top: 0; width: 1px; height: 2rem; background: rgb(255 255 255 / 0.5); }
-      .range-labels { display: flex; justify-content: space-between; margin-top: 0.5rem; font-size: var(--2xs); }
-      .range-labels span:first-child { color: var(--text); font-weight: 500; }
-      .range-labels span:last-child { color: var(--text-muted); }
-      .range-actions { display: flex; gap: 1rem; margin-top: 1rem; font-size: var(--2xs); font-weight: 500; color: var(--accent); }
-      .range-actions .push { margin-left: auto; }
-      .mock-rows { display: grid; gap: 1rem; }
+      .mock-copy { margin: 0.5rem 0 0; font-size: var(--2xs); line-height: 1.65; color: var(--text-muted); }
+      .mock-rows { display: grid; gap: 1.25rem; }
       .mock-row .mock-label {
         font-size: var(--2xs);
         font-weight: 500;
@@ -300,170 +235,542 @@
         text-transform: uppercase;
         color: var(--text-muted);
       }
-      .mock-row .chips { margin-top: 0.5rem; }
-      .mock-foot {
+
+      /* ShareSheet: a bar with a start, an end and the video's own playhead. It is the one mock that
+         moves, because the bar is the control: drag either end, and dragging the end onto the start
+         turns a clip back into a single moment. */
+      .share-sync {
+        border: 0;
+        background: none;
+        padding: 0;
+        font: inherit;
+        font-size: var(--sm);
+        font-weight: 600;
+        color: var(--accent);
+        cursor: pointer;
+      }
+      .share-bar { position: relative; height: 4rem; margin-top: 0.5rem; touch-action: none; }
+      .share-bar [hidden] { display: none !important; }
+      .share-track,
+      .share-segment {
+        position: absolute;
+        top: 50%;
+        transform: translateY(-50%);
+        border-radius: 999px;
+        pointer-events: none;
+      }
+      .share-track { left: 0; right: 0; height: 6px; background: rgb(255 255 255 / 0.22); }
+      .share-segment { height: 8px; background: var(--accent); }
+      .share-handle {
+        position: absolute;
+        top: 50%;
+        width: 26px;
+        height: 26px;
+        margin: -13px 0 0 -13px;
+        padding: 0;
+        border: 0;
+        border-radius: 999px;
+        background: var(--accent);
+        cursor: grab;
+        touch-action: none;
+      }
+      .share-handle:active { cursor: grabbing; }
+      .share-now {
+        position: absolute;
+        top: 4px;
+        bottom: 4px;
+        width: 3px;
+        margin-left: -1.5px;
+        background: rgb(255 255 255 / 0.55);
+        pointer-events: none;
+      }
+      .share-labels {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+      }
+      .share-range { font-size: var(--sm); font-weight: 600; }
+      .share-length { font-size: var(--2xs); color: var(--text-muted); }
+      .share-row { display: flex; align-items: center; gap: 0.25rem; margin-top: 0.5rem; flex-wrap: wrap; }
+      .share-nudges { gap: 0; margin-top: 0.75rem; flex-wrap: nowrap; }
+      .share-nudges .share-btn { flex: 1 1 0; padding-left: 0; padding-right: 0; }
+      .share-btn {
+        border: 0;
+        border-radius: 8px;
+        padding: 0.35rem 0.45rem;
+        background: none;
+        font: inherit;
+        font-size: var(--sm);
+        font-weight: 500;
+        color: var(--accent);
+        cursor: pointer;
+      }
+      .share-btn:hover { background: rgb(255 255 255 / 0.06); }
+      .share-actions { justify-content: flex-end; margin-top: 0.25rem; }
+      .share-send {
+        border: 0;
+        border-radius: 999px;
+        padding: 0.55rem 1.25rem;
+        background: var(--accent);
+        color: #04131a;
+        font: inherit;
+        font-size: var(--sm);
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .share-send:hover { filter: brightness(1.06); }
+
+      /* The demo. One state paints it: the shell, the cards, the sheet and the settings all read
+         the same variables, so picking a theme on the Appearance tab changes the whole app. It is
+         not a phone on a desktop — it uses the column it is given — and it is edge to edge on a
+         phone, where the phone shape is the honest one. */
+      .demo {
+        --acc: hsl(196 62% 72%);
+        --acc-soft: hsl(196 62% 72% / 0.35);
+        --acc-wash: hsl(196 62% 72% / 0.18);
+        --acc-ink: hsl(196 62% 72%);
+        --on-acc: #0a0e14;
+        --tert-soft: hsl(340 70% 84% / 0.22);
+        --card-bg: #101014;
+        --card-ink: #e8edf2;
+        --card-muted: #b4bac2;
+        --card-fill: #1b1b21;
+        --card-outline: rgb(255 255 255 / 0.16);
+        --ring: #e8edf2;
+        --glass-a: 0.64;
+        --text: #e8edf2;
+        --text-muted: #b4bac2;
+        --border: rgb(255 255 255 / 0.12);
+        --screen: #08090d;
+        --panel: #101014;
+        --control-bg: rgb(255 255 255 / 0.05);
+        --accent: var(--acc);
+        position: relative;
+        width: 100%;
+        height: clamp(460px, 62vh, 580px);
+        overflow: hidden;
+        border: 1px solid var(--border-hi);
+        border-radius: 1.5rem;
+        background: var(--screen);
+        color: var(--text);
+        box-shadow: 0 40px 80px -50px rgb(0 0 0 / 0.95), 0 0 70px -30px rgb(var(--aurora-1) / 0.35);
+      }
+      @media (max-width: 700px) {
+        .demo {
+          height: min(82svh, 680px);
+          margin-inline: -1rem;
+          border-inline: 0;
+          border-radius: 0;
+        }
+      }
+      /* Glass has to have something behind it, or the translucency is just a dark card. Three
+         blobs at the accent, its warm and its cool neighbours, at the strength the app paints —
+         the strength the contrast policy is allowed to dim. */
+      .demo[data-theme='glass'] {
+        background:
+          radial-gradient(62% 62% at 18% 16%, var(--blob-1, transparent), transparent 70%),
+          radial-gradient(55% 55% at 88% 42%, var(--blob-2, transparent), transparent 70%),
+          radial-gradient(60% 60% at 34% 92%, var(--blob-3, transparent), transparent 70%),
+          var(--glass-base, #07070b);
+        --panel: rgb(16 16 20 / var(--glass-a));
+        --control-bg: rgb(27 27 33 / var(--glass-variant-a, 0.6));
+      }
+      .demo[data-theme='light'],
+      .demo[data-base='light']:is([data-theme='system'], [data-theme='glass']) {
+        --card-bg: #fff;
+        --card-ink: #101014;
+        --card-muted: #4a5560;
+        --card-fill: #e6ebf0;
+        --card-outline: rgb(0 0 0 / 0.14);
+        --ring: #101014;
+        --tert-soft: hsl(340 60% 41% / 0.22);
+        --text: #101014;
+        --text-muted: #4a5560;
+        --border: rgb(0 0 0 / 0.14);
+        --screen: #f8fafc;
+        --panel: #ffffff;
+        --control-bg: rgb(0 0 0 / 0.05);
+      }
+      .demo[data-theme='glass'] { --card-bg: rgb(16 16 20 / var(--glass-a)); }
+      .demo[data-theme='glass'][data-base='light'] {
+        --card-bg: rgb(255 255 255 / var(--glass-a));
+        --screen: #eef2f7;
+        --panel: rgb(255 255 255 / var(--glass-a));
+        --control-bg: rgb(230 235 240 / var(--glass-variant-a, 0.6));
+      }
+
+      .try { display: grid; gap: 0.75rem; justify-items: center; }
+      .try-tabs { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.375rem; }
+      .try-tab {
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 0.3rem 0.75rem;
+        background: none;
+        color: var(--text-muted);
+        font: inherit;
+        font-size: var(--2xs);
+        font-weight: 500;
+        cursor: pointer;
+      }
+      .try-tab[aria-selected='true'] {
+        border-color: var(--accent);
+        background: rgb(var(--aurora-1) / 0.14);
+        color: var(--accent);
+      }
+      .try-stage { position: absolute; inset: 0; }
+      .try-scene {
+        position: absolute;
+        inset: 0;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        padding: 0.75rem 0.75rem 1rem;
+        scrollbar-width: none;
+      }
+      .try-scene::-webkit-scrollbar { display: none; }
+      .try-scene[hidden] { display: none; }
+      .app-bar { display: flex; align-items: center; justify-content: space-between; padding: 0.125rem 0 0.625rem; }
+      .app-title { font-size: 1rem; font-weight: 600; }
+      .app-mark {
+        color: var(--text-muted);
+        font-size: 0.5625rem;
+        font-weight: 500;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+      }
+      .try-caption {
+        max-width: 21rem;
+        margin: 0;
+        text-align: center;
+        font-size: var(--2xs);
+        line-height: 1.65;
+        color: var(--text-muted);
+        text-wrap: pretty;
+      }
+      .try-caption b { color: var(--text); font-weight: 600; }
+      .scene-note {
+        margin: 0.75rem 0 0;
+        font-size: 0.6875rem;
+        line-height: 1.6;
+        color: var(--text-muted);
+        text-wrap: pretty;
+      }
+
+      /* Gestures: the picture is the surface. The HUD is the app's own seek/level pill. */
+      .gesture-stage {
+        position: relative;
+        aspect-ratio: 16 / 9;
+        overflow: hidden;
+        border-radius: 0.75rem;
+        background: #0c1017;
+        touch-action: none;
+        cursor: grab;
+      }
+      .gesture-stage:active { cursor: grabbing; }
+      .gesture-picture {
+        position: absolute;
+        inset: 0;
+        background:
+          radial-gradient(90% 90% at 30% 20%, rgb(76 194 232 / 0.32), transparent 70%),
+          radial-gradient(80% 80% at 80% 80%, rgb(148 139 228 / 0.28), transparent 70%),
+          linear-gradient(160deg, #0c1017, #141a24);
+      }
+      /* The gesture HUD: the app's level pill for volume and brightness, a named pill for a seek. */
+      .hud {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
         display: flex;
         align-items: center;
-        justify-content: space-between;
-        margin-top: 1.25rem;
-        font-size: var(--2xs);
-        color: var(--text-muted);
+        justify-content: center;
       }
-      .mock-foot b { color: var(--accent); font-weight: 500; }
+      .hud[hidden] { display: none; }
+      .level-pill {
+        position: relative;
+        width: 72px;
+        height: 58px;
+        overflow: hidden;
+        border-radius: 20px;
+        background: #e6101014;
+        display: grid;
+        place-items: center;
+      }
+      .level-fill {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: var(--accent);
+        opacity: 0.7;
+        transition: height 90ms;
+      }
+      .level-stack { position: relative; z-index: 1; display: grid; justify-items: center; gap: 4px; }
+      .level-value { font-size: 0.625rem; font-weight: 500; color: #eef4f8; font-variant-numeric: tabular-nums; }
+      .level-icon { width: 18px; height: 18px; color: #eef4f8; }
+      .seek-pill {
+        padding: 0.4rem 0.8rem;
+        border-radius: 999px;
+        background: rgb(8 10 14 / 0.8);
+        color: #e8edf2;
+        font-size: 0.75rem;
+        font-weight: 600;
+        white-space: nowrap;
+        font-variant-numeric: tabular-nums;
+      }
+      .gesture-hint {
+        position: absolute;
+        inset: auto 0 0;
+        margin: 0;
+        padding: 1.5rem 0.75rem 0.7rem;
+        font-size: 0.625rem;
+        line-height: 1.4;
+        color: rgb(255 255 255 / 0.66);
+        background: linear-gradient(transparent, rgb(4 6 10 / 0.65));
+      }
+      .gesture-bar {
+        position: absolute;
+        inset: auto 0 0;
+        height: 3px;
+        background: rgb(255 255 255 / 0.18);
+      }
+      .gesture-watched { display: block; height: 100%; width: 24%; background: var(--accent); }
+      .gesture-head { position: absolute; top: -3px; width: 3px; height: 9px; border-radius: 2px; background: #fff; }
 
-      /* The Appearance row is a working demo rather than three rows of chips: the theme buttons set
-         one attribute on the widget and the accent buttons set one custom property, and the card is
-         styled from those two alone. There is no second copy of the colours to keep in step. */
-      .aw { --acc: #4cc2e8; --aw-pad: 0.75rem; --aw-thumb: 40%; --aw-title: var(--2xs); --aw-sub: 0.6875rem; }
+      .repair-copy { display: grid; gap: 0.9rem; max-width: 46rem; margin-top: 1rem; }
+      .repair-copy p {
+        margin: 0;
+        color: var(--text-muted);
+        font-size: var(--sm);
+        line-height: 1.7;
+        text-wrap: pretty;
+      }
+
+      /* Appearance: the app's own settings screen inside the phone. The theme picks the scheme
+         from Theme.kt, the accent picks one hue off the 20-degree wheel and resolves it to the dark
+         or light primary, the layout picks PreviewCard's proportions, and the ten buttons under the
+         card are FactButtons. The Glass level is GlassTile's drag, and the contrast reading is the
+         number ContrastCard prints, computed from the colours actually on screen. */
       /* The showcase's own paragraph rule is more specific than one class, and it would repaint
          the preview's text with the page's muted colour. Inside the widget the card owns its
          colour and its type sizes. */
       .aw p { margin: 0; max-width: none; color: inherit; font-size: inherit; }
-      .aw[data-size='s'] { --aw-pad: 0.5rem; --aw-thumb: 34%; --aw-title: 0.6875rem; --aw-sub: 0.625rem; }
-      .aw[data-size='l'] { --aw-pad: 1rem; --aw-thumb: 46%; --aw-title: 0.875rem; --aw-sub: 0.75rem; }
-      .aw .chip { background: none; cursor: pointer; font-family: inherit; }
-      .aw .chip:hover { border-color: var(--border-hi); }
-      .aw .chip[aria-pressed='true'] {
-        background: rgb(255 255 255 / 0.06);
-        border-color: var(--acc);
-        color: var(--acc);
-      }
-      .aw-swatches { display: flex; flex-wrap: wrap; gap: 0.5rem; }
-      .aw-swatch {
-        width: 1.25rem;
-        height: 1.25rem;
+      .aw [hidden] { display: none !important; }
+
+      .aw-tiles { display: flex; gap: 10px; margin-top: 8px; }
+      .aw-tile {
+        position: relative;
+        flex: 1 1 0;
+        min-height: 74px;
         padding: 0;
-        border: 0;
-        border-radius: 999px;
-        background: var(--s);
-        cursor: pointer;
-        box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.3);
-      }
-      .aw-swatch[aria-pressed='true'] { outline: 2px solid var(--s); outline-offset: 2px; }
-      .aw-switches { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem 1rem; }
-      .aw-switch {
-        display: inline-flex;
+        border: 1px solid var(--border);
+        border-radius: 20px;
+        background: var(--control-bg, rgb(255 255 255 / 0.04));
+        color: var(--text-muted);
+        display: flex;
+        flex-direction: column;
         align-items: center;
-        gap: 0.5rem;
+        justify-content: center;
+        gap: 6px;
+        font: inherit;
+        font-size: var(--3xs);
+        cursor: pointer;
+        overflow: hidden;
+      }
+      .aw-tile > * { position: relative; z-index: 1; }
+      .aw-tile svg { width: 22px; height: 22px; }
+      .aw-tile[aria-pressed='true'] {
+        border: 2px solid var(--acc);
+        color: var(--text);
+      }
+      .aw-fill {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: var(--level, 0%);
+        background: var(--acc);
+        opacity: 0.7;
+        z-index: 0;
+      }
+      .aw-level { font-size: 0.625rem; }
+
+      .aw-swatches { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; margin-top: 8px; }
+      .aw-swatch {
+        height: 48px;
         padding: 0;
         border: 0;
         background: none;
-        font-family: inherit;
-        font-size: var(--2xs);
-        color: var(--text-muted);
-        text-align: left;
+        display: grid;
+        place-items: center;
         cursor: pointer;
       }
-      .aw-switch[aria-pressed='true'] { color: var(--text); }
-      .aw-knob {
-        position: relative;
-        flex-shrink: 0;
-        width: 1.9rem;
-        height: 1.1rem;
-        border-radius: 999px;
-        background: rgb(255 255 255 / 0.14);
-        transition: background-color 120ms;
-      }
-      .aw-knob::after {
+      .aw-swatch::before {
         content: '';
-        position: absolute;
-        top: 0.15rem;
-        left: 0.15rem;
-        width: 0.8rem;
-        height: 0.8rem;
+        width: 38px;
+        height: 38px;
         border-radius: 999px;
-        background: #b0bcc6;
-        transition: transform 120ms, background-color 120ms;
+        background: var(--s);
+        border: 1px solid var(--border);
       }
-      .aw-switch[aria-pressed='true'] .aw-knob { background: var(--acc); }
-      .aw-switch[aria-pressed='true'] .aw-knob::after { transform: translateX(0.8rem); background: #0a0e14; }
+      .aw-swatch[aria-pressed='true']::before { border: 3px solid var(--ring); }
+      @media (max-width: 380px) {
+        .aw-swatch::before { width: 30px; height: 30px; }
+      }
+      .aw-system {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        width: 100%;
+        height: 48px;
+        margin-top: 2px;
+        padding: 0 4px;
+        border: 0;
+        border-radius: 12px;
+        background: none;
+        font: inherit;
+        font-size: var(--2xs);
+        color: var(--text-muted);
+        cursor: pointer;
+      }
+      .aw-system::before {
+        content: '';
+        width: 26px;
+        height: 26px;
+        border-radius: 999px;
+        background: var(--s);
+        border: 1px solid var(--border);
+      }
+      .aw-system[aria-pressed='true'] { color: var(--text); }
+      .aw-system[aria-pressed='true']::before { border: 3px solid var(--ring); }
+
+      .aw-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+      .aw-chip {
+        min-height: 40px;
+        padding: 0 12px;
+        border: 0;
+        border-radius: 999px;
+        background: var(--control-bg, rgb(255 255 255 / 0.05));
+        color: var(--text-muted);
+        font: inherit;
+        font-size: var(--2xs);
+        font-weight: 500;
+        cursor: pointer;
+      }
+      .aw-chip:hover { filter: brightness(1.15); }
+      .aw-chip[aria-pressed='true'] { background: var(--acc-wash); color: var(--acc-ink); }
+      .aw-chip[data-muted='true'] { background: none; }
+
+      /* No fixed-height box here, unlike the app's 300dp one: the layout buttons sit above the card
+         and never move, so the only thing a shorter layout can move is the fact grid below it. */
+      .aw-box { margin-top: 10px; }
       .aw-card {
-        overflow: hidden;
-        border: 1px solid;
-        border-radius: 0.85rem;
-        transition: background-color 140ms, border-color 140ms, color 140ms;
+        border-radius: 14px;
+        padding: 12px;
+        background: var(--card-bg);
+        color: var(--card-ink);
+        transition: background-color 140ms, color 140ms;
       }
-      .aw-inner { display: flex; gap: 0.75rem; padding: var(--aw-pad); }
-      .aw[data-theme='system'] .aw-card,
-      .aw[data-theme='dark'] .aw-card { background: #10161e; border-color: rgb(255 255 255 / 0.1); color: #e9f0f5; }
-      .aw[data-theme='light'] .aw-card { background: #eef2f6; border-color: rgb(0 0 0 / 0.12); color: #0d131a; }
-      .aw[data-theme='glass'] .aw-card {
-        background: rgb(10 14 20 / 0.42);
-        border-color: rgb(255 255 255 / 0.22);
-        color: #e9f0f5;
+      .demo[data-theme='glass'] .aw-card {
         -webkit-backdrop-filter: blur(14px) saturate(140%);
         backdrop-filter: blur(14px) saturate(140%);
+        box-shadow: inset 0 0 0 1px var(--card-outline);
+      }
+      .aw-inner { display: grid; }
+      .demo[data-layout='classic'] .aw-inner { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+      .demo[data-layout='side'] .aw-inner {
+        grid-template-columns: minmax(0, 40fr) minmax(0, 60fr);
+        gap: 12px;
+        align-items: start;
+      }
+      .demo[data-layout='minimal'] .aw-inner {
+        grid-template-columns: minmax(0, 26fr) minmax(0, 74fr);
+        gap: 10px;
+        align-items: center;
       }
       .aw-thumb {
         position: relative;
-        flex: 0 0 var(--aw-thumb);
-        aspect-ratio: 16 / 10;
-        border-radius: 0.5rem;
-        background: linear-gradient(135deg, var(--acc), rgb(18 24 32 / 0.9));
-      }
-      .aw-dur {
-        position: absolute;
-        right: 0.25rem;
-        bottom: 0.25rem;
-        padding: 0.05rem 0.25rem;
-        border-radius: 0.25rem;
-        background: rgb(0 0 0 / 0.62);
-        color: #fff;
-        font-size: 0.625rem;
-        font-weight: 500;
-      }
-      .aw-meta { display: grid; align-content: start; gap: 0.15rem; min-width: 0; }
-      .aw .aw-title {
-        margin: 0;
+        aspect-ratio: 16 / 9;
+        border-radius: 10px;
+        display: grid;
+        place-items: center;
         overflow: hidden;
-        display: -webkit-box;
-        -webkit-box-orient: vertical;
-        -webkit-line-clamp: 2;
-        font-size: var(--aw-title);
+        background: linear-gradient(135deg, var(--acc-soft), var(--tert-soft) 55%, var(--card-fill));
+      }
+      .aw-thumb svg { width: 32px; height: 32px; color: var(--on-acc); opacity: 0.85; }
+      .aw-dur,
+      .aw-notes {
+        position: absolute;
+        border-radius: 6px;
+        background: rgb(0 0 0 / 0.72);
+        color: #fff;
+        font-size: var(--3xs);
+        font-weight: 500;
+        line-height: 1.3;
+      }
+      .aw-dur { right: 6px; bottom: 6px; padding: 1px 5px; }
+      .aw-notes { right: 6px; top: 6px; border-radius: 999px; padding: 3px 7px; background: rgb(0 0 0 / 0.8); }
+      .aw-progress {
+        position: absolute;
+        left: 0;
+        bottom: 0;
+        width: 35%;
+        height: 3px;
+        background: var(--acc);
+      }
+      .aw-words { display: grid; align-content: start; gap: 4px; min-width: 0; }
+      .aw-title {
+        margin: 0;
+        font-size: 0.9375rem;
         font-weight: 600;
         line-height: 1.35;
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 3;
+        overflow: hidden;
       }
-      .aw .aw-sub { margin: 0; font-size: var(--aw-sub); line-height: 1.45; opacity: 0.72; }
-      .aw .aw-facts { margin: 0; font-size: var(--aw-sub); line-height: 1.45; opacity: 0.5; }
-      .aw[data-duration='off'] .aw-dur,
-      .aw[data-channel='off'] .aw-sub,
-      .aw[data-facts='off'] .aw-facts,
-      .aw[data-progress='off'] .aw-track { display: none; }
-      .aw-track { height: 0.125rem; background: rgb(255 255 255 / 0.14); }
-      .aw[data-theme='light'] .aw-track { background: rgb(0 0 0 / 0.12); }
-      .aw-fill { width: 42%; height: 100%; background: var(--acc); }
-      .aw .aw-caption { margin: 0; font-size: var(--2xs); color: var(--text-muted); }
+      .aw-meta {
+        margin: 0;
+        font-size: 0.8125rem;
+        line-height: 1.4;
+        color: var(--card-muted);
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 3;
+        overflow: hidden;
+      }
 
-      /* The lock-screen card: the phone is asleep and the media notification is all that is left of
-         the app. Markup rather than a capture, so it stays sharp and shows only what the app puts
-         there: the video's artwork, its title, a seek bar and the transport controls. */
-      .lock-list { display: flex; align-items: center; gap: 0.75rem; margin-top: 1rem; }
-      .lock-art {
-        flex-shrink: 0;
-        width: 3rem;
-        height: 3rem;
-        border-radius: 0.5rem;
-        background: linear-gradient(135deg, rgb(var(--aurora-1) / 0.9), rgb(var(--aurora-2) / 0.8));
-        box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.35);
+      .aw-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+      .aw-fact {
+        min-height: 44px;
+        padding: 0 6px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: var(--control-bg, rgb(255 255 255 / 0.02));
+        color: var(--text-muted);
+        font: inherit;
+        font-size: var(--2xs);
+        font-weight: 500;
+        cursor: pointer;
       }
-      .lock-meta { min-width: 0; }
-      .lock-title { margin: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: var(--sm); font-weight: 600; }
-      .lock-sub { margin: 0.125rem 0 0; font-size: var(--2xs); color: var(--text-muted); }
-      .lock-bar { height: 0.25rem; margin-top: 1rem; overflow: hidden; border-radius: 999px; background: rgb(255 255 255 / 0.16); }
-      .lock-bar span { display: block; width: 34%; height: 100%; border-radius: 999px; background: var(--accent); }
-      .lock-controls { display: flex; align-items: center; justify-content: center; gap: 1.75rem; margin-top: 1rem; color: var(--text-muted); }
-      .lock-controls svg { width: 1.25rem; height: 1.25rem; }
-      .lock-play {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 2.5rem;
-        height: 2.5rem;
-        border-radius: 999px;
-        background: var(--text);
-        color: #0a0e14;
+      .aw-fact[aria-pressed='true'] {
+        border-color: transparent;
+        background: var(--acc-wash);
+        color: var(--acc-ink);
       }
-      .lock-play svg { width: 1rem; height: 1rem; }
+
+      .aw-contrast {
+        border: 1px solid var(--border);
+        border-radius: 20px;
+        background: var(--control-bg, rgb(255 255 255 / 0.035));
+        padding: 10px 14px;
+        margin-top: 8px;
+      }
+      .aw-contrast-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+      .aw-ratio { margin-right: auto; font-size: 1.25rem; font-weight: 600; }
+      .aw-ratio[data-holding='false'] { color: #ff8a80; }
+      .aw-sentence { margin: 4px 0 0; font-size: var(--2xs); line-height: 1.5; color: var(--text-muted); }
 
       .features { display: grid; gap: 1.75rem 2.5rem; margin-top: 1.5rem; }
       @media (min-width: 640px) { .features { grid-template-columns: 1fr 1fr; } }
@@ -578,11 +885,13 @@
           <div>
             <p class="eyebrow">Android 13 and newer · direct APK · GPLv3</p>
             <h1>
-              <span>A YouTube client that</span>
-              <span class="brand">does the things YouTube won't</span>
+              <span>YouTube,</span>
+              <span class="brand">without the account.</span>
             </h1>
             <p class="sub">
-              GlassTube plays YouTube without a Google account. Subscriptions, history, progress and notes live in a database on the phone, so nothing about what you watch leaves it. Lock the screen and the audio keeps going — the phone stays in your pocket, with no ads in the way. SponsorBlock, gestures on the picture, speed in 0.1 steps, notes dictated at the playhead, and a mode for when you cannot decide what to watch.
+              GlassTube needs no Google account. Subscriptions, history and notes live in a database
+              on the phone, and the audio keeps playing after the screen goes dark. What you can drag
+              on this page is the app, not a picture of it.
             </p>
             <a class="cta" href="app-release.apk">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -596,227 +905,207 @@
               Android will ask once whether this source can install apps.
             </p>
           </div>
-          <div class="phone">
-            <img
-              src="img/feed.webp"
-              alt="The GlassTube feed: a subscription feed of video cards"
-              loading="eager"
-            />
-          </div>
-        </section>
-
-        <section class="card install" aria-labelledby="install">
-          <h2 id="install">Installing it</h2>
-          <ol class="steps">
-            <li>
-              <span class="num">1</span>
-              <div>
-                <h3>Download the APK</h3>
-                <p>Chrome calls it an unusual file. It is the app; keep it.</p>
-              </div>
-            </li>
-            <li>
-              <span class="num">2</span>
-              <div>
-                <h3>Open it from Downloads</h3>
-                <p>Android asks whether that app may install unknown apps. Allow it once.</p>
-              </div>
-            </li>
-            <li>
-              <span class="num">3</span>
-              <div>
-                <h3>Open GlassTube</h3>
-                <p>First start asks for nothing. No sign-in, no permissions, no account.</p>
-              </div>
-            </li>
-          </ol>
-        </section>
-
-        <section class="block" aria-labelledby="showcase">
-          <h2 class="section" id="showcase">What it does differently</h2>
-          <div class="showcase">
-            <div>
-              <div class="mock" aria-hidden="true">
-                <div class="mock-head">
-                  <span class="mock-title">21:40</span>
-                  <span class="mock-title" style="opacity: 0.55">Tue 10 Nov</span>
-                </div>
-                <div class="lock-list">
-                  <span class="lock-art"></span>
-                  <div class="lock-meta">
-                    <p class="lock-title">Lecture 4 — the history of writing</p>
-                    <p class="lock-sub">Playing · 41:07</p>
-                  </div>
-                </div>
-                <div class="lock-bar">
-                  <span></span>
-                </div>
-                <div class="lock-controls">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-                    <path d="M3 3v5h5" />
-                  </svg>
-                  <span class="lock-play">
-                    <svg viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M8 5v14l11-7z" />
-                    </svg>
-                  </span>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M21 12a9 9 0 1 1-9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
-                    <path d="M21 3v5h-5" />
-                  </svg>
-                </div>
-                <p class="mock-copy">The screen is off. The audio is not.</p>
-              </div>
-              <div>
-                <p class="eyebrow">Listening</p>
-                <h3>The phone goes in your pocket</h3>
-                <p>
-                  The lecture, the long talk, the album you are not watching: lock the screen and the
-                  audio carries on, with the video's thumbnail, its title and the controls on the lock
-                  screen. Leave the app instead and the mini player does the same. Nothing has to stay
-                  lit to keep it playing.
-                </p>
-                <p class="note">Plays with the screen off · Lock-screen artwork and controls · Mini player</p>
-              </div>
+          <div class="try">
+            <div class="try-tabs" role="tablist" aria-label="Try the app">
+              <button type="button" class="try-tab" role="tab" id="tab-gestures" aria-controls="scene-gestures" aria-selected="true" data-scene="gestures">Gestures</button>
+              <button type="button" class="try-tab" role="tab" id="tab-share" aria-controls="scene-share" aria-selected="false" data-scene="share">Share</button>
+              <button type="button" class="try-tab" role="tab" id="tab-look" aria-controls="scene-look" aria-selected="false" data-scene="look">Appearance</button>
             </div>
-            <div>
-              <div class="mock" aria-hidden="true">
-                <div class="mock-head">
-                  <span class="mock-title">Share</span>
-                  <div class="chips">
-                    <span class="chip">This moment</span>
-                    <span class="chip on">A clip</span>
+
+            <div class="demo" id="demo" data-theme="glass" data-base="dark" data-layout="side" role="group" aria-label="GlassTube, running in the page">
+              <div class="try-stage">
+                <div class="try-scene" id="scene-gestures" role="tabpanel" aria-labelledby="tab-gestures" data-scene="gestures" tabindex="0">
+                  <div class="app-bar">
+                    <span class="app-title">Gestures</span>
+                    <span class="app-mark">GlassTube</span>
                   </div>
-                </div>
-                <p class="mock-copy">The link carries the start. The end goes in the text, because a YouTube link cannot hold both.</p>
-                <div class="range">
-                  <div class="range-track"></div>
-                  <div class="range-fill"></div>
-                  <span class="range-handle" style="left: 18%"></span>
-                  <span class="range-handle" style="left: 48%"></span>
-                  <span class="range-now" style="left: 52%"></span>
-                </div>
-                <div class="range-labels"><span>6:12 – 6:38</span><span>26 s</span></div>
-                <div class="range-actions">
-                  <span>Go to start</span>
-                  <span>Go to end</span>
-                  <span class="push">Sync to now</span>
-                </div>
-              </div>
-              <div>
-                <p class="eyebrow">Sharing</p>
-                <h3>Share the range, not the whole video</h3>
-                <p>
-                  One panel decides what the link carries: the moment you are on, or a range around
-                  it. A YouTube link holds one time, so the start goes in the URL and the end goes
-                  in the text. Play to either edge, or pull the end to the video with Sync to now.
-                </p>
-                <p class="note">This moment · A clip · Go to start · Go to end, two seconds early · Sync to now</p>
-              </div>
-            </div>
-            <div>
-              <div class="mock aw" data-theme="glass" data-size="m" data-duration="on" data-channel="on" data-facts="on" data-progress="on" role="group" aria-label="Appearance preview">
-                <div class="mock-rows">
-                  <div class="mock-row">
-                    <p class="mock-label" id="aw-theme-label">Theme</p>
-                    <div class="chips" role="group" aria-labelledby="aw-theme-label">
-                      <button type="button" class="chip" data-theme="system" aria-pressed="false">System</button>
-                      <button type="button" class="chip" data-theme="dark" aria-pressed="false">Dark</button>
-                      <button type="button" class="chip" data-theme="light" aria-pressed="false">Light</button>
-                      <button type="button" class="chip" data-theme="glass" aria-pressed="true">Glass</button>
+                  <div class="gesture-stage" data-gesture>
+                    <div class="gesture-picture" aria-hidden="true"></div>
+                    <div class="hud" data-hud hidden></div>
+                    <p class="gesture-hint">Volume on the left · brightness on the right · seek in the middle</p>
+                    <div class="gesture-bar">
+                      <span class="gesture-watched" data-watched></span>
+                      <span class="gesture-head" data-head></span>
                     </div>
                   </div>
-                  <div class="mock-row">
-                    <p class="mock-label" id="aw-accent-label">Accent</p>
-                    <div class="aw-swatches" role="group" aria-labelledby="aw-accent-label">
-                      <button type="button" class="aw-swatch" style="--s: #4cc2e8" data-accent="#4cc2e8" aria-label="Cyan" aria-pressed="true"></button>
-                      <button type="button" class="aw-swatch" style="--s: #8f86e4" data-accent="#8f86e4" aria-label="Violet" aria-pressed="false"></button>
-                      <button type="button" class="aw-swatch" style="--s: #8be4b8" data-accent="#8be4b8" aria-label="Mint" aria-pressed="false"></button>
-                      <button type="button" class="aw-swatch" style="--s: #e8b34c" data-accent="#e8b34c" aria-label="Amber" aria-pressed="false"></button>
-                      <button type="button" class="aw-swatch" style="--s: #e8739a" data-accent="#e8739a" aria-label="Rose" aria-pressed="false"></button>
-                      <button type="button" class="aw-swatch" style="--s: #6aa8ff" data-accent="#6aa8ff" aria-label="Blue" aria-pressed="false"></button>
-                      <button type="button" class="aw-swatch" style="--s: #b6e34c" data-accent="#b6e34c" aria-label="Lime" aria-pressed="false"></button>
-                      <button type="button" class="aw-swatch" style="--s: #e8934c" data-accent="#e8934c" aria-label="Orange" aria-pressed="false"></button>
-                    </div>
+                  <p class="scene-note">The picture is the control, with no scrubber to find and no long press to remember. The level pill rides the finger; the seek pill names the jump and the time it lands on.</p>
+                </div>
+
+                <div class="try-scene" id="scene-look" role="tabpanel" aria-labelledby="tab-look" data-scene="look" tabindex="0" hidden>
+                  <div class="app-bar">
+                    <span class="app-title">Appearance</span>
+                    <span class="app-mark">GlassTube</span>
                   </div>
-                  <div class="mock-row">
-                    <p class="mock-label" id="aw-size-label">Size</p>
-                    <div class="chips" role="group" aria-labelledby="aw-size-label">
-                      <button type="button" class="chip" data-size="s" aria-pressed="false">Small</button>
-                      <button type="button" class="chip" data-size="m" aria-pressed="true">Medium</button>
-                      <button type="button" class="chip" data-size="l" aria-pressed="false">Large</button>
-                    </div>
-                  </div>
-                  <div class="mock-row">
-                    <p class="mock-label">Card preview</p>
-                    <div class="aw-card" aria-hidden="true">
-                      <div class="aw-inner">
-                        <div class="aw-thumb">
-                          <span class="aw-dur">1:42:16</span>
-                        </div>
-                        <div class="aw-meta">
-                          <p class="aw-title">Lecture 4 — the history of writing</p>
-                          <p class="aw-sub">Open Lectures</p>
-                          <p class="aw-facts">1.2M views · 3 years ago</p>
+                  <div class="aw">
+                    <div class="mock-rows">
+                      <div class="mock-row">
+                        <p class="mock-label" id="aw-theme-label">Theme</p>
+                        <div class="aw-tiles" role="group" aria-labelledby="aw-theme-label">
+                          <button type="button" class="aw-tile" data-theme="system" aria-pressed="false">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                              <circle cx="12" cy="12" r="9" />
+                              <path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none" />
+                            </svg>
+                            System
+                          </button>
+                          <button type="button" class="aw-tile" data-theme="dark" aria-pressed="false">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+                            </svg>
+                            Dark
+                          </button>
+                          <button type="button" class="aw-tile" data-theme="light" aria-pressed="false">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                              <circle cx="12" cy="12" r="4" />
+                              <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+                            </svg>
+                            Light
+                          </button>
+                          <button type="button" class="aw-tile" data-theme="glass" aria-pressed="true" aria-label="Glass theme, level 42 percent">
+                            <span class="aw-fill"></span>
+                            <span class="aw-level">42%</span>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                              <rect x="4" y="4" width="16" height="16" rx="4" />
+                              <path d="m8 16 8-8" />
+                            </svg>
+                            Glass
+                          </button>
                         </div>
                       </div>
-                      <div class="aw-track"><div class="aw-fill"></div></div>
-                    </div>
-                  </div>
-                  <div class="mock-row">
-                    <p class="mock-label">Shown on the card</p>
-                    <div class="aw-switches">
-                      <button type="button" class="aw-switch" data-toggle="duration" aria-pressed="true">
-                        <span class="aw-knob" aria-hidden="true"></span>Duration
-                      </button>
-                      <button type="button" class="aw-switch" data-toggle="channel" aria-pressed="true">
-                        <span class="aw-knob" aria-hidden="true"></span>Channel
-                      </button>
-                      <button type="button" class="aw-switch" data-toggle="facts" aria-pressed="true">
-                        <span class="aw-knob" aria-hidden="true"></span>Views and age
-                      </button>
-                      <button type="button" class="aw-switch" data-toggle="progress" aria-pressed="true">
-                        <span class="aw-knob" aria-hidden="true"></span>Progress
-                      </button>
+                      <div class="mock-row">
+                        <p class="mock-label" id="aw-accent-label">Accent</p>
+                        <div class="aw-swatches" role="group" aria-labelledby="aw-accent-label">
+                          <button type="button" class="aw-swatch" data-hue="20" style="--s: hsl(20 62% 72%)" aria-label="Accent 1" aria-pressed="false"></button>
+                          <button type="button" class="aw-swatch" data-hue="40" style="--s: hsl(40 62% 72%)" aria-label="Accent 2" aria-pressed="false"></button>
+                          <button type="button" class="aw-swatch" data-hue="60" style="--s: hsl(60 62% 72%)" aria-label="Accent 3" aria-pressed="false"></button>
+                          <button type="button" class="aw-swatch" data-hue="80" style="--s: hsl(80 62% 72%)" aria-label="Accent 4" aria-pressed="false"></button>
+                          <button type="button" class="aw-swatch" data-hue="100" style="--s: hsl(100 62% 72%)" aria-label="Accent 5" aria-pressed="false"></button>
+                          <button type="button" class="aw-swatch" data-hue="120" style="--s: hsl(120 62% 72%)" aria-label="Accent 6" aria-pressed="false"></button>
+                          <button type="button" class="aw-swatch" data-hue="140" style="--s: hsl(140 62% 72%)" aria-label="Accent 7" aria-pressed="false"></button>
+                          <button type="button" class="aw-swatch" data-hue="160" style="--s: hsl(160 62% 72%)" aria-label="Accent 8" aria-pressed="false"></button>
+                          <button type="button" class="aw-swatch" data-hue="180" style="--s: hsl(180 62% 72%)" aria-label="Accent 9" aria-pressed="false"></button>
+                          <button type="button" class="aw-swatch" data-hue="196" style="--s: hsl(196 62% 72%)" aria-label="Accent 10" aria-pressed="true"></button>
+                          <button type="button" class="aw-swatch" data-hue="220" style="--s: hsl(220 62% 72%)" aria-label="Accent 11" aria-pressed="false"></button>
+                          <button type="button" class="aw-swatch" data-hue="240" style="--s: hsl(240 62% 72%)" aria-label="Accent 12" aria-pressed="false"></button>
+                          <button type="button" class="aw-swatch" data-hue="260" style="--s: hsl(260 62% 72%)" aria-label="Accent 13" aria-pressed="false"></button>
+                          <button type="button" class="aw-swatch" data-hue="280" style="--s: hsl(280 62% 72%)" aria-label="Accent 14" aria-pressed="false"></button>
+                          <button type="button" class="aw-swatch" data-hue="300" style="--s: hsl(300 62% 72%)" aria-label="Accent 15" aria-pressed="false"></button>
+                          <button type="button" class="aw-swatch" data-hue="320" style="--s: hsl(320 62% 72%)" aria-label="Accent 16" aria-pressed="false"></button>
+                          <button type="button" class="aw-swatch" data-hue="340" style="--s: hsl(340 62% 72%)" aria-label="Accent 17" aria-pressed="false"></button>
+                          <button type="button" class="aw-swatch" data-hue="0" style="--s: hsl(0 62% 72%)" aria-label="Accent 18" aria-pressed="false"></button>
+                        </div>
+                        <button type="button" class="aw-system" data-accent="system" style="--s: hsl(196 62% 72%)" aria-pressed="false">System colour</button>
+                      </div>
+                      <div class="mock-row">
+                        <p class="mock-label" id="aw-shuffle-label">Shuffle</p>
+                        <div class="aw-chips" role="group" aria-labelledby="aw-shuffle-label">
+                          <button type="button" class="aw-chip" data-shuffle="off" aria-pressed="false">Shuffle</button>
+                          <button type="button" class="aw-chip" data-shuffle="daily" data-muted="true" aria-pressed="false">Daily</button>
+                          <button type="button" class="aw-chip" data-shuffle="hourly" data-muted="true" aria-pressed="false">Hourly</button>
+                          <button type="button" class="aw-chip" data-shuffle="focus" data-muted="true" aria-pressed="false">Focus</button>
+                        </div>
+                      </div>
+                      <div class="mock-row">
+                        <p class="mock-label" id="aw-preview-label">Preview</p>
+                        <div class="aw-chips" role="group" aria-labelledby="aw-preview-label">
+                          <button type="button" class="aw-chip" data-layout="side" aria-pressed="true">Side</button>
+                          <button type="button" class="aw-chip" data-layout="classic" aria-pressed="false">Classic</button>
+                          <button type="button" class="aw-chip" data-layout="minimal" aria-pressed="false">Minimal</button>
+                        </div>
+                        <div class="aw-box">
+                          <div class="aw-card" aria-hidden="true">
+                            <div class="aw-inner">
+                              <div class="aw-thumb">
+                                <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
+                                <span class="aw-dur">1:42:16</span>
+                                <span class="aw-notes">3</span>
+                                <span class="aw-progress"></span>
+                              </div>
+                              <div class="aw-words">
+                                <p class="aw-title">Lecture 4 — the history of writing</p>
+                                <p class="aw-meta">Open Lectures · 3 years ago · 1.2M views · 4.2K likes · watched 3 times · 42 comments</p>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        <div class="aw-facts" role="group" aria-label="Shown on the card">
+                          <button type="button" class="aw-fact" data-fact="title" aria-pressed="true">Title</button>
+                          <button type="button" class="aw-fact" data-fact="channel" aria-pressed="true">Channel</button>
+                          <button type="button" class="aw-fact" data-fact="age" aria-pressed="true">How long ago</button>
+                          <button type="button" class="aw-fact" data-fact="views" aria-pressed="true">Views</button>
+                          <button type="button" class="aw-fact" data-fact="likes" aria-pressed="true">Likes</button>
+                          <button type="button" class="aw-fact" data-fact="duration" aria-pressed="true">Duration</button>
+                          <button type="button" class="aw-fact" data-fact="watches" aria-pressed="true">Watch count</button>
+                          <button type="button" class="aw-fact" data-fact="comments" aria-pressed="true">Comments</button>
+                          <button type="button" class="aw-fact" data-fact="progress" aria-pressed="true">Progress</button>
+                          <button type="button" class="aw-fact" data-fact="notes" aria-pressed="true">My notes</button>
+                        </div>
+                      </div>
+                      <div class="mock-row">
+                        <p class="mock-label" id="aw-contrast-label">Contrast</p>
+                        <div class="aw-contrast">
+                          <div class="aw-contrast-head">
+                            <span class="aw-ratio" data-holding="true">4.5:1</span>
+                            <div class="aw-chips" role="group" aria-labelledby="aw-contrast-label">
+                              <button type="button" class="aw-chip" data-contrast="off" aria-pressed="false">Off</button>
+                              <button type="button" class="aw-chip" data-contrast="aa" aria-pressed="true">Standard</button>
+                              <button type="button" class="aw-chip" data-contrast="aaa" aria-pressed="false">High</button>
+                            </div>
+                          </div>
+                          <p class="aw-sentence">Nothing to change — glass already passes 4.5:1.</p>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
-                <p class="aw-caption">Change anything here; the card repaints.</p>
-              </div>
-              <div>
-                <p class="eyebrow">Appearance</p>
-                <h3>Glass, and an accent that moves</h3>
-                <p>
-                  Four themes: System, Dark, Light and Glass. Glass is translucent surfaces over a
-                  still aurora, and it takes its tone from the last ordinary theme you picked. The
-                  accent is brand cyan by default, the phone's own colour under System, or one of
-                  eighteen hues; shuffle moves it daily, hourly, or every time you open the app, and
-                  is off by default. The screen ends with a live preview of the video cards — three
-                  layouts and ten facts — and the contrast ratio the current theme reaches. A
-                  contrast setting (Off, Standard or High) keeps text above 4.5:1 or 7:1 without
-                  ever changing the hue you picked, and the card says plainly when a theme already
-                  passes and nothing had to move.
-                </p>
-                <p class="note">System · Dark · Light · Glass · 18 accents · shuffle daily, hourly or Focus · contrast Standard by default · live card preview</p>
+
+                <div class="try-scene" id="scene-share" role="tabpanel" aria-labelledby="tab-share" data-scene="share" tabindex="0" hidden>
+                  <div class="share-scene" role="group" aria-label="Share panel">
+                    <div class="share-stage">
+                      <div>
+                        <p class="share-video">Lecture 4 — the history of writing</p>
+                        <p class="share-video-sub">Open Lectures · 5:00</p>
+                      </div>
+                    </div>
+                    <div class="share-panel">
+                      <div class="mock-head">
+                        <span class="mock-title">Share</span>
+                        <button type="button" class="share-sync" data-share="sync">Sync to now</button>
+                      </div>
+                      <p class="mock-copy">The link carries the start. Drag the second handle to add an end, or leave it where it is and only the moment is shared.</p>
+                      <div class="share-bar" data-share="bar">
+                        <div class="share-track"></div>
+                        <div class="share-segment" data-share="segment"></div>
+                        <span class="share-now" data-share="now"></span>
+                        <span class="share-handle" role="slider" tabindex="0" data-handle="start" aria-label="Clip start" aria-valuemin="0" aria-valuemax="300" aria-valuenow="96" aria-valuetext="1:36"></span>
+                        <span class="share-handle" role="slider" tabindex="0" data-handle="end" aria-label="Clip end" aria-valuemin="0" aria-valuemax="300" aria-valuenow="126" aria-valuetext="2:06"></span>
+                      </div>
+                      <div class="share-labels" aria-live="polite">
+                        <span class="share-range" data-share="range">1:36 – 2:06</span>
+                        <span class="share-length" data-share="length">0:30</span>
+                      </div>
+                      <div class="share-row share-nudges">
+                        <button type="button" class="share-btn" data-nudge="-30">&minus;30s</button>
+                        <button type="button" class="share-btn" data-nudge="-10">&minus;10s</button>
+                        <button type="button" class="share-btn" data-nudge="-2">&minus;2s</button>
+                        <button type="button" class="share-btn" data-nudge="2">+2s</button>
+                        <button type="button" class="share-btn" data-nudge="10">+10s</button>
+                        <button type="button" class="share-btn" data-nudge="30">+30s</button>
+                      </div>
+                      <div class="share-row">
+                        <button type="button" class="share-btn" data-share="gostart">Go to start</button>
+                        <button type="button" class="share-btn" data-share="goend">Go to end</button>
+                      </div>
+                      <div class="share-row share-actions">
+                        <button type="button" class="share-send" data-share="send">Share</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
-            <div>
-              <div class="phone">
-                <img src="img/bored.webp" alt="Bored Mode: a recipe, the reason it was chosen, and the sliders that change it" loading="lazy" />
-              </div>
-              <div>
-                <p class="eyebrow">Bored Mode</p>
-                <h3>When you cannot decide</h3>
-                <p>
-                  Recipes instead of a recommendation feed: a deep dive, something fresh,
-                  something long, a short break. Each pick shows the path that found it, and Why
-                  these? opens the reasoning with sliders for shortest, newest and surprise.
-                  Nothing here is stored.
-                </p>
-                <p class="note">Deep dive · Fresh · Longform · Short break</p>
-              </div>
-            </div>
+
+            <p class="try-caption" data-caption aria-live="polite"><b>Gestures.</b> Seek in the picture, volume on its left side, brightness on its right. Nothing to aim at.</p>
           </div>
         </section>
 
@@ -830,8 +1119,8 @@
                   <path d="m9 12 2 2 4-4" />
                 </svg>
               </span>
-              <h3>Everything stays on the phone</h3>
-              <p>Room on the device holds the subscriptions, the history, the progress and the notes. No account, no server, no analytics. Uninstalling deletes all of it.</p>
+              <h3>The library is a file on the phone</h3>
+              <p>Subscriptions, history, progress and notes are a database on the device. The app talks to YouTube directly, the way a browser does — there is no GlassTube account and no server of ours in between. The AI mode talks only to the model you point it at. Uninstalling deletes the database.</p>
             </div>
             <div>
               <span class="icon" aria-hidden="true">
@@ -861,7 +1150,18 @@
                 </svg>
               </span>
               <h3>Notes, dictated</h3>
-              <p>Speak a note at the playhead and it keeps its timestamp. Playing pauses while you talk and resumes when you save.</p>
+              <p>Speak a note while the video plays; it keeps the time you were at. Playing pauses while you talk and resumes when you save.</p>
+            </div>
+            <div>
+              <span class="icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="3" y="5" width="18" height="14" rx="3" />
+                  <path d="M10 10.5a2.5 2.5 0 1 0 0 3" />
+                  <path d="M17 10.5a2.5 2.5 0 1 0 0 3" />
+                </svg>
+              </span>
+              <h3>Captions</h3>
+              <p>The video's own tracks, in three sizes, drawn by the app rather than the platform.</p>
             </div>
             <div>
               <span class="icon" aria-hidden="true">
@@ -877,27 +1177,32 @@
             <div>
               <span class="icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M2 10h6V4" />
-                  <path d="m2 4 6 6" />
-                  <path d="M21 10V7a2 2 0 0 0-2-2h-7" />
-                  <path d="M3 14v2a2 2 0 0 0 2 2h3" />
-                  <rect x="12" y="14" width="10" height="7" rx="1" />
+                  <circle cx="12" cy="12" r="9" />
+                  <path d="m15.5 8.5-2 5-5 2 2-5z" />
                 </svg>
               </span>
-              <h3>Picture in picture</h3>
-              <p>Leave the app and the video keeps playing in a floating window, until you close it.</p>
+              <h3>Bored Mode</h3>
+              <p>Recipes instead of a recommendation feed: a deep dive, something fresh, something long, a short break. Each pick shows the path that found it.</p>
             </div>
             <div>
               <span class="icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
-                  <path d="M21 3v5h-5" />
-                  <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
-                  <path d="M8 16H3v5" />
+                  <path d="M12 3v12" />
+                  <path d="m7 10 5 5 5-5" />
+                  <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
                 </svg>
               </span>
-              <h3>Resync, if you want it</h3>
-              <p>Comment timestamps can be aligned against a transcript with your own model key. Off by default, and the key stays in the Android Keystore.</p>
+              <h3>One file, the whole phone</h3>
+              <p>Subscriptions, settings, Bored recipes, notes, history and where each video stopped export to one JSON file, and import on the next phone.</p>
+            </div>
+            <div>
+              <span class="icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M5.6 18.4l2.8-2.8M15.6 8.4l2.8-2.8" />
+                </svg>
+              </span>
+              <h3>AI, or none at all</h3>
+              <p>Everything works without a key. Chapters, summaries and comment timestamps are an optional mode on your own model key — off until you add one, and the requests go to that provider, not to us.</p>
             </div>
             <div>
               <span class="icon" aria-hidden="true">
@@ -910,25 +1215,25 @@
               <h3>Updates without a store</h3>
               <p>About checks the manifest beside the APK and installs the next build from here. The old build keeps working if the check fails.</p>
             </div>
-            <div>
-              <span class="icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
-                  <path d="M21 3v5h-5" />
-                </svg>
-              </span>
-              <h3>When a stream stalls</h3>
-              <p>If a stream errors or goes quiet for 20 seconds, GlassTube fetches fresh streams and retries twice. A disk cache you size in Settings holds what you have watched.</p>
-            </div>
-            <div>
-              <span class="icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.106-3.105c.32-.322.863-.22.983.218a6 6 0 0 1-8.259 7.057l-7.91 7.91a1 1 0 0 1-2.999-3l7.91-7.91a6 6 0 0 1 7.057-8.259c.438.12.54.662.219.984z" />
-                </svg>
-              </span>
-              <h3>When YouTube changes</h3>
-              <p>If the extractor stops reading YouTube, it resets and tries once more. An empty search can be re-asked with a shorter query. Both write to the app log.</p>
-            </div>
+          </div>
+        </section>
+
+        <section class="block repair" aria-labelledby="repair">
+          <p class="eyebrow">Self-repair</p>
+          <h2 class="section" id="repair">When YouTube breaks, it recovers — or updates itself</h2>
+          <div class="repair-copy">
+            <p>
+              Every client that reads YouTube's pages breaks the same way: one morning the page is not
+              the shape the parser knows. GlassTube has several layers before it shows you an error —
+              it resets the extractor and retries, refetches a stalled stream and retries twice, and
+              gives a failed search a second try. Old clients sat broken until a person shipped a
+              version.
+            </p>
+            <p>
+              None of that patches a changed page shape. That needs a new build, and About installs it
+              from this page; the old one keeps working if the check fails. The log under Settings
+              records what failed, what was reset and what recovered.
+            </p>
           </div>
         </section>
 
@@ -1016,45 +1321,770 @@
     </div>
 
     <script>
-      /* The Appearance demo. The widget's own attributes say which theme, size and facts the card
-         wears, and one custom property says which accent; the buttons only set those. Nothing here
-         knows a colour, so the card cannot drift from the swatch that set it. */
+      /* The Appearance demo. Every control writes one field of `state`, and one render() paints the
+         card, the way ThemeController, CardStyle and ContrastPolicy do in the app. The colours, the
+         fact order and the labels come from Theme.kt, PreviewCard and FactButtons; the contrast
+         ratio is measured from the colours actually on screen, not asserted. */
       ;(() => {
-        const widget = document.querySelector('.aw')
+        const widget = document.querySelector('.demo')
         if (!widget) return
 
-        const press = (button) => {
-          for (const peer of button.parentElement.querySelectorAll('button[aria-pressed]')) {
-            peer.setAttribute('aria-pressed', String(peer === button))
+        const SCHEMES = {
+          dark: { bg: [16, 16, 20], ink: [232, 237, 242], muted: [180, 186, 194] },
+          light: { bg: [255, 255, 255], ink: [16, 16, 20], muted: [74, 85, 96] },
+        }
+        const TARGET = { off: 0, aa: 4.5, aaa: 7 }
+        // PreviewCard's facts, in its order: channel, age, views, likes, watches, comments.
+        const META = [
+          ['channel', 'Open Lectures'],
+          ['age', '3 years ago'],
+          ['views', '1.2M\u00A0views'],
+          ['likes', '4.2K\u00A0likes'],
+          ['watches', 'watched\u00A03\u00A0times'],
+          ['comments', '42\u00A0comments'],
+        ]
+        const NO_BREAK_DOT = '\u00A0·\u00A0'
+        const EVERY_FACT = [
+          'title', 'channel', 'age', 'views', 'likes',
+          'duration', 'watches', 'comments', 'progress', 'notes',
+        ]
+
+        const every = (selector) => Array.from(widget.querySelectorAll(selector))
+        const setPressed = (group, active) => {
+          for (const button of group) button.setAttribute('aria-pressed', String(button === active))
+        }
+
+        const media = window.matchMedia('(prefers-color-scheme: light)')
+
+        const state = {
+          theme: 'glass',
+          base: 'system', // the last ordinary theme; Glass takes its light or dark from this
+          accent: 'hue',
+          hue: 196,
+          level: 0.42,
+          layout: 'side',
+          contrast: 'aa',
+          shuffle: 'off',
+          facts: new Set(EVERY_FACT),
+        }
+
+        /* ---- colour maths, the same walk ensureContrast performs ---- */
+        const hsl = (h, s, l, a) =>
+          a == null
+            ? `hsl(${h} ${(s * 100).toFixed(1)}% ${(l * 100).toFixed(1)}%)`
+            : `hsl(${h} ${(s * 100).toFixed(1)}% ${(l * 100).toFixed(1)}% / ${a})`
+        const rgb = (c) => `rgb(${c.map((v) => Math.round(v)).join(' ')})`
+
+        const hslToRgb = (h, s, l) => {
+          const k = (n) => (n + h / 30) % 12
+          const a = s * Math.min(l, 1 - l)
+          const f = (n) => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)))
+          return [f(0) * 255, f(8) * 255, f(4) * 255]
+        }
+
+        const toHsl = (color) => {
+          const [r, g, b] = color.map((v) => v / 255)
+          const high = Math.max(r, g, b)
+          const low = Math.min(r, g, b)
+          const l = (high + low) / 2
+          const delta = high - low
+          if (delta < 1e-6) return { h: 0, s: 0, l }
+          const s = delta / (1 - Math.abs(2 * l - 1))
+          const h = high === r
+            ? 60 * (((g - b) / delta) % 6)
+            : high === g
+              ? 60 * ((b - r) / delta + 2)
+              : 60 * ((r - g) / delta + 4)
+          return { h: (h + 360) % 360, s, l }
+        }
+
+        const channel = (value) => {
+          const c = value / 255
+          return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+        }
+        const luminance = (color) =>
+          0.2126 * channel(color[0]) + 0.7152 * channel(color[1]) + 0.0722 * channel(color[2])
+        const ratio = (a, b) => {
+          const la = luminance(a)
+          const lb = luminance(b)
+          return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05)
+        }
+        const over = (color, alpha, under) =>
+          color.map((value, index) => value * alpha + under[index] * (1 - alpha))
+
+        /** The least-shifted lightness that clears `target`, or the best it can do within 0.20. */
+        const walk = (color, start, surfaces, target) => {
+          const worstOf = (candidate) => Math.min(...surfaces.map((surface) => ratio(candidate, surface)))
+          if (target <= 1 || worstOf(color) >= target) return { rgb: color, l: start.l }
+          let best = { rgb: color, l: start.l }
+          let bestRatio = worstOf(color)
+          for (let step = 0.01; step <= 0.2 + 1e-4; step += 0.01) {
+            for (const direction of [-1, 1]) {
+              const l = Math.min(1, Math.max(0, start.l + direction * step))
+              const candidate = hslToRgb(start.h, start.s, l)
+              const reached = worstOf(candidate)
+              if (reached >= target) return { rgb: candidate, l }
+              if (reached > bestRatio) {
+                best = { rgb: candidate, l }
+                bestRatio = reached
+              }
+            }
+          }
+          return best
+        }
+
+        /* ---- the app's glass maths, ported from Theme.kt ---- */
+        const GLASS = {
+          base: { dark: [7, 7, 11], light: [237, 242, 247] },
+          card: { dark: [16, 16, 20], light: [255, 255, 255] },
+          variant: { dark: [27, 27, 33], light: [230, 235, 240] },
+          page: { dark: [0, 0, 0], light: [248, 250, 252] },
+          peak: { dark: 0.52, light: 0.34 },
+          surfaceA: (dark, level) => (dark ? 0.88 : 0.94) - level * (dark ? 0.58 : 0.4),
+          variantA: (dark, level) => (dark ? 0.72 : 0.84) - level * 0.54,
+          minAurora: 0.35,
+        }
+        const shifted = (hue, degrees) => (hue + degrees + 360) % 360
+        const tone = (dark) => (dark ? 'dark' : 'light')
+
+        const backdrops = (dark, primary, scale) => {
+          const base = GLASS.base[tone(dark)]
+          const peak = GLASS.peak[tone(dark)] * scale
+          const blob = (hue) => over(hslToRgb(hue, primary.s, primary.l), peak, base)
+          return [base, blob(primary.h), blob(shifted(primary.h, 52)), blob(shifted(primary.h, -46))]
+        }
+        const cardSurfaces = (dark, primary, level, scale) =>
+          backdrops(dark, primary, scale).map((under) =>
+            over(GLASS.card[tone(dark)], GLASS.surfaceA(dark, level), under))
+        const variantSurfaces = (dark, primary, level, scale) =>
+          backdrops(dark, primary, scale).map((under) =>
+            over(GLASS.variant[tone(dark)], GLASS.variantA(dark, level), under))
+
+        /** Every surface text can land on, as the app lists them: the page, the cards, the chips. */
+        const textSurfaces = (glass, dark, primary, level, scale) =>
+          glass
+            ? [
+              ...backdrops(dark, primary, scale),
+              ...cardSurfaces(dark, primary, level, scale),
+              ...variantSurfaces(dark, primary, level, scale),
+            ]
+            : [GLASS.page[tone(dark)], GLASS.variant[tone(dark)], GLASS.card[tone(dark)]]
+
+        const worstOf = (colour, surfaces) => Math.min(...surfaces.map((surface) => ratio(colour, surface)))
+
+        /* The policy's two levers, in the app's order: first dim the aurora until the page reads,
+           then find the last level whose card and chip fills still read. */
+        const auroraScale = (dark, primary, policy) => {
+          if (policy <= 1) return 1
+          const scheme = dark ? SCHEMES.dark : SCHEMES.light
+          for (let scale = 1; scale >= GLASS.minAurora - 1e-4; scale -= 0.05) {
+            const page = backdrops(dark, primary, scale)
+            const body = walk(scheme.ink, toHsl(scheme.ink), page, policy)
+            const secondary = walk(scheme.muted, toHsl(scheme.muted), page, policy)
+            const ink = walk(hslToRgb(primary.h, primary.s, primary.l), primary, page, policy)
+            if ([body, secondary, ink].every((candidate) => worstOf(candidate.rgb, page) >= policy)) {
+              return scale
+            }
+          }
+          return GLASS.minAurora
+        }
+
+        const maxGlassLevel = (dark, primary, policy, scale) => {
+          if (policy <= 1) return 1
+          const scheme = dark ? SCHEMES.dark : SCHEMES.light
+          let last = 0
+          for (let level = 0; level <= 1 + 1e-4; level += 0.02) {
+            const surfaces = [
+              ...cardSurfaces(dark, primary, level, scale),
+              ...variantSurfaces(dark, primary, level, scale),
+            ]
+            const body = walk(scheme.ink, toHsl(scheme.ink), surfaces, policy)
+            const secondary = walk(scheme.muted, toHsl(scheme.muted), surfaces, policy)
+            const ink = walk(hslToRgb(primary.h, primary.s, primary.l), primary, surfaces, policy)
+            const passes = [body, secondary, ink].every((candidate) => worstOf(candidate.rgb, surfaces) >= policy)
+            if (passes) last = level
+          }
+          return last
+        }
+
+        const resolvedBase = () =>
+          state.base === 'light' ? 'light' : state.base === 'dark' ? 'dark' : media.matches ? 'light' : 'dark'
+
+        let scaleCache = { key: '', value: 1 }
+        let capCache = { key: '', value: 1 }
+
+        const resolve = () => {
+          const dark = state.theme === 'dark'
+            ? true
+            : state.theme === 'light'
+              ? false
+              : resolvedBase() === 'dark'
+          const scheme = dark ? SCHEMES.dark : SCHEMES.light
+          const primary = {
+            h: state.accent === 'system' ? 196 : state.hue,
+            s: dark ? 0.62 : 0.78,
+            l: dark ? 0.72 : 0.32,
+          }
+          const accentFill = hslToRgb(primary.h, primary.s, primary.l)
+          const target = TARGET[state.contrast]
+          const glass = state.theme === 'glass'
+
+          let scale = 1
+          let cap = 1
+          let level = state.level
+          if (glass) {
+            const key = `${dark}|${primary.h}|${primary.s}|${primary.l}|${target}`
+            if (scaleCache.key !== key) {
+              scaleCache = { key, value: auroraScale(dark, primary, target) }
+            }
+            scale = scaleCache.value
+            const capKey = `${key}|${scale}`
+            if (capCache.key !== capKey) {
+              capCache = { key: capKey, value: maxGlassLevel(dark, primary, target, scale) }
+            }
+            cap = capCache.value
+            // The dial is clamped to the cap, as the app clamps the stored level.
+            level = Math.min(state.level, cap)
+            state.level = level
+          }
+
+          const surfaces = textSurfaces(glass, dark, primary, level, scale)
+          const mutedWalk = walk(scheme.muted, toHsl(scheme.muted), surfaces, target)
+          const inkWalk = walk(accentFill, primary, surfaces, target)
+          const onPrimary = ratio([255, 255, 255], accentFill) >= ratio([0, 18, 26], accentFill)
+            ? [255, 255, 255]
+            : [0, 18, 26]
+
+          const worst = Math.min(
+            worstOf(scheme.ink, surfaces),
+            worstOf(mutedWalk.rgb, surfaces),
+            worstOf(inkWalk.rgb, surfaces),
+            ratio(onPrimary, accentFill),
+          )
+          const holding = worst >= (target || 1)
+          const inkMoved = Math.abs(inkWalk.l - primary.l) > 0.015
+          const sentence = state.contrast === 'off'
+            ? 'Off — the palette as drawn.'
+            : !holding
+              ? `${(target - worst).toFixed(1)} short of ${target}:1, and nothing here can reach it.`
+              : glass && scale < 0.999
+                ? `Glow at ${Math.round(scale * 100)}% keeps the page readable.`
+                : inkMoved
+                  ? 'Accent labels use a darker shade of the same hue.'
+                  : `Nothing to change — ${glass ? 'glass' : dark ? 'Dark' : 'Light'} already passes ${target}:1.`
+
+          return {
+            dark,
+            primary,
+            accentFill,
+            glass,
+            scale,
+            cap,
+            level,
+            surfaceA: GLASS.surfaceA(dark, level),
+            variantA: GLASS.variantA(dark, level),
+            muted: mutedWalk.rgb,
+            ink: inkWalk.rgb,
+            inkL: inkWalk.l,
+            onPrimary: rgb(onPrimary),
+            worst,
+            holding,
+            sentence,
           }
         }
 
+        /* ---- render: one pass, no control knows a colour ---- */
+        const render = () => {
+          const view = resolve()
+          widget.setAttribute('data-theme', state.theme)
+          widget.setAttribute('data-base', view.dark ? 'dark' : 'light')
+          widget.setAttribute('data-layout', state.layout)
+          widget.setAttribute('data-contrast', state.contrast)
+
+          const style = widget.style
+          style.setProperty('--acc', hsl(view.primary.h, view.primary.s, view.primary.l))
+          style.setProperty('--acc-soft', hsl(view.primary.h, view.primary.s, view.primary.l, 0.35))
+          style.setProperty('--acc-wash', hsl(view.primary.h, view.primary.s, view.primary.l, 0.18))
+          style.setProperty('--acc-ink', hsl(view.primary.h, view.primary.s, view.inkL))
+          style.setProperty('--on-acc', view.onPrimary)
+          style.setProperty('--glass-a', view.surfaceA.toFixed(3))
+          style.setProperty('--glass-variant-a', view.variantA.toFixed(3))
+          style.setProperty('--card-muted', rgb(view.muted))
+          // The aurora the glass sits on: three blobs at the accent, its warm and its cool
+          // neighbour, at the strength the policy allows.
+          const tone = view.dark ? 'dark' : 'light'
+          const peak = (GLASS.peak[tone] * view.scale).toFixed(3)
+          const base = GLASS.base[tone]
+          style.setProperty('--glass-base', rgb(base))
+          style.setProperty('--blob-1', hsl(view.primary.h, view.primary.s, view.primary.l, peak))
+          style.setProperty('--blob-2', hsl(shifted(view.primary.h, 52), view.primary.s, view.primary.l, peak))
+          style.setProperty('--blob-3', hsl(shifted(view.primary.h, -46), view.primary.s, view.primary.l, peak))
+
+          widget.querySelector('.aw-title').hidden = !state.facts.has('title')
+          widget.querySelector('.aw-dur').hidden = !state.facts.has('duration')
+          widget.querySelector('.aw-notes').hidden = !state.facts.has('notes')
+          widget.querySelector('.aw-progress').hidden = !state.facts.has('progress')
+          const meta = META
+            .filter(([key]) => state.facts.has(key))
+            .map(([, text]) => text)
+            .join(NO_BREAK_DOT)
+          const metaEl = widget.querySelector('.aw-meta')
+          metaEl.textContent = meta
+          metaEl.hidden = meta === ''
+
+          const reading = widget.querySelector('.aw-ratio')
+          reading.textContent = `${view.worst.toFixed(1)}:1`
+          reading.setAttribute('data-holding', String(view.holding))
+          widget.querySelector('.aw-sentence').textContent = view.sentence
+
+          const swatches = every('.aw-swatch')
+          setPressed(
+            swatches,
+            state.accent === 'system'
+              ? null
+              : swatches.find((button) => Number(button.dataset.hue) === state.hue),
+          )
+          setPressed(every('.aw-system'), state.accent === 'system' ? every('.aw-system')[0] : null)
+          setPressed(every('.aw-tile'), every('.aw-tile').find((button) => button.dataset.theme === state.theme))
+          setPressed(
+            every('button[data-layout]'),
+            every('button[data-layout]').find((button) => button.dataset.layout === state.layout),
+          )
+          setPressed(
+            every('button[data-contrast]'),
+            every('button[data-contrast]').find((button) => button.dataset.contrast === state.contrast),
+          )
+          setPressed(every('button[data-fact]'), null)
+          for (const button of every('button[data-fact]')) {
+            const on = state.facts.has(button.dataset.fact)
+            button.setAttribute('aria-pressed', String(on))
+          }
+          const shuffleOn = state.shuffle !== 'off'
+          setPressed(every('button[data-shuffle]'), every('button[data-shuffle]').find((button) =>
+            button.dataset.shuffle === 'off' ? false : button.dataset.shuffle === state.shuffle))
+          every('button[data-shuffle="off"]')[0].setAttribute('aria-pressed', String(shuffleOn))
+          for (const button of every('button[data-shuffle]')) {
+            if (button.dataset.shuffle !== 'off') {
+              button.setAttribute('data-muted', String(!shuffleOn))
+            }
+          }
+          // The Glass tile's own reading and defs, in the same place the fill sits.
+          const glassTile = widget.querySelector('.aw-tile[data-theme="glass"]')
+          glassTile.style.setProperty('--level', `${(state.level * 100).toFixed(0)}%`)
+          glassTile.querySelector('.aw-level').textContent = `${Math.round(state.level * 100)}%`
+          glassTile.setAttribute(
+            'aria-label',
+            `Glass theme, level ${Math.round(state.level * 100)} percent`,
+          )
+        }
+
+        /* ---- controls ---- */
+        const chooseTheme = (theme) => {
+          if (theme !== 'glass') state.base = theme
+          state.theme = theme
+          render()
+        }
+
         widget.addEventListener('click', (event) => {
-          const theme = event.target.closest('button[data-theme]')
+          const target = event.target
+          const theme = target.closest('.aw-tile')
           if (theme) {
-            widget.setAttribute('data-theme', theme.dataset.theme)
-            press(theme)
+            chooseTheme(theme.dataset.theme)
             return
           }
-          const size = event.target.closest('button[data-size]')
-          if (size) {
-            widget.setAttribute('data-size', size.dataset.size)
-            press(size)
+          const swatch = target.closest('.aw-swatch')
+          if (swatch) {
+            state.accent = 'hue'
+            state.hue = Number(swatch.dataset.hue)
+            render()
             return
           }
-          const accent = event.target.closest('button[data-accent]')
-          if (accent) {
-            widget.style.setProperty('--acc', accent.dataset.accent)
-            press(accent)
+          if (target.closest('.aw-system')) {
+            state.accent = 'system'
+            render()
             return
           }
-          const toggle = event.target.closest('button[data-toggle]')
-          if (toggle) {
-            const on = toggle.getAttribute('aria-pressed') !== 'true'
-            toggle.setAttribute('aria-pressed', String(on))
-            widget.setAttribute('data-' + toggle.dataset.toggle, on ? 'on' : 'off')
+          const shuffle = target.closest('button[data-shuffle]')
+          if (shuffle) {
+            const picked = shuffle.dataset.shuffle
+            state.shuffle = picked === 'off'
+              ? state.shuffle === 'off' ? 'daily' : 'off'
+              : picked
+            render()
+            return
+          }
+          const layout = target.closest('button[data-layout]')
+          if (layout) {
+            state.layout = layout.dataset.layout
+            render()
+            return
+          }
+          const fact = target.closest('button[data-fact]')
+          if (fact) {
+            const key = fact.dataset.fact
+            if (state.facts.has(key)) state.facts.delete(key)
+            else state.facts.add(key)
+            render()
+            return
+          }
+          const contrast = target.closest('button[data-contrast]')
+          if (contrast) {
+            state.contrast = contrast.dataset.contrast
+            render()
           }
         })
+
+        // The Glass tile is the level: a drag anywhere on it moves the fill, as GlassTile does,
+        // and a tap alone still picks the theme (the click handler above).
+        const glassTile = widget.querySelector('.aw-tile[data-theme="glass"]')
+        const setLevel = (level) => {
+          state.level = Math.min(1, Math.max(0, level))
+          state.theme = 'glass'
+          render()
+        }
+        glassTile.addEventListener('pointerdown', (event) => {
+          if (event.pointerType === 'mouse' && event.button !== 0) return
+          chooseTheme('glass')
+          const height = glassTile.getBoundingClientRect().height || 74
+          let last = event.clientY
+          try {
+            glassTile.setPointerCapture(event.pointerId)
+          } catch {
+            // A capture the browser refuses still leaves the pointer events on the tile.
+          }
+          const move = (moveEvent) => {
+            setLevel(state.level - (moveEvent.clientY - last) / height)
+            last = moveEvent.clientY
+          }
+          const end = () => {
+            glassTile.removeEventListener('pointermove', move)
+            glassTile.removeEventListener('pointerup', end)
+            glassTile.removeEventListener('pointercancel', end)
+          }
+          glassTile.addEventListener('pointermove', move)
+          glassTile.addEventListener('pointerup', end)
+          glassTile.addEventListener('pointercancel', end)
+        })
+        glassTile.addEventListener('keydown', (event) => {
+          const step = event.shiftKey ? 0.1 : 0.02
+          if (event.key === 'ArrowUp' || event.key === 'ArrowRight') setLevel(state.level + step)
+          else if (event.key === 'ArrowDown' || event.key === 'ArrowLeft') setLevel(state.level - step)
+          else if (event.key === 'Home') setLevel(0)
+          else if (event.key === 'End') setLevel(1)
+          else return
+          event.preventDefault()
+        })
+
+        // System follows the phone, so a change of preference repaints the card under it.
+        const follow = () => {
+          if (state.theme === 'system' || (state.theme === 'glass' && state.base === 'system')) render()
+        }
+        if (media.addEventListener) media.addEventListener('change', follow)
+        else if (media.addListener) media.addListener(follow)
+
+        /* The demo's tabs: one phone, four screens. The captions are the marketing that used to be
+           four rows further down the page, so the thing being described is always on screen. */
+        const CAPTIONS = {
+          gestures: '<b>Gestures.</b> Seek in the picture, volume on its left side, brightness on its right. Nothing to aim at.',
+          share: '<b>Share.</b> Drag either end. The link carries the start, and the end rides along for GlassTube to read.',
+          look: "<b>Appearance.</b> Four themes, eighteen accents, three layouts, ten facts. The preview is the app's own card.",
+        }
+        const tabs = Array.from(document.querySelectorAll('.try-tab'))
+        const scenes = Array.from(widget.querySelectorAll('.try-scene'))
+        const caption = document.querySelector('[data-caption]')
+        const showScene = (scene) => {
+          for (const tab of tabs) tab.setAttribute('aria-selected', String(tab.dataset.scene === scene))
+          for (const panel of scenes) panel.hidden = panel.dataset.scene !== scene
+          if (caption && CAPTIONS[scene]) caption.innerHTML = CAPTIONS[scene]
+        }
+        for (const tab of tabs) tab.addEventListener('click', () => showScene(tab.dataset.scene))
+
+        render()
+      })()
+    </script>
+
+    <script>
+      /* Gestures: the picture is the surface, as the app's player is. The middle seeks, the sides
+         set volume and brightness, and the pill names what moved and where it landed. */
+      ;(() => {
+        const stage = document.querySelector('[data-gesture]')
+        if (!stage) return
+        const hud = stage.querySelector('[data-hud]')
+        const watched = stage.querySelector('[data-watched]')
+        const head = stage.querySelector('[data-head]')
+        const TOTAL = 2467 // the same 41:07 the player scene and the notification use
+        let position = 372
+        let volume = 0.62
+        let brightness = 0.8
+        let drag = null
+
+        const format = (seconds) => {
+          const total = Math.max(0, Math.round(seconds))
+          const h = Math.floor(total / 3600)
+          const m = Math.floor((total % 3600) / 60)
+          const s = total % 60
+          const pad = (value) => String(value).padStart(2, '0')
+          return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`
+        }
+        const draw = () => {
+          const fraction = position / TOTAL
+          watched.style.width = `${fraction * 100}%`
+          head.style.left = `calc(${fraction * 100}% - 1.5px)`
+        }
+        const show = (html) => {
+          hud.hidden = false
+          hud.innerHTML = html
+        }
+        const hide = () => {
+          hud.hidden = true
+        }
+
+        const VOLUME_ICON =
+          '<svg class="level-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/></svg>'
+        const BRIGHTNESS_ICON =
+          '<svg class="level-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>'
+
+        // The app's LevelPill: the fill is the level, the percentage rides above the icon.
+        const levelHud = (kind, level) => {
+          const percent = Math.round(Math.min(1, Math.max(0, level)) * 100)
+          const icon = kind === 'volume' ? VOLUME_ICON : BRIGHTNESS_ICON
+          return `<span class="level-pill"><span class="level-fill" style="height:${percent}%"></span><span class="level-stack"><span class="level-value">${percent}%</span>${icon}</span></span>`
+        }
+        const seekHud = (text) => `<span class="seek-pill">${text}</span>`
+
+        // The app's zones: the outer 24 px is the system's, then thirds — volume on the left,
+        // brightness on the right, seek in the middle.
+        const zoneAt = (x, width) => {
+          if (x < 24 || x > width - 24) return 'edge'
+          if (x < width / 3) return 'volume'
+          if (x > (width * 2) / 3) return 'brightness'
+          return 'seek'
+        }
+
+        stage.addEventListener('pointerdown', (event) => {
+          if (event.pointerType === 'mouse' && event.button !== 0) return
+          const rect = stage.getBoundingClientRect()
+          const zone = zoneAt(event.clientX - rect.left, rect.width)
+          if (zone === 'edge') return
+          event.preventDefault()
+          drag = {
+            zone,
+            x: event.clientX,
+            y: event.clientY,
+            start: position,
+            volume,
+            brightness,
+            height: rect.height,
+          }
+          try {
+            stage.setPointerCapture(event.pointerId)
+          } catch {
+            // A refused capture still leaves the pointer events arriving on the stage.
+          }
+          show(zone === 'seek' ? seekHud(`${format(position)} · drag`) : levelHud(zone, zone === 'volume' ? volume : brightness))
+        })
+        stage.addEventListener('pointermove', (event) => {
+          if (!drag) return
+          if (drag.zone === 'seek') {
+            const width = stage.getBoundingClientRect().width || 1
+            const delta = ((event.clientX - drag.x) / width) * TOTAL
+            position = Math.min(TOTAL, Math.max(0, drag.start + delta))
+            draw()
+            const sign = delta >= 0 ? '+' : '\u2212'
+            show(seekHud(`${format(position)} · ${sign}${Math.abs(Math.round(delta))}s`))
+          } else if (drag.zone === 'volume') {
+            volume = Math.min(1, Math.max(0, drag.volume + (drag.y - event.clientY) / drag.height))
+            show(levelHud('volume', volume))
+          } else {
+            brightness = Math.min(1, Math.max(0, drag.brightness + (drag.y - event.clientY) / drag.height))
+            show(levelHud('brightness', brightness))
+          }
+        })
+        const end = () => {
+          drag = null
+          hide()
+        }
+        stage.addEventListener('pointerup', end)
+        stage.addEventListener('pointercancel', end)
+        draw()
+      })()
+    </script>
+
+    <script>
+      /* The ShareSheet demo. One model — the video's length, where it is, and the two ends — and the
+         bar, the labels and the shared link all come from it. The sheet's own rules: the start is
+         the playhead when it opens, the end is thirty seconds later, and an end within a second of
+         the start means a single moment rather than a clip. */
+      ;(() => {
+        const sheet = document.querySelector('[data-share="bar"]')?.closest('.share-panel')
+        if (!sheet) return
+
+        const TOTAL = 300 // 5:00, short enough that a thirty-second clip is a visible gap
+        // Big Buck Bunny: a real public video, so a pasted link works.
+        const WATCH = 'https://www.youtube.com/watch?v=aqz-KE-bpKQ'
+        const state = { playhead: 96, start: 96, end: 126 }
+
+        const clamp = (value, low, high) => Math.min(high, Math.max(low, value))
+        const format = (seconds) => {
+          const total = Math.max(0, Math.round(seconds))
+          const h = Math.floor(total / 3600)
+          const m = Math.floor((total % 3600) / 60)
+          const s = total % 60
+          const pad = (value) => String(value).padStart(2, '0')
+          return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`
+        }
+        const isClip = () => state.end - state.start > 1
+        const at = (seconds) => `${(seconds / TOTAL) * 100}%`
+
+        const bar = sheet.querySelector('[data-share="bar"]')
+        const segment = sheet.querySelector('[data-share="segment"]')
+        const playhead = sheet.querySelector('[data-share="now"]')
+        const startHandle = sheet.querySelector('[data-handle="start"]')
+        const endHandle = sheet.querySelector('[data-handle="end"]')
+        const range = sheet.querySelector('[data-share="range"]')
+        const length = sheet.querySelector('[data-share="length"]')
+        const goEnd = sheet.querySelector('[data-share="goend"]')
+        const send = sheet.querySelector('[data-share="send"]')
+
+        const render = () => {
+          const clip = isClip()
+          startHandle.style.left = at(state.start)
+          endHandle.style.left = at(state.end)
+          endHandle.hidden = !clip
+          segment.hidden = !clip
+          segment.style.left = at(state.start)
+          segment.style.width = `${((state.end - state.start) / TOTAL) * 100}%`
+          playhead.style.left = at(state.playhead)
+          range.textContent = clip
+            ? `${format(state.start)} \u2013 ${format(state.end)}`
+            : `at ${format(state.start)}`
+          length.textContent = clip ? format(state.end - state.start) : ''
+          goEnd.hidden = !clip
+          startHandle.setAttribute('aria-valuenow', String(Math.round(state.start)))
+          startHandle.setAttribute('aria-valuetext', format(state.start))
+          endHandle.setAttribute('aria-valuenow', String(Math.round(state.end)))
+          endHandle.setAttribute('aria-valuetext', format(state.end))
+        }
+
+        const setStart = (seconds) => {
+          state.start = clamp(Math.min(seconds, state.end - 1), 0, Math.max(0, state.end - 1))
+        }
+        const setEnd = (seconds) => {
+          state.end = clamp(Math.max(seconds, state.start + 1), state.start + 1, TOTAL)
+        }
+
+        const secondsAt = (clientX) => {
+          const rect = bar.getBoundingClientRect()
+          if (rect.width <= 0) return state.start
+          return clamp(((clientX - rect.left) / rect.width) * TOTAL, 0, TOTAL)
+        }
+        const moveHandle = (handle, clientX) => {
+          if (handle === 'start') setStart(secondsAt(clientX))
+          else setEnd(secondsAt(clientX))
+          render()
+        }
+        const nearest = (clientX) => {
+          if (!isClip()) return 'start'
+          const rect = bar.getBoundingClientRect()
+          const x = clientX - rect.left
+          const startX = (state.start / TOTAL) * rect.width
+          const endX = (state.end / TOTAL) * rect.width
+          return Math.abs(x - startX) <= Math.abs(x - endX) ? 'start' : 'end'
+        }
+
+        // The bar is the drag surface, as the sheet's own canvas is: the press lands on whichever
+        // end is nearer, and the same finger keeps that end.
+        bar.addEventListener('pointerdown', (event) => {
+          if (event.pointerType === 'mouse' && event.button !== 0) return
+          event.preventDefault()
+          const handle = nearest(event.clientX)
+          moveHandle(handle, event.clientX)
+          try {
+            bar.setPointerCapture(event.pointerId)
+          } catch {
+            // A refused capture still leaves the pointer events arriving on the bar.
+          }
+          const move = (moveEvent) => moveHandle(handle, moveEvent.clientX)
+          const end = () => {
+            bar.removeEventListener('pointermove', move)
+            bar.removeEventListener('pointerup', end)
+            bar.removeEventListener('pointercancel', end)
+          }
+          bar.addEventListener('pointermove', move)
+          bar.addEventListener('pointerup', end)
+          bar.addEventListener('pointercancel', end)
+        })
+
+        for (const [name, element] of [['start', startHandle], ['end', endHandle]]) {
+          element.addEventListener('keydown', (event) => {
+            const step = event.shiftKey ? 10 : 1
+            let delta = 0
+            if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') delta = -step
+            else if (event.key === 'ArrowRight' || event.key === 'ArrowUp') delta = step
+            else return
+            event.preventDefault()
+            if (name === 'start') setStart(state.start + delta)
+            else setEnd(state.end + delta)
+            render()
+          })
+        }
+
+        const shareText = () => isClip()
+          ? `${WATCH}&t=${Math.round(state.start)}s&end=${Math.round(state.end)}s`
+          : `${WATCH}&t=${Math.round(state.start)}s`
+
+        const sendLink = () => {
+          const text = shareText()
+          if (navigator.share) {
+            navigator.share({ text }).catch(() => {})
+            return
+          }
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(() => {
+              const label = send.textContent
+              send.textContent = 'Copied'
+              setTimeout(() => {
+                send.textContent = label
+              }, 1400)
+            }).catch(() => {})
+          }
+        }
+
+        sheet.addEventListener('click', (event) => {
+          if (event.target.closest('[data-share="sync"]')) {
+            if (isClip()) {
+              state.end = clamp(
+                Math.max(state.playhead, state.start + 1),
+                state.start + 1,
+                TOTAL,
+              )
+            } else {
+              setStart(state.playhead)
+            }
+            render()
+            return
+          }
+          if (event.target.closest('[data-share="gostart"]')) {
+            state.playhead = state.start
+            render()
+            return
+          }
+          if (event.target.closest('[data-share="goend"]')) {
+            state.playhead = state.end
+            render()
+            return
+          }
+          const nudge = event.target.closest('[data-nudge]')
+          if (nudge) {
+            setStart(state.start + Number(nudge.dataset.nudge))
+            state.playhead = state.start
+            render()
+            return
+          }
+          if (event.target.closest('[data-share="send"]')) sendLink()
+        })
+
+        render()
       })()
     </script>
 

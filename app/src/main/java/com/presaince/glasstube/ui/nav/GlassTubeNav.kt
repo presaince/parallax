@@ -290,11 +290,18 @@ fun GlassTubeNav(container: AppContainer, theme: ThemeController) {
             stack = listOf(tabRoutes[index])
         },
         onOpenSettings = {
-            // Always at the root, and never twice: the single Settings entry is brought forward
-            // rather than pushed again. A child of Settings (Logs) closes on the way.
-            settingsSection = null
-            val root = stack.indexOfLast { it is Route.Settings }
-            stack = if (root >= 0) stack.take(root + 1) else stack + Route.Settings
+            // The icon is a toggle (`201231`): it opens Settings, and a press while Settings is
+            // open puts it away again. Inside a section the press is Back's first — out of the
+            // section, then out of Settings — because a menu that only ever opens is a button
+            // wearing the wrong mark.
+            if (current == Route.Settings) {
+                back()
+            } else {
+                // Never twice: the single Settings entry is brought forward rather than pushed.
+                settingsSection = null
+                val root = stack.indexOfLast { it is Route.Settings }
+                stack = if (root >= 0) stack.take(root + 1) else stack + Route.Settings
+            }
         },
         onOpenBug = {
             BugShot.capture(activity) { push(Route.Bug) }

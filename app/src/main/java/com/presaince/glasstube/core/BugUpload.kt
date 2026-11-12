@@ -35,6 +35,18 @@ sealed interface BugUploadState {
 }
 
 /**
+ * The line Diagnostics keeps for a report that landed. The bundle has left the device, so this is
+ * the only place the person can see what they filed — the generated file name alone says nothing
+ * about it (`112509`). Flattened and capped so one entry stays one readable line.
+ */
+internal fun filedLine(name: String, note: String, limit: Int = 120): String {
+    val flat = note.replace(Regex("\\s+"), " ").trim()
+    if (flat.isEmpty()) return "filed $name"
+    val kept = if (flat.length > limit) flat.take(limit - 1).trimEnd() + "…" else flat
+    return "filed $name: $kept"
+}
+
+/**
  * Ships a bug report to GlassTube's own drop box, the same path Oko uses: one JSON body, one POST,
  * a filename in a header that the server sanitises rather than trusts.
  *
@@ -109,8 +121,9 @@ object BugUpload {
                 val settled = post(body, name)
                 _state.value = settled
                 // The report leaves the device, so without this line the person's own history of
-                // what they filed disappears with it. Diagnostics is where they look for it.
-                if (settled is BugUploadState.Done) log.info("bug", "filed ${settled.name}")
+                // what they filed disappears with it. Diagnostics is where they look for it, and
+                // the note is what they typed — a file name says nothing (`112509`).
+                if (settled is BugUploadState.Done) log.info("bug", filedLine(settled.name, note))
             } catch (error: Exception) {
                 _state.value = BugUploadState.Failed(error.message ?: error.javaClass.simpleName)
             }

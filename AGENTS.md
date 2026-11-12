@@ -68,9 +68,11 @@ runs on the JVM; anything touching `Context`, SharedPreferences or Room runs und
 
 ## Data
 
-- Room is at version 11 with `fallbackToDestructiveMigration`. Nothing has shipped, so this is
-  allowed. **Before release:** turn on `exportSchema`, commit the schema, write real migrations,
-  delete the fallback.
+- Room is at version 13 with `exportSchema = true` and schemas 11–13 committed under `app/schemas/`.
+  There is no destructive fallback: every version bump ships a hand-written migration plus a case in
+  `data/db/MigrationTest.kt`, which builds a file from the previous exported schema and opens it at
+  the new version. A migration that cannot be tested that way needs a reason in the commit, not a
+  skip.
 - Cache TTLs from the plan: metadata 6h, comments 1h, related 12h, channel uploads 30m. Only
   comments are cached today; the rest is still TODO.
 - Timestamp Resync: off by default, user's own key in the Android Keystore, 5-minute window before
@@ -147,3 +149,9 @@ a pass is only ever as wide as the device it ran on.
 
 Release is personal only, for the foreseeable future. No F-Droid listing, no public support
 promise.
+
+This is a beta with one user: the owner, on the owner's Pixel. Nobody else has installed it. A
+regression costs the owner's time and nothing else, so structural churn needs no audience
+protection — say so instead of hedging. The release page and live `version.json` exist but nobody
+has used them; that stops being true the first time a URL is shared, so say which it is when it
+matters.

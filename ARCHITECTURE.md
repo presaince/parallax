@@ -8,9 +8,10 @@ How the app is put together and why. Behaviour is in `BEHAVIORS.md`; state and n
 - Native Android, Kotlin, Jetpack Compose, Material 3. Package `com.presaince.glasstube`.
 - `minSdk` 33, `targetSdk` 36, `compileSdk` 36. No core-library desugaring: the floor is 33 because
   NewPipeExtractor calls JDK methods that only exist from Android 13.
-- Room `version = 11`, `exportSchema = true` (`app/schemas/`), `fallbackToDestructiveMigration`.
-  Nothing has shipped. Migrations are still destructive until the schema is released.
-- Version `0.3.0`, `versionCode` 3. Personal release only; no store listing.
+- Room `version = 13`, `exportSchema = true` (`app/schemas/`), real migrations only: 11 → 12 → 13
+  are written and covered by `MigrationTest`, which builds a v11 file from the exported schema and
+  opens it at 13. There is no destructive fallback to catch a mistake.
+- Version `0.3.11`, `versionCode` 14. Personal release only; no store listing.
 - GPLv3. NewPipeExtractor is a dependency, never vendored.
 - Offline-first for everything the app owns; the network is only for YouTube, SponsorBlock, an
   optional model endpoint, and the bug drop box.
@@ -164,7 +165,9 @@ No feature package imports another feature package; navigation is the go-between
 - **Minification off.** An untested R8 pass is a crash waiting to happen. Cost: 32 MB APKs.
 - **Release signing from env or `keystore.properties`.** Gradle applies the signing config when
   either provides a key; otherwise the APK is unsigned. The manual `apksigner` path remains (see Build).
-- **Destructive migrations while pre-release.** Fast schema changes; must be removed before release.
+- **No destructive migrations.** A schema change ships with a hand-written migration and a test
+  that opens a file from the previous version; a wrong one loses the reader's history rather than
+  clearing a cache, and `MigrationTest` is the only thing standing in front of that.
 
 ## Failure modes
 
@@ -178,9 +181,12 @@ No feature package imports another feature package; navigation is the go-between
 - **A stream that stops delivering bytes** — the player has its own OkHttp client (`playerHttp`):
   same pool and DNS cache as the extractor, 8 s connect and read instead of the extractor's 30 s,
   because a silent socket held for half a minute is what "huge queue time" was. A wait past 20 s is
-  published as a stall and spends one of the same two retries an error gets. Both retries live in
+  published as a stall. One tick decides what to do with it (`PlaybackTick.tickAction`): step one
+  rung down the quality ladder if the tolerance says the connection cannot carry the height, then
+  spend one of the two quiet tries, then say in the log that it gave up. Both live in
   `PlaybackController`, so they fire with the screen gone, and the budget belongs to the video, not
-  to a visit.
+  to a visit. A step down is written to `KEY_QUALITY_SESSION`, so it does not rewrite the reader's
+  own choice; the next video starts at their pick again.
 - **Cache trouble** — `FLAG_IGNORE_CACHE_ON_ERROR` keeps a cleared, full or corrupt media cache a
   re-download rather than a dead stream.
 - **Seeking back** — a 15 s tail is retained behind the playhead from the previous keyframe
@@ -201,14 +207,21 @@ No feature package imports another feature package; navigation is the go-between
   initialised on the JVM.
 - `ExtractorCanaryTest` is opt-in (`-Dglasstube.canary=true`) and hits the live extractor.
 - The suite is never attached to `assembleDebug`: a compile check stays a compile check.
-- The suite runs green; 263 tests at the time of writing, 2 skipped (the canary). Added 2026-11-09: `BackupReaderTest` (the file is read by
+- The suite runs green; 540 tests across 87 files at the time of writing, 0 failures. Added
+  2026-11-12: `PlaybackTickTest` (the watchdog's order: a full stall steps down before any quiet
+  try, a choppy picture has to meet the tolerance, give-up is the last resort), `PlayerFormatTest`
+  (the player's arithmetic, moved out of the screen into `PlayerFormat.kt`), `MigrationTest`
+  (11 → 13 against a real file) and a `qualityInForce` case. Added 2026-11-09: `BackupReaderTest` (the file is read by
   content, not by name), `SettingsImportTest` (round trip, unknown keys refused, AI gated on a
   key), the rewritten `SettingsExportTest` (v2 shape, no secret) and recipe `describe` cases. Before
   that: `ContentRepositoryTest` (refresh preserves learned counts), `DiscoverEngineTest` (seen
   filtering and named empty reasons), `BugUploadTest` (429 cooldown, bad replies), importer skipped
   counts, `FeedUiStateTest`, `SortRowTest` (the one Compose test, proving the Robolectric path).
-- Room schema v11 is exported and committed under `app/schemas/`. Migration tests still need
-  instrumentation; the DAO queries are covered in memory.
+- Room schemas 11, 12 and 13 are exported and committed under `app/schemas/`. `MigrationTest` builds
+  a v11 file from the exported `createSql`, seeds a history and a subscription row, opens it at 13
+  through the real `Room.databaseBuilder`, and checks the rows survived. It covers 11 → 13 only,
+  because 5–10 were never exported and an older file cannot be built faithfully. The DAO queries are
+  covered in memory in `DbSmokeTest`.
 - Everything else is a hand check on the Pixel 7 (`28221FDH20001G`). A pass is only as wide as the
   device it ran on, and the owner decides whether it passed.
 
@@ -288,11 +301,13 @@ in every installed app. `node --test scripts/bump-version.test.mjs` covers the p
   CSV). Entries without a URL are now counted as skipped and named in the import message.
 - Bored Mode empty picks are now named: no related videos, everything seen, all subscribed, or
   filters. The cause is in the error message instead of a generic empty page.
-- Room is v11 with the schema exported and committed. Before release: real migrations and drop the
-  destructive fallback; migration tests need instrumentation.
+- Room is v13 with schemas 11–13 exported and committed, real migrations and `MigrationTest` over
+  11 → 13. Nothing older than 11 can be tested, because 5–10 were never exported; that only matters
+  for an install that no longer exists.
 - No git remote; the repository is local only.
 - The direct build's signing step is manual and unverified by a clean install.
-- `PlayerScreen.kt` is 1,918 lines with no tests. `PlaybackController`'s pure rules are tested
-  (`PlaybackGateTest`, `PlaybackStallTest`, `PlaybackRecoveryTest`); the class itself and every
-  ViewModel besides the feed state are not. The player regressions in the UI passes all live in
-  that file.
+- `PlayerScreen.kt` is 3,514 lines. It is sliced into tested modules — `PlayerStatusTest`,
+  `PlayerFormatTest`, the scrub/gesture rules — but the composition itself has no test, so a
+  layout regression is still only found by hand. `PlaybackController`'s pure rules are tested
+  (`PlaybackGateTest`, `PlaybackStallTest`, `PlaybackRecoveryTest`, `PlaybackTickTest`); the class
+  itself and every ViewModel besides the feed state are not.

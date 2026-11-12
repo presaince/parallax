@@ -78,4 +78,32 @@ class BugUploadTest {
         assertEquals("HTTP 500", failed.reason)
         assertEquals(null, failed.retryAtMillis)
     }
+
+    @Test
+    fun `a filed report keeps the words the person typed, not just the file name`() {
+        // 112509, asked three times: once the bundle has left the phone, the log is the only place
+        // the note still exists.
+        assertEquals(
+            "filed glasstube_Google_Pixel_7_14_20261112-112509.json: it buffers then stops",
+            filedLine("glasstube_Google_Pixel_7_14_20261112-112509.json", "it buffers then stops"),
+        )
+    }
+
+    @Test
+    fun `a note written over several lines stays one log line`() {
+        assertEquals("filed r.json: first second", filedLine("r.json", "first\n  second\n"))
+    }
+
+    @Test
+    fun `a note longer than the cap is cut rather than wrapped`() {
+        val line = filedLine("r.json", "x".repeat(300))
+
+        assertTrue(line.endsWith("…"))
+        assertEquals("filed r.json: ".length + 120, line.length)
+    }
+
+    @Test
+    fun `an empty note leaves the file name on its own`() {
+        assertEquals("filed r.json", filedLine("r.json", "   \n "))
+    }
 }

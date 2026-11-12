@@ -4,6 +4,7 @@
  */
 package com.presaince.glasstube.data.resync
 
+import com.presaince.glasstube.core.decodeEntities
 import com.presaince.glasstube.data.model.Cue
 
 /**
@@ -79,5 +80,5 @@ object SubtitleParser {
         return seconds(value)
     }
 
-    private fun clean(line: String): String = TAG.replace(line, "").trim()
+    private fun clean(line: String): String = decodeEntities(TAG.replace(line, "").trim())
 }

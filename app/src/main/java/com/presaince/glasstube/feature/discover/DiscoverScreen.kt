@@ -50,6 +50,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.runtime.getValue
@@ -131,6 +132,17 @@ fun DiscoverScreen(
     }
     // Bored's own setting: subscribed channels are the feed's job, not the walk's.
     var hideSubs by remember { mutableStateOf(prefs.getBoolean("bored_hide_subscribed", true)) }
+    // Settings → Feed has the same switch. Following the stored key keeps the two doors showing
+    // the same value while both screens are composed.
+    DisposableEffect(prefs) {
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == "bored_hide_subscribed") {
+                hideSubs = prefs.getBoolean("bored_hide_subscribed", true)
+            }
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
     var managing by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 

@@ -49,8 +49,6 @@ data class WalkStep(
     val score: Double,
 )
 
-private data class Node(val video: VideoSummary, val path: List<String>)
-
 /**
  * A bounded random walk over the related-video graph, scored by a recipe. The path is kept because
  * explaining a pick is the one thing the incumbent feed cannot do.
@@ -75,7 +73,10 @@ class DiscoverEngine(
     ) : this(source, RoomDiscoverStore(db), random, hideSubscribed, channelFeed)
 
     /** A page of candidates and the sentence to show when it produced none. */
-    private class Pool(val nodes: List<Node>, val empty: String)
+    private class Pool(val nodes: List<RelatedNode>, val empty: String)
+
+    /** The one traversal, shared with the player's Up next. */
+    private val relatedWalk = RelatedWalk(source)
 
     /**
      * One page, not a four-hop walk: the list is what people use, and a deep walk spent ten
@@ -147,19 +148,9 @@ class DiscoverEngine(
         check(seeds.isNotEmpty()) {
             "Nothing to walk from — refresh the feed or watch something"
         }
-        val visited = seeds.map { it.id }.toMutableSet()
-        val candidates = mutableListOf<Node>()
-        for (node in seeds.take(recipe.walk.branch)) {
-            val related = when (val result = source.related(node.id)) {
-                is AppResult.Ok -> result.value
-                is AppResult.Err -> emptyList()
-            }
-            related.take(RELATED_PER_NODE).forEach { video ->
-                if (video.id !in visited) {
-                    candidates += Node(video, listOf(node.title, video.title))
-                }
-            }
-        }
+        val visited = seeds.map { it.id }.toSet()
+        val frontier = seeds.take(recipe.walk.branch).map { RelatedNode(it, listOf(it.title)) }
+        val candidates = relatedWalk.hop(frontier, visited)
         return Pool(candidates, "No related videos found for ${seeds.size} seed(s)")
     }
 
@@ -176,7 +167,7 @@ class DiscoverEngine(
         val remote = found.distinctBy { it.id }.take(seed.count)
         if (remote.isNotEmpty()) {
             return Pool(
-                remote.map { Node(it, listOf("Search: \"${seed.query}\"")) },
+                remote.map { RelatedNode(it, listOf("Search: \"${seed.query}\"")) },
                 "No results for \"${seed.query}\"",
             )
         }
@@ -189,7 +180,7 @@ class DiscoverEngine(
             }
         }.ifEmpty { local }
         return Pool(
-            matched.take(seed.count * 2).map { Node(it.toSummary(), listOf("From your library")) },
+            matched.take(seed.count * 2).map { RelatedNode(it.toSummary(), listOf("From your library")) },
             "Nothing found for \"${seed.query}\" — the search failed and your library had no match",
         )
     }
@@ -221,13 +212,13 @@ class DiscoverEngine(
         val remote = fetched.flatten().distinctBy { it.id }
         if (remote.isNotEmpty()) {
             return Pool(
-                remote.map { Node(it, listOf("New from ${it.channelName}")) },
+                remote.map { RelatedNode(it, listOf("New from ${it.channelName}")) },
                 "No uploads from the channels you follow",
             )
         }
         val local = store.recentVideos(POOL).take(seed.count * RSS_PER_CHANNEL)
         return Pool(
-            local.map { Node(it.toSummary(), listOf("From your library")) },
+            local.map { RelatedNode(it.toSummary(), listOf("From your library")) },
             "No uploads from the channels you follow, and your library is empty",
         )
     }
@@ -247,23 +238,11 @@ class DiscoverEngine(
                 ).toSet()
             val steps = mutableListOf<WalkStep>()
             val subscribed = subscribedChannels()
-            var frontier = seeds.map { Node(it, listOf(it.title)) }
+            var frontier = seeds.map { RelatedNode(it, listOf(it.title)) }
             val now = System.currentTimeMillis()
 
             repeat(recipe.walk.hops) {
-                val candidates = mutableListOf<Node>()
-                for (node in frontier.take(recipe.walk.branch)) {
-                    val related = when (val result = source.related(node.video.id)) {
-                        is AppResult.Ok -> result.value
-                        // One dead branch should not end the walk.
-                        is AppResult.Err -> emptyList()
-                    }
-                    related.take(RELATED_PER_NODE).forEach { video ->
-                        if (video.id !in visited) {
-                            candidates += Node(video, node.path + video.title)
-                        }
-                    }
-                }
+                val candidates = relatedWalk.hop(frontier.take(recipe.walk.branch), visited)
 
                 val scored = candidates
                     .filter { it.video.id !in seen }
@@ -342,7 +321,6 @@ class DiscoverEngine(
     )
 
     private companion object {
-        const val RELATED_PER_NODE = 12
         /** The free channel feed publishes the latest fifteen, which is a page on its own. */
         const val RSS_PER_CHANNEL = 15
         const val POOL = 200

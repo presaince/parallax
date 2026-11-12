@@ -8,6 +8,369 @@ place. The shell and the second UI pass landed 2026-11-05 (bottom navigation, th
 inline comments, mini-player, pull-to-refresh); the device check for that pass is still pending.
 No git repo — Bodi tests a build for a few days first.
 
+## The stall the ladder could not see, 2026-11-12
+
+Owner: `110306`, "loading video buffers then stops then reverts to previous video". He would not file
+another report, so the answer came off the log on the phone instead of from waiting for one.
+
+- **Two rules in two files, and neither could see the other.** The quality ladder lived in
+  `PlayerScreen` and counted only `choppyForMs`; choppy needs `STATE_READY`, and a hard stall is
+  `STATE_BUFFERING`, so the stall he complained about could never count as an episode. The recovery
+  budget lived in `PlaybackController` and spent both quiet tries at the same height. The log says it
+  line for line: `choppy runway=2602ms` at `458981ms`, `stalled 15085ms`, `stall recovery 1/2 …
+  target=720p`, `stalled 15063ms`, `stall recovery 2/2 … target=720p`, then silence — dead at 720p
+  with the ladder still at two of its three steps.
+- **One owner, one rule.** `playback/PlaybackTick.kt` holds `tickAction`: no video, no connection or
+  a retry already in flight does nothing; an error goes straight to a fresh extract, because a
+  rejected URL is not a height problem; a full 20 s stall steps one rung down **before** any quiet
+  try is spent; then a quiet try; then one `gave up` line instead of buffering in silence. A choppy
+  picture that never fully stalls still has to meet the tolerance, and with nowhere to step it is
+  left alone rather than spending a retry on a stream that is merely slow.
+- **A stall is conclusive on its own.** The tolerance window is 30 s and stalls arrive 20 s apart, so
+  three of them can never fit inside it — waiting for the count was waiting for the quiet tries to
+  run out, which is exactly how the log ends. A stall is still stamped as an episode, so a mixed run
+  of choppy and stalled spells reads as one bad connection.
+- **The step down is the session's, not the reader's.** It writes `KEY_QUALITY_SESSION`, and the
+  picker clears it, so a bad ten minutes on a train does not rewrite the ceiling they chose; the next
+  video starts at their pick. `qualityInForce` is the one-line rule and `NewPipeSource` reads it
+  before `snapToLadder`.
+- **The screen keeps only the sentence.** `degradedTo` drives the notice and the picker calls
+  `playback.setQuality()`, so the ladder now acts with the screen gone or on the mini-player.
+- **`110114` was marked done and was not.** It claimed a video that keeps stalling drops one stop;
+  only a picture that was still playing could reach that rule. Corrected in `docs/reports.md`.
+- **Migration tests, without a phone.** `data/db/MigrationTest.kt` builds a version-11 file from the
+  exported `createSql`, seeds a history row and a subscription, and opens it at 13 through the real
+  `Room.databaseBuilder`, checking both survived and that the hidden set arrived writable. Hand-rolled
+  because `androidx.room:room-testing` wants an `androidTest` source set; 11 → 13 only, because 5–10
+  were never exported.
+- **The player's arithmetic left the screen.** `PlayerFormat.kt` holds `segmentFrameMs`,
+  `segmentThumbUrl`, `scrubProgress` and `volumeFraction`, with `PlayerFormatTest` on them. Only what
+  was branchy and untested moved; the rest of the 3,514-line screen is unchanged.
+- **A filed report's log line carries the note** (`112509`, asked three times). The line was
+  `filed <name>` — a file name nobody chose — so Diagnostics was a list of things sent rather than a
+  history of what the reader said. It now reads `filed <name>: <note>`, flattened and capped at 120
+  characters, because one entry has to stay one readable line. `filedLine` is pure and has four
+  cases.
+- Verified: `:app:testDebugUnitTest` green, 540 tests in 87 files, 0 failures, including
+  `PlaybackTickTest` (14), `PlayerFormatTest` (10), a `qualityInForce` case and `MigrationTest` (3);
+  `:app:assembleDebug`, installed on the Pixel 7 over the existing build. **The gate is the hand
+  check**: a video that buffers should now log `degrade to …` and keep playing.
+
+## The offer in plain words, 2026-11-12
+
+Owner: the hero was AI slop; self-repair should be a key feature; the screen-off paragraph and its
+card were pointless; PiP is table stakes; "playhead" is jargon.
+
+- **Hero is `YouTube, without the account.`** and the sub says what it costs: no account, the
+  database is on the phone, audio survives the screen going dark, and the demo is the app.
+- **The screen-off section is gone**, with its notification card. The hero sentence carries the
+  claim; the picture was decoration.
+- **PiP and Resync tiles are gone**; two replace them: one file for the whole phone (subscriptions,
+  settings, recipes, notes, history, resume points — `Backup.kt`), and AI as an optional mode on
+  the reader's own key, off until added.
+- **Self-repair is its own block**, and it is honest: a reset and one retry on an extractor break,
+  a refetch and two retries on a stalled stream (20 s, `STALL_LIMIT_MS`), and a re-asked search. It
+  does not claim to patch a changed YouTube page shape — that needs a new build, which About
+  installs from the page. The old clients waited for a person to ship a version.
+- **The share sample is a 5:00 video** (1:36–2:06), so the two handles sit 10% apart instead of
+  overlapping; the sheet's own rule is unchanged.
+- **"Playhead" is gone from the copy**: the notes tile says "the time you were at".
+- **One demo, not two.** The portfolio's GlassTube page no longer rebuilds the demo or the install
+  sheet: the three interactive mocks are deleted, its CTA is "Try it in the browser" to the download
+  page, and its showcase rows show the app's own screenshots. Its "On the phone" section went with
+  them, because it repeated the same captures. The two pages now share one demo, one install flow
+  and one hero.
+- **The install sheet is gone.** The CTA is a plain APK link and the hero's one line about Android
+  asking is the whole instruction; the dialog, its script, its CSS and the version wiring all went.
+- **The "Everything stays on the phone" tile was a lie.** It is now "The library is a file on the
+  phone": the database is local, the app talks to YouTube directly, there is no GlassTube account or
+  server, and the AI mode talks only to the model the reader points it at. The portfolio's copy got
+  the same sentence.
+- **Search repair is no longer named.** It was a specific fallback nobody meets; the self-repair
+  block now says "several layers" (reset, stall refetch, search retry) and keeps the honest limit.
+
+## The page is the demo, 2026-11-11
+
+Owner: "all the controls should be the CTA" — the page should read as "try a mock of this app in
+the browser", not a marketing scroll with three mocks buried in it.
+
+- **One demo surface in the hero**, not a phone on a desk: it fills its column (460–580 px tall,
+  no bezel) and becomes edge to edge on a phone. Three tabs: Gestures, Share, Appearance.
+- **Gestures is the first scene and the real control**: the app's own zones — 24 px system edge,
+  then thirds, volume left, brightness right, seek in the middle — and the app's own pills: a level
+  pill (fill, percentage, icon) for volume and brightness, a named pill for the seek.
+- **Glass is the app's model, not an approximation**: three aurora blobs at the accent, +52 and −46
+  degrees, at the app's peak, and `auroraScale` and `maxGlassLevel` ported, so Standard and High dim
+  the glow, clamp the dial, and the card can say "Glow at 95% keeps the page readable". The
+  percentage on the tile is the clamped level, and the chips, tiles and contrast card use the glass
+  variant fill, so the level visibly moves them.
+- **One state paints the whole demo**: picking Light on the Appearance tab turns the shell, the
+  cards and the sheet light; Glass paints the aurora behind the screen, so the translucent cards have
+  something to be translucent over.
+- **Feed and Player are gone.** Feed showed content, not a feature; the player's SponsorBlock, speed
+  and caption claims are feature tiles, and the card the system draws is a static section ("The
+  screen goes off. The audio does not.") with the honest note that the lock screen is Android's.
+- **Not claimed: a custom lock screen.** It would need a `showWhenLocked` activity over the keyguard,
+  which hides the reader's lock screen and only works while the app is in front.
+- Verified in the browser: three scenes, the volume and brightness level pills in the right zones,
+  the seek pill naming the jump, the aurora dimmed 95% at Standard and 65% at High, the glass fill
+  at `--glass-a` 0.300 at 100, the variant fill and panel on the same alphas, the "nothing here can
+  reach it" sentence at light glass High (the accent-fill pair), and no console errors.
+
+## The download opens the sheet, 2026-11-11
+
+Owner: the "card repaints" caption was in a horrible spot, and the page should have one download
+moment rather than four.
+
+- **The caption is gone.** The widget's pressed states are the instruction; a footnote 300 px below
+  the card was doing nothing.
+- **The install card became the sheet the CTA opens** — `dialog.sheet`, drawn as the app's own
+  bottom sheet (28 px top corners, grip, `#101014`, the app's inks), with the three steps and the
+  version-labelled button last, so the steps are read before the file leaves the page. The hero's
+  button and the "If it breaks" link open it; a modifier click, or no JS, still downloads the file.
+  Builds keeps its per-build links.
+- **The sheet closes on its button, the backdrop, Esc or the X**, and focus returns to whatever
+  opened it. `version.json` fills the hero label, the sheet's label and its version line.
+- Verified in the browser: open, scroll lock and focus; close by X, backdrop and `cancel`; a
+  ctrl-click passes through untouched; three steps in one column at the app's colours.
+- The portfolio page carries the same sheet (`GlassTubeBeta.tsx`, a `dialog` opened from its CTA),
+  so all three URLs offer the steps before the file.
+
+## The page shows the app's own controls, 2026-11-11
+
+Owner's note: "the marketing page's controls don't match precisely the app's" — especially the
+preview card and the share card.
+
+- **The Appearance demo is `PreviewSection` now.** The size chips (Small/Medium/Large — a setting the
+  app does not have) are gone; the three layouts (Side, Classic, Minimal) and ten fact buttons
+  (Title, Channel, How long ago, Views, Likes, Duration, Watch count, Comments, Progress, My notes)
+  replace them, with the meta line built in `PreviewCard`'s order and joined with the same no-break
+  dot. The card wears the app's scheme colours, the progress line sits over the thumbnail at 35 %,
+  and the notes and length badges are where the app draws them.
+- **The accent wheel is the real one**: 18 hues at 20° steps with the brand cyan in the 200° slot,
+  six per row, plus the System row. The eight hand-picked hexes were not the app's colours.
+- **Glass is a tile with a level**, dragged vertically, default 0.42, and it takes its light or dark
+  from the last ordinary theme picked, as `glassDarkFor` does. Shuffle (master + Daily, Hourly,
+  Focus) and Contrast (Off, Standard, High) are in the widget; the ratio is measured from the card's
+  own colours, not asserted.
+- **The share card is `ShareSheet`.** The invented "This moment / A clip" chips are gone; the end
+  handle is the clip. Sync to now is in the header, the six nudge buttons, Go to start / Go to end
+  and the Share button are all there, the bar is 6/8/13/3 px as the canvas draws it, and the labels
+  are derived from the handle positions. Dragging the end onto the start makes it a moment
+  (`at 6:12`), which is the app's rule.
+- **The lock-screen card carries four transport buttons and the channel name.** `notification_restart`
+  is on by default, and the notification's second line is `setArtist`, not a playing state.
+- **The copy stops saying the end goes in the text.** The app puts `&end=` in the same link;
+  YouTube ignores it and GlassTube reads it.
+- **The portfolio page is the second copy** (`GlassTubeBeta.tsx` `ClipMock`/`AppearanceWidget` and
+  `glasstubeCopy.ts`) and moved with it: two pages that sell one app should show the same controls.
+- Verified in the browser on both pages: every theme repaints the card (`#101014`, `#fff`, and the
+  rgba fills at the level), the 18 swatches and the System row select, the layouts produce 40/60,
+  26/74 and full-width columns, the fact buttons switch their own part (title, views, duration,
+  notes and progress driven one by one; the six meta facts share one builder), the share labels
+  follow the handles and collapse to `at 6:12`, and `tsc -b` is clean on the portfolio. Not
+  installed, not deployed.
+
+- **Needs the owner**: whether the page's Glass-tile drag and the share bar feel right on a phone
+  browser; the site is checked with a mouse so far.
+
+- **Queued below**: the app's own `PreviewCard` still disagrees with `VideoRow`/`Thumbnail`.
+
+## The gesture lesson is the player's gestures, 2026-11-11
+
+Owner's note: the lesson "should look and behave identical". It had its own pointer loop and its
+own pills, and taught three gestures the player does not answer to.
+
+- **One detector.** The lesson's 140-line `pointerInput` is gone; the stage runs
+  `Modifier.playbackGestures`. So it now has the player's touch slop and 1.5x axis bias, `zoneFor`'s
+  24 dp system edge and thirds, the 80 % seek start, the finger leaving the picture cancelling a
+  seek, and the bottom 44 dp band moving the playhead with no pill.
+- **One readout.** `Hud`, `HudPill`, `ScrubPill` and `LevelTravel` moved out of `PlayerScreen` into
+  `ui/component/GestureHud.kt`, and both screens draw from them. The fixed 130x40 top-centre pill is
+  gone; the lesson's seek now shows distance, target time, progress edge, and follows the finger.
+  The wireframe picture keeps a stand-in seven-minute playhead so the pill has a target to name.
+- **One ladder rule.** `gesture/LadderStep.kt` owns the step decision — 0.22 of the height, or a
+  0.03 flick inside 260 ms — and the player and the lesson both call it. The lesson used to step on
+  any 12 % drag at release, which is why a slow nudge minimised there and did nothing in the player.
+- **Kept**: the wireframe stage, the dashed targets, the step line, the four-column progress, the
+  mini and bar mock cards, the hints, Restart tutorial. Those are teaching, not imitation.
+- **The page holds still while the finger is down.** Consuming the drag was not enough — an
+  enclosing `verticalScroll` sees the event before the stage and scrolls anyway, so the page slid
+  under the finger. `ui/component/PageScrollLock.kt` is provided by `Page` in Settings and by the
+  wizard's demo page; the lesson freezes the scroll for the length of the press.
+- Verified: `:app:compileDebugKotlin` clean, `LadderStepTest` (6) and `GestureLessonTest` (4) green.
+  Not installed: the Pixel detached before the install.
+- **Needs the phone**: the lesson stepping exactly when the player would, the seek pill following
+  the finger instead of sitting at the top, and a drag on the lesson never moving the page.
+
+## Captions, and sound that is shaped on request, 2026-11-11
+
+The two reports that had been open since the 0.3.11 batch: `112435` (captions) and `215202` (an
+audio stabiliser and maybe an EQ). Two builds and two installs, one feature each, so a phone check
+can blame the right one.
+
+- **Captions are the video's own tracks, drawn by the app** (`112435`). `VideoSource` grew
+  `captionTracks` and `captions(id, languageTag)`; `subtitles` is now `captions(id, null)`, so the
+  resync and AI-chapter paths are untouched. The list comes from the cached `StreamInfo`, so it
+  costs no request of its own; the chosen track is fetched after the first frame, on the same gate
+  SponsorBlock segments use.
+- **A CC control in the picture's top row**, beside speed and quality, so it exists in portrait and
+  fullscreen. It appears only when the video has tracks. Off, then one row per track, human before
+  machine, with the stored language preselected.
+- **Cues are read off the playback tick.** `cueAt` binary-searches the track and joins overlapping
+  cues; an end is exclusive, so a line does not linger for a tick. `pickCaptionTrack`,
+  `captionPick` and `CaptionSize` hold the rules worth testing, and `CaptionsTest` pins them.
+- **A track tap is the ask.** The first build stored the language and fetched the cues but never
+  set `captionsOn`, so picking a language changed nothing anyone could see — the CC label and the
+  menu's own highlight are gated on the same flag. `captionPick` now returns the language and the
+  on/off together, `chooseCaptionTrack` is the menu's only entry point, and the screen calls
+  `fetchCuesIfOn` so switching captions on from the Playback setting also reaches an open video.
+- **Text sits above the bar and lifts when the controls fade in.** One `CaptionOverlay` in both
+  shells, on a per-caption scrim rather than a permanent band, at Small, Medium or Large, and it
+  takes no pointer input, so the gestures work through it.
+- **Sound is a new Settings page**: an equaliser with four shapes on five fixed bands (60, 230, 910,
+  3600, 14000 Hz), a level slider to +12 dB, and "even out volume" (`215202`). `playback/Sound.kt`
+  owns `DynamicsProcessing` and `LoudnessEnhancer`, attached to an audio session the controller
+  chooses and hands to the player, because Media3 has no getter for the one it would generate. The
+  limiter at -1 dB is what keeps a boosted band or level from clipping.
+- **Even out volume is a compressor, and it is named that way on purpose.** Nothing in the Android
+  audio APIs measures a track's loudness, so this is a one-band compressor with makeup gain plus the
+  limiter, not normalisation. The summary line on the page says what it does instead of borrowing a
+  word it cannot honour.
+- **A refused effect costs the shaping, never the video.** Every attach and write is its own
+  `runCatching` with one log line, so a device without the hardware still plays. `AudioTuning` has
+  no unit test on purpose: it is hardware effects behind those guards, and a Robolectric pass would
+  only prove the shadow exists, not that the phone shapes sound.
+- Verified: `:app:testDebugUnitTest` (471 tests, 0 failures, 3 skipped, including the 20 new) and
+  `:app:assembleDebug`, installed over the previous build.
+- **Needs the phone**: a video with captions showing them after one tap on CC, the language
+  surviving into the next video, the sizes, and the Sound page changing the timbre of a video that
+  is already playing.
+- **Still open, and why**: `110306` (a picture that reverts to the previous video), `113155` (a back
+  swipe that does nothing).
+
+## Look, feed and behaviour split into their own pages, 2026-11-11
+
+Sixth pass on the 0.3.11 batch, from the owner's note that some Playback rows are really
+Appearance.
+
+- **Appearance owns what anything looks like.** Five rows left Playback: the fullscreen progress
+  bar, the notification's restart button, the tint from the video, the chapter style, the video
+  page order, chapter timestamps and the section labels. They sit under two new captions — *The
+  player* and *The video page* — after Motion. Playback is now gestures, seek base, quality,
+  cache and picture-in-picture: the page is what its name says.
+- **Feed is a fourth page.** Hide live and upcoming, the live-tab fetch, the watch threshold, the
+  hide-watched slider, Related at the end and the Bored skip switch were rows on Playback (or, for
+  Bored, only behind a switch on the Bored screen). One `FEED` section, and the index is ten cards
+  three across. Playback's summary lost the "live shown" half; Feed gained it.
+- **Search was missing eleven rows.** Chapters, page order, chapter timestamps, section labels,
+  progress bar, restart button, tint, animations, loading style, stream cache, feed live, watched,
+  watch threshold and related had no entry, and four entries named a row that did not exist under
+  that name. Every row on every page now has one entry whose title is the words on screen
+  (`SettingsRegistry.kt`), and `SettingsSearchTest` pins each moved row to its section.
+- **A row's own words now beat a keyword.** The ranker treated title tokens and keywords as equal,
+  so "chapters" answered with the AI entry, which merely mentions chapters. A keyword costs
+  `KEYWORD_PENALTY` more than the same word in the title.
+- **Solid surfaces is gone.** `chooseSolidSurfaces(true)` was never called and `SurfaceHalf` was an
+  unused composable, so the split Glass/Solid tile `BEHAVIORS.md` promised had not existed for
+  passes. Removed from `Theme.kt` (fourteen `solid` parameters), `ThemeController`, the backup
+  schema, `MainActivity` and the contrast test; the Glass dial is the only transparency control.
+- **The live-fetch switch never did anything until a restart.** The row wrote `feed_live` and never
+  called `ContentRepository.setFeedLive`, which `AppContainer` had already read once. It now tells
+  the repository in the same tap, and the live tab is not asked at all while live is hidden — the
+  rows would be filtered out at render. The Feed copy says so.
+- **A search result can start something.** "Run setup again" opened About, which has no such
+  control. `SettingsEntry.runs` marks it as an action: the result launches the wizard from the
+  index, and its subtitle says "Starts the setup".
+- **The Bored switch follows the stored key** through a preference listener, so the gear and
+  Settings → Feed cannot show different values while both screens are composed.
+- Verified: `:app:testDebugUnitTest` (437 tests, 0 failures, 3 skipped) and `:app:assembleDebug`.
+  Not opened on a phone, not installed.
+- **Needs the phone**: the ten-card index, the Appearance page's two new captions, the Feed page,
+  a search for "chapters" landing on Appearance, and the Bored gear matching Settings after a
+  change.
+
+## A menu the picture cannot take away, 2026-11-12
+
+The owner reported the CC list closing while a finger was on it. It was not the list: the controls
+hold it, the idle timer hid the controls three seconds after they appeared, and Compose dismissed a
+`DropdownMenu` whose anchor had gone. The speed panel was the only popup the timer knew about, and
+the clock measured "since the controls appeared", not "since the last touch".
+
+- **One overlay value, not five booleans.** `PlayerOverlay` (`None | Speed | Quality | Captions`) is
+  owned by `PlayerScreen` and set by the two menus in `ControlsOverlay`; `speedPanelOpen` and the
+  two local `…MenuOpen` states are gone.
+- **The idle rule is pure.** `shouldHideControls(visible, playing, overlay)` returns true only for a
+  visible, playing picture with nothing open; `ControlsIdleTest` pins the pause case, all three
+  popups, and the already-hidden case. The effect keys on `interaction`, which every tap bumps, so a
+  menu opened two seconds late still gets the full `CONTROLS_TIMEOUT_MS`.
+- **A tap on the picture with a popup open closes the popup**, not the controls, so the menu cannot
+  be dismissed into a bare picture by the same finger that just opened it.
+- Verified: `:app:testDebugUnitTest` (540 tests, 0 failures) and `:app:assembleDebug`, installed on
+  the Pixel 7.
+- **Needs the phone**: open CC, wait past three seconds, pick a track; open the quality menu and
+  wait; tap the picture with a menu open.
+
+## A chapter's own picture, and the marks that were arriving as numbers, 2026-11-12
+
+Three reports that were each one small glyph being wrong.
+
+- **A chapter draws the frame it starts on** (`111049`). The row showed the upload's thumbnail
+  repeated, and the roadmap had chapter thumbnails queued as a feature. `PreviewFrames.cellAt`
+  answers with the page image that holds a moment plus the cell's rectangle **in that image's
+  pixels**; `StoryboardTile` asks Coil for that page at its own size and draws the rectangle with
+  `drawImage(src, dst)`. The first attempt — a box scaled to the grid and offset — was a jumble on
+  the owner's phone: a box-sized request hands Coil a twenty-five cell sheet at about twelve pixels
+  a cell, then blows it up. `PreviewTile` is now a thin wrapper for the sponsor row's 64×36
+  bordered case, and `ChapterFrame` falls back to the upload thumbnail when a video has no
+  storyboard or the moment's page is not in the list.
+- **The storyboard arithmetic was wrong twice.** `tileAt` read the column as
+  `relative % framesPerPageY`, so a grid that is not square drew the row below; and a frame past
+  the reported count walked one cell past the end. Both are gone with `cellAt`, which also refuses
+  a page the url list does not have instead of stretching the last one. `PreviewFramesTest` pins a
+  4×5 grid, the page boundary, the past-the-end case, a short page list and a broken grid.
+- **The chapter block says what it has** — one line per open chapter row: `storyboard pages=…
+  grid=… frames=… eachMs=…` — so "the app has no frames" and "the row asked for a page that is not
+  there" stop looking the same from a report.
+- **A caption's apostrophe was a number** (`115549`). YouTube writes `&#39;` in a cue and the
+  parser kept it. `core/Entities.kt` decodes the entity table without Android — the caption parser
+  runs in `data/`, where a JVM test should not need the platform — and `SubtitleParser.clean` uses
+  it. Unknown names, a bare `&` and a broken number all stay as they arrived.
+- **A mark that arrives as an image is now the mark** (`121704`). `Html.fromHtml` drops an `<img>`
+  with no `ImageGetter`, so the description's emoji vanished. `cleanHtml` replaces an image tag with
+  its alt text before parsing. No test needed for the platform parser itself; the two new cases in
+  `HtmlTest` are about the rescue, not the parser.
+- Verified: `:app:testDebugUnitTest` (502 tests, 0 failures, 3 skipped) and `:app:assembleDebug`,
+  installed on the Pixel 7. The first test run failed on a file lock from a stale Gradle daemon
+  (`bundleDebugClassesToCompileJar/classes.jar`); `gradlew --stop` cleared it.
+- **Needs the phone**: a video with chapters, each tile a different picture; a caption with an
+  apostrophe; the description's Instagram line showing the mark.
+
+## Two sentences and a toggle, 2026-11-11
+
+The two reports from tonight's batch that had no unknown in them. The streaming fault behind them
+is `C:\Users\Bodi\.opencode\plan\glasstube-streaming-repair.md`.
+
+- **A stream that has not begun says so.** `192409` and `195831` both open on `EW9uZkrXBOA`, a
+  premiere. The extractor answers with the same generic unavailability it uses for a removed video
+  — `LIVE_STREAM_OFFLINE: "This live event will begin in a few moments."` — so `toSourceError` fell
+  through to `PrivateOrRemoved`: the overlay read "private or has been removed", offered **Hide
+  this video**, and would have written a premiere into Hidden as a dead video. `SourceError.NotStarted`
+  is recognised by wording, like `MembersOnly` already is, and is deliberately **not** permanent, so
+  the screen keeps its Retry: the video plays once it starts. The wording match is narrow on
+  purpose — "has ended" is still private-or-removed, and a test pins that.
+- **The hamburger is a toggle.** `201231`: it called `onOpenSettings`, which brings Settings forward
+  and stops, so a press while Settings was open did nothing at all. A press now calls `back()` when
+  Settings is current — out of the section first, then out of Settings — and `menuOpen` and the two
+  unused `DropdownMenu` imports are gone. There is no dropdown menu: the mark is the Settings
+  button, which AGENTS.md still described as a menu with an About entry that has no route.
+- Verified: `:app:testDebugUnitTest` (473 tests, 0 failures, 3 skipped) and `:app:assembleDebug`,
+  installed on the Pixel 7 over the existing build.
+- **Needs the phone**: a press on the hamburger while in Settings closes it; a press inside a
+  Settings section leaves the section first.
+- **Not fixed, deliberately**: `195831`'s other half — the player still spends both quiet tries on
+  a live URL that returns no bytes. That is the repair ladder, not a sentence.
+
 ## A refresh with a number, and a feed you can leave things out of, 2026-11-11
 
 Fifth pass on the 0.3.11 batch, from what the owner found while using the last two builds.
@@ -33,6 +396,28 @@ Fifth pass on the 0.3.11 batch, from what the owner found while using the last t
   the feed offering it, one tap, with a record of why.
 - **The player's Up next card had the wrong inner padding** (16dp all round against 16/4 in every
   other card), which made it taller than its neighbours for no reason. Now 16/4 like the rest.
+- **One progress line, drawn three ways.** The bar had been split 50/50 by construction — segments
+  on the top half, playhead on the bottom half — which read as two stacked lines. Segments now fill
+  the whole 6dp strip, and `SponsorBarStyle` (Settings → SponsorBlock → Progress bar) picks how the
+  playhead shares it: **Covered** (accent covers what is watched, the default), **Tinted** (an
+  accent wash over the bands), **Hairline** (a 2dp accent line on the centre line). The choice is a
+  preference key, read into `PlaybackState`, so it redraws on the open video; `SponsorBarStyleTest`
+  pins the default and the key round-trip.
+- **One type scale for cards.** The player page was carrying three section headers at 13sp
+  (`labelMedium`) and three at 15sp (`titleSmall`) in one column, and the mini-player's title was
+  13sp where every video card's is 15sp. `ui/component/CardText.kt` is now the five-part scale —
+  header 15sp accent, title 15sp, meta 13sp, body 15sp, action 12sp — and VideoRow, MiniPlayer,
+  PlayerScreen's six section headers, the comment row and the note row all read from it. No test:
+  it is a table of styles, and a rendered assertion would only pin the theme back at itself.
+- **Up next walks, one hop per tap.** The refresh button only reshuffled the same related list:
+  `relatedFresh` refetched a fixed list and the screen shuffled it, so the list was recycled in a
+  different order. It now opens one video from the pool — `RelatedWalk.hop`, the traversal Bored
+  already used, pulled out of `DiscoverEngine` so both screens share it. The pool shows the whole
+  related page and grows to sixty, seeded from the shallowest unopened video (**Wider**) or the
+  newest (**Deeper**), a two-state `ValueRow` under Settings → Playback → Recommendations whose
+  subtext names the mode in force. `relatedFresh` and its cache-bypass branch are gone.
+  `RelatedWalkTest` and `RelatedPoolTest` pin the hop and the frontier; Bored's own suite is
+  unchanged and still green, which is how the extraction is proved to be behaviour-preserving.
 - Verified: `:app:testDebugUnitTest` (422 tests, 0 failures, 3 skipped) and `:app:assembleDebug`,
   installed on the Pixel 7 over the existing build.
 - **Needs the phone**: a refresh that counts up as it goes; a long press that hides a card and a
@@ -53,9 +438,14 @@ last build was going in, then takes everything on the list that had no unknown i
   otherwise its replies. Unfolding a comment whose words already fit used to be a tap that did
   nothing visible. A reply's body is now the same size as the comment's (`110831`); the indent and
   the name are what make it quieter.
-- **The player's sections are rounded cards** (`114914`) through one `Modifier.playerCard()`; the
-  chevrons were already there. The notes body stays outside its card, because a card that opens is
-  a header and its content, not one box.
+- **The player's sections share one card grammar** (`114914`) through
+  `ui/component/SectionCard.kt`: the card is the header (8dp margin, 16dp radius, 16dp inner), and
+  every body flows under it on the page at the same 24dp text edge. It was `Modifier.playerCard()`
+  in `PlayerScreen.kt` and three other containers — comments had no card, the notes body had its
+  own at a different radius, and Up next had a card inside a card, so the left edge drifted 24 to
+  32dp down the page. Comments are rows with dividers now, not bubbles; an aligned comment keeps
+  its tint as a band behind the row; My notes has no surface and its microphone is the field's
+  trailing icon, which took ~44dp off the section.
 - **The scrub pill follows the finger** (`111834`) instead of centring itself on the picture, using
   the same clamp the level readouts use.
 - **The speed panel and the dial stop where the presets stop** (`111118`). The panel used to walk
@@ -64,8 +454,10 @@ last build was going in, then takes everything on the list that had no unknown i
   only when the server has the report, and **the log below shows the filed line** (`113229`) because
   the snapshot is retaken when a report lands.
 - **A video that keeps stalling drops one stop** (`110114`). `lowerStop` is the pure rule
-  (Auto steps to 720, the smallest stop has nowhere to go), the pick is written to the ladder in
-  force, and a toast says what happened. `111445` is answered rather than fixed: a lower stop is a
+  (Auto steps to 720, the smallest stop has nowhere to go) and the pick was written to the ladder in
+  force. **It only worked for a picture that was still playing** — see "The stall the ladder could not
+  see, 2026-11-12", which moved the rule into `PlaybackController` and made a hard stall count.
+  `111445` is answered rather than fixed: a lower stop is a
   different file, so there is nothing buffered to reuse — the pill now says **"Switching quality…"**
   instead of reading like a stall.
 - **The buffering pill carries its percentage** (`120655`): `PlaybackState.bufferedPercent`, sampled
@@ -87,9 +479,9 @@ last build was going in, then takes everything on the list that had no unknown i
 - **Needs the phone**: the top strip against the bar at the bottom, a comment that opens its
   replies on one tap, the cards, the panel stopping at 2.0x if that is where the presets stop, and
   a report that is still there after backing out and returning.
-- **Still open, and why**: `110306` (a picture that reverts to the previous video — the 720p cap
-  should stop the stall that precedes it, but the revert itself is not explained), `112435`
-  (captions), `215202` (audio EQ), `113155` (a back swipe that does nothing).
+- **Still open, and why**: `110306` is now explained by "The stall the ladder could not see,
+  2026-11-12" and needs the hand check, not more code; `112435` (captions), `215202` (audio EQ),
+  `113155` (a back swipe that does nothing).
 
 ## The bar at the bottom, a band the finger can reach, and a page in the reader's order, 2026-11-11
 
@@ -1381,6 +1773,19 @@ feed state. Each is listed in ARCHITECTURE "Known gaps".
 
 ## Queued
 
+- **The player's ladder is tested as a rule, not as a player** — `tickAction` is pure and has 14
+  cases, but `degrade()`, `giveUp()` and the session preference are only reachable through a real
+  ExoPlayer, so the wiring between the rule and the stream is checked by hand. Cost to leave it: a
+  mistake in `degrade()` — a reload that resumes at 0, a step that does not reach the extractor —
+  looks exactly like the bug it was meant to fix. Found 2026-11-12.
+
+- **The app's own preview card and the list card disagree** - `PreviewCard`
+  (`SettingsSections.kt`) joins the channel into the meta line, rounds the thumbnail at 10 dp and
+  draws progress as a bare 35 % line, while `VideoRow`/`Thumbnail` give the channel its own line,
+  round at 12 dp and draw the line on a translucent track. The Settings preview's own comment says
+  it is "the same card the lists draw". Cost to leave it: the preview teaches a card the feed does
+  not show, and the marketing page can only copy one of the two. Found 2026-11-11.
+
 - **A VPN over mobile data reads the Wi-Fi quality stop** — `activeTransport` sees only
   `TRANSPORT_VPN`, so `video_quality` (the higher ladder) applies while the bytes are in fact
   metered. Cost to leave it: a VPN user gets their Wi-Fi ceiling on a phone plan. The fix is to walk
@@ -1419,14 +1824,7 @@ feed state. Each is listed in ARCHITECTURE "Known gaps".
   channel page (the extractor already reports that filter in `Channel.tabs`) and any saved playlist
   later. Cost of leaving it: the channel page cannot show a channel's playlists at all, which is one
   of the things `102750` asked for.
-- **Chapter thumbnails from the storyboard** — every chapter shows the video's one thumbnail
-  (`PlayerScreen`, `fun frame(index: Int): String = thumb`) because a chapter has no frame of its
-  own. `StreamInfo.getPreviewFrames()` gives `Frameset`s: sprite-sheet urls, `durationPerFrame`,
-  `framesPerPageX/Y` and `getFrameBoundsAt(millis)`. The fix is to carry a small storyboard model on
-  `VideoDetail` (tile urls plus the geometry), draw the tile covering a chapter's start with a
-  `Canvas` crop (`drawImage` with a source rect), and fall back to the video thumbnail when a video
-  has no frames. Cost of leaving it: twelve chapters, one picture, which is what `111049` reported.
-  Not a one-liner: it is a model field, an extractor mapping and a drawing composable.
+- **Chapter thumbnails from the storyboard** — done 2026-11-12, see the top of this file.
 
 - `data/backup/Backup.kt` - the file carries subscriptions, settings and the reader's recipes, but
   not notes or watch history. Cost of leaving it: moving phones loses the deck and every resume
@@ -1721,9 +2119,10 @@ feed state. Each is listed in ARCHITECTURE "Known gaps".
   call per candidate. Every field in the shipping schema is implemented and validated.
 - **Minification is off** in release. An R8 pass that has never run on a device is a crash waiting
   for the first user; `proguard-rules.pro` is ready for the day it is enabled.
-- **`exportSchema = false`.** Turn it on and commit the schema before the first release, or the
-  first migration is written blind. The DB currently bumps versions with a destructive fallback
-  because nothing has shipped.
+- **Schema export is on, and the destructive fallback is gone.** Schemas 11–13 are committed under
+  `app/schemas/`, every bump carries a hand-written migration, and `data/db/MigrationTest.kt` opens a
+  file from the previous version at the current one. A file older than 11 is the one case with no
+  test, because 5–10 were never exported.
 
 ## Open
 
@@ -1736,5 +2135,6 @@ feed state. Each is listed in ARCHITECTURE "Known gaps".
 - [ ] M1 gate: a week of daily use. Long-press 2x, edge bands, PiP and boost restore are still
       unverified on the phone.
 - [ ] M6 gate needs a Google OAuth client (Desktop app type, YouTube Data API v3) supplied by Bodi.
-- [ ] Remove `fallbackToDestructiveMigration` and enable schema export before the first release.
+- [x] Remove `fallbackToDestructiveMigration` and enable schema export before the first release
+      (done 2026-11-12: v13, schemas 11–13 committed, `MigrationTest` over 11 → 13).
 - [ ] `implementation_plan(1).md` sits in the repo root; decide whether it stays.

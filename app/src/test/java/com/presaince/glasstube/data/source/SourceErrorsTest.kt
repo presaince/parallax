@@ -72,12 +72,29 @@ class SourceErrorsTest {
     }
 
     @Test
+    fun `a stream that has not started says so, not private`() {
+        // The exact shape from 192409: the extractor's text, wrapped in the player error name.
+        val error = ContentNotAvailableException(
+            "Got error LIVE_STREAM_OFFLINE: \"This live event will begin in a few moments.\"",
+        ).toSourceError()
+        assertSame(SourceError.NotStarted, error)
+    }
+
+    @Test
+    fun `a stream that has ended is still private or removed`() {
+        val error = ContentNotAvailableException("This live event has ended.").toSourceError()
+        assertSame(SourceError.PrivateOrRemoved, error)
+    }
+
+    @Test
     fun `a permanent failure is one that retrying cannot change`() {
         assertTrue(SourceError.MembersOnly.permanent)
         assertTrue(SourceError.PrivateOrRemoved.permanent)
         assertTrue(SourceError.AgeRestricted.permanent)
         assertFalse(SourceError.NetworkFailure.permanent)
         assertFalse(SourceError.ExtractorBroken.permanent)
+        // A stream that has not begun plays later, so the screen keeps its Retry.
+        assertFalse(SourceError.NotStarted.permanent)
     }
 
     @Test

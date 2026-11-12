@@ -1,5 +1,5 @@
-/*
- * GlassTube — Copyright (C) 2026 Bodi
+﻿/*
+ * GlassTube â€” Copyright (C) 2026 Bodi
  * GPLv3: see LICENSE. No warranty.
  */
 package com.presaince.glasstube.ui.theme
@@ -33,8 +33,8 @@ class ThemeContrastTest {
         glass: Boolean = true,
     ): Resolved {
         val base = if (dark) darkScheme(accent) else lightScheme(accent)
-        val scale = if (glass) auroraScale(accent, dark, solid = false, policy = policy) else 1f
-        val surfaces = textSurfaces(glass, accent, dark, solid = false, level = level, scale = scale)
+        val scale = if (glass) auroraScale(accent, dark, policy = policy) else 1f
+        val surfaces = textSurfaces(glass, accent, dark, level = level, scale = scale)
         val bodyColour = ensureContrast(base.onSurface, surfaces, policy.ratio)
         val secondaryColour = ensureContrast(base.onSurfaceVariant, surfaces, policy.ratio)
         val ink = accentInk(base.primary, surfaces, policy)
@@ -64,7 +64,7 @@ class ThemeContrastTest {
         for (accent in accents) {
             for (dark in modes) {
                 for (policy in listOf(ContrastPolicy.AA, ContrastPolicy.AAA)) {
-                    val cap = maxGlassLevel(accent, dark, solid = false, policy = policy)
+                    val cap = maxGlassLevel(accent, dark, policy = policy)
                     var level = 0f
                     while (level <= cap + 1e-4f) {
                         val r = resolve(accent, dark, level, policy)
@@ -91,8 +91,8 @@ class ThemeContrastTest {
     fun a_stricter_policy_never_allows_more_glass() {
         for (accent in accents) {
             for (dark in modes) {
-                val aa = maxGlassLevel(accent, dark, solid = false, policy = ContrastPolicy.AA)
-                val aaa = maxGlassLevel(accent, dark, solid = false, policy = ContrastPolicy.AAA)
+                val aa = maxGlassLevel(accent, dark, policy = ContrastPolicy.AA)
+                val aaa = maxGlassLevel(accent, dark, policy = ContrastPolicy.AAA)
                 assertTrue("${accent.name} dark=$dark", aaa <= aa + 1e-4f)
             }
         }
@@ -125,7 +125,7 @@ class ThemeContrastTest {
             for (dark in modes) {
                 for (policy in listOf(ContrastPolicy.AA, ContrastPolicy.AAA)) {
                     for (level in listOf(0f, 0.42f, 0.9f, 1f)) {
-                        if (!accentHolds(accent, policy, glass = true, dark, solid = false, level)) continue
+                        if (!accentHolds(accent, policy, glass = true, dark, level)) continue
                         val r = resolve(accent, dark, level, policy)
                         assertTrue(
                             "${accent.name} dark=$dark ${policy.label} at $level body",
@@ -151,7 +151,7 @@ class ThemeContrastTest {
             for (dark in modes) {
                 val pool = accents.filter {
                     it.name != accent.name &&
-                        accentHolds(it, ContrastPolicy.AA, glass = true, dark, solid = false, level = 0.42f)
+                        accentHolds(it, ContrastPolicy.AA, glass = true, dark, level = 0.42f)
                 }
                 assertTrue("${accent.name} dark=$dark left no accent to roll to", pool.isNotEmpty())
             }
@@ -162,7 +162,7 @@ class ThemeContrastTest {
     fun off_lets_the_shuffle_pick_anything() {
         for (accent in accents) {
             for (dark in modes) {
-                assertTrue(accentHolds(accent, ContrastPolicy.OFF, glass = true, dark, false, 1f))
+                assertTrue(accentHolds(accent, ContrastPolicy.OFF, glass = true, dark, 1f))
             }
         }
     }
@@ -195,7 +195,6 @@ class ThemeContrastTest {
                 ContrastPolicy.AA,
                 glass = false,
                 dark = false,
-                solid = false,
                 level = 0.42f,
             )
             if (!holdsInLight) continue
@@ -234,7 +233,7 @@ class ThemeContrastTest {
     fun the_translucent_fill_never_reads_brighter_than_its_base() {
         // A dark fill over a dark aurora must stay a dark surface; if this inverts, the token and the
         // compositing disagree and every ratio in the card is meaningless.
-        val surfaces = glassSurfaceColours(Accents.cyan, dark = true, solid = false, level = 0.42f)
+        val surfaces = glassSurfaceColours(Accents.cyan, dark = true, level = 0.42f)
         for (surface in surfaces) {
             assertTrue(surface.relativeLuminance() < 0.2f)
         }

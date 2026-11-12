@@ -55,4 +55,18 @@ class HtmlTest {
     fun `zero width spaces are removed`() {
         assertEquals("ab", cleanHtml("a\u200Bb"))
     }
+
+    @Test
+    fun `an image keeps its alt text`() {
+        // 121704: the description's emoji was an <img>, and the platform parser drops images.
+        assertEquals(
+            "Follow me on \uD83D\uDCF7 Instagram",
+            cleanHtml("Follow me on <img src=\"https://x/i.png\" alt=\"\uD83D\uDCF7\"> Instagram"),
+        )
+    }
+
+    @Test
+    fun `an image with no alt becomes nothing`() {
+        assertEquals("a b", cleanHtml("a <img src=\"https://x/i.png\"> b"))
+    }
 }

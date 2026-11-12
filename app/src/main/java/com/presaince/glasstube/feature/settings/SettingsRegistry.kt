@@ -14,7 +14,9 @@ import com.presaince.glasstube.R
 enum class SettingsSectionId {
     APPEARANCE,
     PLAYBACK,
-    FEEDBACK,
+    SOUND,
+    FEED,
+    HAPTICS,
     REGION,
     SPONSOR,
     ACCOUNTS,
@@ -27,7 +29,9 @@ val SettingsSectionId.title: String
     get() = when (this) {
         SettingsSectionId.APPEARANCE -> "Appearance"
         SettingsSectionId.PLAYBACK -> "Playback"
-        SettingsSectionId.FEEDBACK -> "Haptics"
+        SettingsSectionId.SOUND -> "Sound"
+        SettingsSectionId.FEED -> "Feed"
+        SettingsSectionId.HAPTICS -> "Haptics"
         SettingsSectionId.REGION -> "Content region"
         SettingsSectionId.SPONSOR -> "SponsorBlock"
         SettingsSectionId.ACCOUNTS -> "AI & accounts"
@@ -41,7 +45,9 @@ val SettingsSectionId.icon: Int
     get() = when (this) {
         SettingsSectionId.APPEARANCE -> R.drawable.ic_palette
         SettingsSectionId.PLAYBACK -> R.drawable.ic_speed
-        SettingsSectionId.FEEDBACK -> R.drawable.ic_volume
+        SettingsSectionId.SOUND -> R.drawable.ic_equalizer
+        SettingsSectionId.FEED -> R.drawable.ic_history
+        SettingsSectionId.HAPTICS -> R.drawable.ic_volume
         SettingsSectionId.REGION -> R.drawable.ic_public
         SettingsSectionId.SPONSOR -> R.drawable.ic_sponsor
         SettingsSectionId.ACCOUNTS -> R.drawable.ic_resync
@@ -50,17 +56,35 @@ val SettingsSectionId.icon: Int
         SettingsSectionId.ABOUT -> R.drawable.ic_info
     }
 
-/** One searchable row. The keywords are the words a person types, not the words on screen. */
+/**
+ * One searchable row. The title is the words on screen, so the result can be recognised; the
+ * keywords are the words a person types instead.
+ *
+ * [runs] marks a result that starts something rather than opening a page: Run setup again launches
+ * the wizard from the index, so a search result has to do the same instead of landing on About.
+ */
 data class SettingsEntry(
     val title: String,
     val section: SettingsSectionId,
     val keywords: List<String>,
+    val runs: Boolean = false,
 )
 
-private fun entry(title: String, section: SettingsSectionId, vararg keywords: String) =
-    SettingsEntry(title, section, keywords.map { it.trim() }.filter { it.isNotEmpty() })
+private fun entry(
+    title: String,
+    section: SettingsSectionId,
+    vararg keywords: String,
+    runs: Boolean = false,
+) = SettingsEntry(
+    title,
+    section,
+    keywords.map { it.trim() }.filter { it.isNotEmpty() },
+    runs,
+)
 
 val settingsEntries: List<SettingsEntry> = listOf(
+    // Appearance: how anything looks, anywhere. The player's chrome and the video page's layout
+    // are here because they are the same question as the theme, not a question about playing.
     entry("Theme", SettingsSectionId.APPEARANCE,
         "theme", "themes", "appearance", "look", "style", "mode", "dark", "light", "system",
         "auto", "night", "day", "black", "white", "glass", "glassmorphism", "frosted",
@@ -68,63 +92,110 @@ val settingsEntries: List<SettingsEntry> = listOf(
     entry("Accent", SettingsSectionId.APPEARANCE,
         "accent", "colour", "color", "hue", "palette", "tint", "shade", "swatch", "pink", "red",
         "orange", "amber", "yellow", "lime", "green", "emerald", "teal", "cyan", "aqua", "sky",
-        "blue", "indigo", "violet", "purple", "magenta"),
-    entry("Shuffle daily", SettingsSectionId.APPEARANCE,
-        "shuffle", "daily", "every day", "each day", "random accent", "rotate", "surprise",
-        "changing", "changes", "automatic accent", "new colour"),
-    entry("Solid surfaces", SettingsSectionId.APPEARANCE,
-        "solid", "surfaces", "surface", "opaque", "transparency", "translucent", "glass",
-        "contrast", "readable", "readability", "blur", "flat", "performance"),
-    entry("Text contrast", SettingsSectionId.APPEARANCE,
-        "contrast", "readable", "readability", "legible", "wcag", "aa", "aaa", "ratio",
-        "hard to read", "faint", "dim", "accessibility", "a11y", "brightness", "low brightness",
-        "glass", "aurora", "shuffle colour"),
+        "blue", "indigo", "violet", "purple", "magenta", "system colour"),
+    entry("Shuffle", SettingsSectionId.APPEARANCE,
+        "shuffle", "daily", "hourly", "focus", "every day", "each day", "random accent", "rotate",
+        "surprise", "changing", "changes", "automatic accent", "new colour", "open"),
     entry("Preview", SettingsSectionId.APPEARANCE,
-        "preview", "example", "sample", "demo", "look", "theme", "accent"),
-    entry("Video cards", SettingsSectionId.APPEARANCE,
-        "card", "cards", "row", "rows", "title", "channel name", "ago", "age", "views",
-        "view count", "likes", "duration", "length", "metadata", "details", "watch count",
-        "watches", "watched", "times", "comment", "comments", "progress", "notes", "note"),
-    entry("Haptics", SettingsSectionId.FEEDBACK,
-        "haptics", "haptic", "vibration", "vibrate", "touch", "feedback", "buzz", "tick", "ticks",
-        "cancel", "snap", "seek cancel"),
-    entry("Seek cancel snap", SettingsSectionId.FEEDBACK,
-        "seek", "cancel", "snap", "home", "zero", "don't seek", "dont seek", "undo seek"),
-    entry("Speed home snap", SettingsSectionId.FEEDBACK,
-        "speed", "snap", "home", "1.0", "normal speed", "cancel"),
-    entry("Volume and brightness clamps", SettingsSectionId.FEEDBACK,
-        "volume", "brightness", "clamp", "end", "max", "min", "limit", "snap"),
-    entry("Chapter milestones", SettingsSectionId.FEEDBACK,
-        "chapter", "chapters", "milestone", "milestones", "boundary", "boundaries", "tick"),
+        "preview", "example", "sample", "demo", "video cards", "card", "cards", "layout", "side",
+        "classic", "minimal", "title", "channel name", "ago", "views", "likes", "duration",
+        "watch count", "comments", "progress", "notes", "row", "rows"),
+    entry("Contrast", SettingsSectionId.APPEARANCE,
+        "contrast", "readable", "readability", "legible", "wcag", "aa", "aaa", "ratio",
+        "hard to read", "faint", "dim", "accessibility", "a11y", "text contrast", "brightness",
+        "low brightness"),
+    entry("Animations", SettingsSectionId.APPEARANCE,
+        "animations", "animation", "motion", "movement", "still", "sweep", "turn off motion"),
+    entry("While a video loads", SettingsSectionId.APPEARANCE,
+        "loading", "loading style", "kinetic", "still", "random", "none", "wait", "thumbnail",
+        "spinner", "first frame"),
+    entry("Progress bar in fullscreen", SettingsSectionId.APPEARANCE,
+        "progress", "line", "bar", "progress bar", "fullscreen", "full screen", "scrub",
+        "timeline", "landscape", "bottom", "hide controls"),
+    entry("Restart button in the notification", SettingsSectionId.APPEARANCE,
+        "restart", "notification", "shade", "media controls", "media button", "previous",
+        "back to start", "lock screen"),
+    entry("Tint from video", SettingsSectionId.APPEARANCE,
+        "tint", "tint from video", "video tint", "dominant colour", "colour from video",
+        "player colour", "theme from video", "advanced"),
+    entry("Chapters", SettingsSectionId.APPEARANCE,
+        "chapters", "chapter", "row", "list", "hidden", "chapter panel", "chapter strip",
+        "chapter cards"),
+    entry("Video page order", SettingsSectionId.APPEARANCE,
+        "order", "sections", "video page", "page layout", "drag", "arrange", "reorder",
+        "description", "comments", "up next", "my notes", "top to bottom"),
+    entry("Chapter timestamps", SettingsSectionId.APPEARANCE,
+        "chapter timestamps", "timestamps", "chapter times", "chapter titles", "time"),
+    entry("Section labels", SettingsSectionId.APPEARANCE,
+        "labels", "section labels", "right", "left", "heading", "header", "description",
+        "chapters", "comments", "up next"),
+
+    // Playback: how playing works. Nothing here changes what a page looks like.
     entry("Gestures", SettingsSectionId.PLAYBACK,
         "gesture", "gestures", "tap", "swipe", "slide", "seek", "scrub", "volume", "brightness",
-        "minimise", "minimize", "flick", "double tap", "tutorial", "help", "controls"),
+        "minimise", "minimize", "flick", "double tap", "tutorial", "help", "controls", "lesson"),
     entry("Swipe to seek", SettingsSectionId.PLAYBACK,
         "seek", "seeking", "swipe", "scrub", "sensitivity", "sensitive", "precision", "speed",
-        "seconds", "gentle", "normal", "quick", "fast", "slow", "scrub speed", "skip"),
-    entry("Speed presets", SettingsSectionId.PLAYBACK,
+        "seconds", "gentle", "normal", "quick", "scrub speed", "skip", "base"),
+    entry("Speeds in the slider", SettingsSectionId.PLAYBACK,
         "speed", "speeds", "rate", "playback speed", "player", "fast", "faster", "slow",
-        "slower", "slow motion", "half speed", "0.5", "0.8", "1.0", "1.2", "1.5", "2.0", "2x",
-        "3x", "4x", "5x", "0.1 steps"),
-    entry("Hide live and upcoming", SettingsSectionId.PLAYBACK,
-        "live", "upcoming", "premiere", "premieres", "stream", "streams", "feed", "search",
-        "channel", "hide", "filter", "live stream", "scheduled"),
-    entry("Progress line in fullscreen", SettingsSectionId.PLAYBACK,
-        "progress", "line", "bar", "progress bar", "fullscreen", "full screen", "scrub",
-        "timeline", "landscape", "bottom"),
+        "slower", "slow motion", "half speed", "presets", "0.5", "0.8", "1.0", "1.2", "1.5",
+        "2.0", "2x", "3x", "4x", "5x", "0.1 steps"),
     entry("Video quality", SettingsSectionId.PLAYBACK,
         "quality", "resolution", "video quality", "144", "144p", "240", "240p", "360", "360p",
         "480", "480p", "720", "720p", "1080", "1080p", "auto", "hd", "data saver", "bitrate",
         "pixels", "wifi", "wi fi", "wireless", "mobile data", "cellular", "4g", "5g", "metered"),
-    entry("Restart button in the notification", SettingsSectionId.PLAYBACK,
-        "restart", "notification", "shade", "media controls", "media button", "previous",
-        "back to start", "lock screen"),
-    entry("Content region", SettingsSectionId.REGION,
-        "country", "region", "youtube country", "locale", "location", "language", "content",
-        "trending", "recommendations"),
+    entry("Stream cache", SettingsSectionId.PLAYBACK,
+        "cache", "stream cache", "disk", "bytes", "offline", "reopen", "buffer", "1gb", "2gb",
+        "4gb", "storage", "watched bytes"),
     entry("Pop out when you leave the app", SettingsSectionId.PLAYBACK,
         "picture in picture", "picture", "pip", "pop out", "popout", "pop up", "floating",
         "float", "window", "leave", "background", "home button", "mini"),
+    entry("Show captions", SettingsSectionId.PLAYBACK,
+        "captions", "caption", "subtitles", "subtitle", "cc", "closed captions", "sub", "subs",
+        "transcript", "words", "text", "hearing", "deaf", "accessibility", "language", "english"),
+    entry("Caption size", SettingsSectionId.PLAYBACK,
+        "caption", "captions", "subtitle", "subtitles", "size", "text size", "small", "medium",
+        "large", "big", "readable", "legibility", "font"),
+    entry("Equaliser and level", SettingsSectionId.SOUND,
+        "sound", "audio", "eq", "equaliser", "equalizer", "bass", "treble", "voice", "shape",
+        "level", "volume", "boost", "louder", "quiet", "gain", "loudness", "headphones"),
+    entry("Even out volume", SettingsSectionId.SOUND,
+        "even out", "even", "normalise", "normalize", "loudness", "stabilizer", "stabiliser",
+        "compressor", "compression", "quiet", "loud", "ads", "levels", "dynamic range"),
+
+    // Feed: what the lists and the end of a video offer. Live, watched, related, Bored.
+    entry("Hide live and upcoming", SettingsSectionId.FEED,
+        "live", "upcoming", "premiere", "premieres", "stream", "streams", "feed", "search",
+        "channel", "hide", "filter", "live stream", "scheduled"),
+    entry("Ask channels for live streams", SettingsSectionId.FEED,
+        "live", "streams", "live tab", "requests", "refresh", "fetch", "channels", "feed",
+        "data", "half the requests"),
+    entry("Count a watch after", SettingsSectionId.FEED,
+        "watch", "watched", "watch history", "history", "count", "threshold", "30 seconds",
+        "minute", "percent", "when is it watched"),
+    entry("Hide watched", SettingsSectionId.FEED,
+        "watched", "hide watched", "feed", "filter", "progress", "percent", "history",
+        "leave the feed", "finished"),
+    entry("Related at the end", SettingsSectionId.FEED,
+        "related", "up next", "recommendations", "end screen", "end", "next video"),
+    entry("Skip subscribed channels", SettingsSectionId.FEED,
+        "bored", "skip", "subscribed", "subscriptions", "channels", "discover", "walk"),
+
+    entry("Haptics", SettingsSectionId.HAPTICS,
+        "haptics", "haptic", "vibration", "vibrate", "touch", "feedback", "buzz", "tick", "ticks",
+        "test tick"),
+    entry("Seek cancel snap", SettingsSectionId.HAPTICS,
+        "seek", "cancel", "snap", "home", "zero", "don't seek", "dont seek", "undo seek"),
+    entry("Speed home snap", SettingsSectionId.HAPTICS,
+        "speed", "snap", "home", "1.0", "normal speed", "cancel"),
+    entry("Volume and brightness ends", SettingsSectionId.HAPTICS,
+        "volume", "brightness", "ends", "clamp", "max", "min", "limit", "snap", "top", "bottom"),
+    entry("Chapter milestones", SettingsSectionId.HAPTICS,
+        "chapter", "chapters", "milestone", "milestones", "boundary", "boundaries", "tick"),
+    entry("Content region", SettingsSectionId.REGION,
+        "country", "region", "youtube country", "locale", "location", "language", "content",
+        "trending", "recommendations"),
     entry("Skip SponsorBlock", SettingsSectionId.SPONSOR,
         "sponsorblock", "sponsor", "sponsors", "segment", "segments", "skip", "ad", "ads",
         "advert", "adverts", "advertising"),
@@ -132,9 +203,12 @@ val settingsEntries: List<SettingsEntry> = listOf(
         "intro", "outro", "filler", "self promotion", "self promo", "interaction", "music",
         "non music", "preview", "recap", "category", "categories", "sponsorblock", "tea",
         "highlight", "tangent"),
+    entry("SponsorBlock progress bar", SettingsSectionId.SPONSOR,
+        "progress bar", "style", "segments", "share the line", "split", "bar", "sponsorblock"),
     entry("AI mode", SettingsSectionId.ACCOUNTS,
-        "ai", "ai mode", "resync", "re sync", "timestamp", "timestamps", "align", "alignment", "comment",
-        "comments", "offset", "clock", "cue", "subtitle", "subtitles", "timing", "chapters", "summary"),
+        "ai", "ai mode", "resync", "re sync", "timestamp", "timestamps", "align", "alignment",
+        "comment", "comments", "offset", "clock", "cue", "subtitle", "subtitles", "timing",
+        "chapters", "summary"),
     entry("Model endpoint (AI)", SettingsSectionId.ACCOUNTS,
         "endpoint", "url", "server", "model", "api", "api key", "key", "token", "llm", "ai",
         "openai", "ollama", "local model", "prompt", "gemini", "anthropic"),
@@ -142,16 +216,16 @@ val settingsEntries: List<SettingsEntry> = listOf(
         "post", "posting", "comment", "comments", "reply", "replies", "account", "google",
         "oauth", "client id", "client secret", "sign in", "sign out", "login", "logout",
         "youtube data api", "credentials"),
-    entry("Import backup", SettingsSectionId.DATA,
+    entry("Import", SettingsSectionId.DATA,
         "import", "importing", "restore", "backup", "migrate", "migration", "subs",
         "subscriptions", "subscription", "channels", "newpipe", "libretube", "libre tube",
         "takeout", "google takeout", "csv", "json", "zip", "settings", "preferences", "recipe",
         "recipes", "new phone", "move"),
-    entry("Export backup", SettingsSectionId.DATA,
+    entry("Export", SettingsSectionId.DATA,
         "export", "exporting", "backup", "save", "share", "copy", "file", "subs",
         "subscriptions", "subscription", "channels", "settings", "preferences", "recipe",
         "recipes", "new phone", "move"),
-    entry("Self repair", SettingsSectionId.DIAGNOSTICS,
+    entry("Self-repair", SettingsSectionId.DIAGNOSTICS,
         "repair", "self repair", "selfrepair", "canary", "extractor", "youtube", "repair log",
         "summary", "explain", "how does this work", "diagnostics", "hx"),
     entry("Logs", SettingsSectionId.DIAGNOSTICS,
@@ -160,10 +234,13 @@ val settingsEntries: List<SettingsEntry> = listOf(
     entry("About GlassTube", SettingsSectionId.ABOUT,
         "about", "version", "licence", "license", "gpl", "gplv3", "credits", "app", "source",
         "code", "github", "copyright", "build"),
+    // The one search result that starts something. The button is at the bottom of the index, so
+    // the result launches the wizard rather than opening About, which has no such control.
     entry("Run setup again", SettingsSectionId.ABOUT,
         "setup", "wizard", "onboarding", "first run", "first launch", "start over", "beginning",
-        "theme", "accent", "region", "import"),
+        "theme", "accent", "region", "import", runs = true),
 )
+
 
 /** Lowercase, no quotes, dashes as spaces: the shape a query is compared in. */
 internal fun searchNorm(text: String): String = text.lowercase()
@@ -194,7 +271,22 @@ private fun entryScore(words: List<String>, entry: SettingsEntry): Int? {
     return total
 }
 
+/** How much worse a keyword match is than the row's own words. Higher than any single word score. */
+private const val KEYWORD_PENALTY = 4
+
+/**
+ * A row's own words beat a keyword. Typing "chapters" has to land on the row called Chapters,
+ * not on the AI entry that merely mentions chapters in its keywords.
+ */
 private fun wordScore(word: String, entry: SettingsEntry): Int? {
+    scoreIn(word, listOf(entry.title))?.let { return it }
+    scoreIn(word, entry.keywords)?.let { return it + KEYWORD_PENALTY }
+    // A section's name is a keyword for every row on its page, at the same penalty.
+    scoreIn(word, listOf(entry.section.title))?.let { return it + KEYWORD_PENALTY }
+    return null
+}
+
+private fun scoreIn(word: String, texts: List<String>): Int? {
     var best: Int? = null
     fun consider(token: String) {
         val score = when {
@@ -206,9 +298,7 @@ private fun wordScore(word: String, entry: SettingsEntry): Int? {
         }
         if (best == null || score < best!!) best = score
     }
-    tokens(entry.title).forEach(::consider)
-    tokens(entry.section.title).forEach(::consider)
-    entry.keywords.forEach { keyword -> tokens(keyword).forEach(::consider) }
+    texts.forEach { text -> tokens(text).forEach(::consider) }
     return best
 }
 

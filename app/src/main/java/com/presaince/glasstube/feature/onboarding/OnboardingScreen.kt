@@ -51,6 +51,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -77,6 +78,8 @@ import com.presaince.glasstube.feature.settings.GestureTutorial
 import com.presaince.glasstube.feature.settings.PreviewCard
 import com.presaince.glasstube.ui.component.CardLayout
 import com.presaince.glasstube.ui.component.CardStyle
+import com.presaince.glasstube.ui.component.LocalPageScrollLock
+import com.presaince.glasstube.ui.component.PageScrollLock
 import com.presaince.glasstube.ui.theme.ThemeBackdrop
 import com.presaince.glasstube.ui.theme.ThemeController
 import com.presaince.glasstube.ui.theme.ThemeMode
@@ -562,18 +565,23 @@ private fun AdChoice(
 
 @Composable
 private fun DemoPage() {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(bottom = 8.dp),
-    ) {
-        Text(
-            text = "Try the player",
-            style = MaterialTheme.typography.headlineMedium,
-            modifier = Modifier.padding(top = 4.dp, bottom = 16.dp),
-        )
-        GestureTutorial()
+    // The lesson freezes this page while a finger is on its stage, so the page cannot slide
+    // under the gesture it is teaching.
+    val lock = remember { PageScrollLock() }
+    CompositionLocalProvider(LocalPageScrollLock provides lock) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState(), enabled = !lock.locked)
+                .padding(bottom = 8.dp),
+        ) {
+            Text(
+                text = "Try the player",
+                style = MaterialTheme.typography.headlineMedium,
+                modifier = Modifier.padding(top = 4.dp, bottom = 16.dp),
+            )
+            GestureTutorial()
+        }
     }
 }
 

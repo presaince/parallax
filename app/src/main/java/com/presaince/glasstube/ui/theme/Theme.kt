@@ -141,7 +141,6 @@ internal fun systemAccentOf(primary: Color): Accent {
 private const val PREFS = "glasstube"
 private const val KEY_THEME = "theme_mode"
 private const val KEY_ACCENT = "accent"
-private const val KEY_SOLID = "solid_surfaces"
 private const val KEY_CONTRAST = "contrast_policy"
 private const val KEY_GLASS_BASE = "glass_base_mode"
 private const val KEY_ACCENT_DAILY = "accent_daily"
@@ -178,17 +177,6 @@ fun writeAccent(context: Context, accent: Accent) {
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         .edit()
         .putString(KEY_ACCENT, accent.name)
-        .apply()
-}
-
-fun readSolidSurfaces(context: Context): Boolean =
-    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        .getBoolean(KEY_SOLID, false)
-
-fun writeSolidSurfaces(context: Context, solid: Boolean) {
-    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        .edit()
-        .putBoolean(KEY_SOLID, solid)
         .apply()
 }
 
@@ -380,57 +368,45 @@ fun oklch(l: Double, c: Double, h: Double): Color {
 /**
  * Glass: the same scheme with translucent surfaces over a static accent glow. The backdrop is a
  * gradient, not the video or a scrolling list — that is the one kind of backdrop this can honestly
- * blur/tint, and the reason the theme has a solid-surfaces escape hatch.
+ * blur/tint.
  */
 internal fun glassScheme(
     accent: Accent,
     dark: Boolean,
-    solid: Boolean,
     level: Float = 0.42f,
 ): ColorScheme {
     val base = if (dark) darkScheme(accent) else lightScheme(accent)
-    // Solid is Glass with the dial turned down, not Glass replaced by Dark or Light. The aurora
-    // stays behind the page; only the cards close up, so the theme keeps its identity instead of
-    // becoming a second copy of the ordinary schemes.
-    //
     // Glass has to be visibly glass. A surface that is 40% opaque over an aurora that is only 26%
-    // strong composites to the same near-black as a closed surface, which is why the two settings
-    // used to look identical on a real screen: the transparency was real but there was nothing
-    // behind it to see. The fill is thinner and the backdrop much louder.
+    // strong composites to the same near-black as a closed surface, which is why the theme used to
+    // look identical to a solid one on a real screen: the transparency was real but there was
+    // nothing behind it to see. The fill is thinner and the backdrop much louder.
     // 0 is almost no glass (cards nearly solid), 1 is full glass (clearest). The fill rises
     // with the level, so an empty pill means solid and a full pill means glass.
     return base.copy(
         background = Color.Transparent,
-        surface = base.surface.copy(alpha = glassSurfaceAlpha(dark, solid, level)),
-        surfaceVariant = base.surfaceVariant.copy(alpha = glassVariantAlpha(dark, solid, level)),
+        surface = base.surface.copy(alpha = glassSurfaceAlpha(dark, level)),
+        surfaceVariant = base.surfaceVariant.copy(alpha = glassVariantAlpha(dark, level)),
         outlineVariant = base.outlineVariant.copy(alpha = 0.55f),
     )
 }
 
 /** Opaque fill of a glass card at a dial position. 1 is solid, 0 is the clearest this theme goes. */
-internal fun glassSurfaceAlpha(dark: Boolean, solid: Boolean, level: Float): Float {
+internal fun glassSurfaceAlpha(dark: Boolean, level: Float): Float {
     val solidAlpha = if (dark) 0.88f else 0.94f
-    if (solid) return solidAlpha
     val glassyAlpha = if (dark) 0.30f else 0.54f
     return solidAlpha - level.coerceIn(0f, 1f) * (solidAlpha - glassyAlpha)
 }
 
 /** Same for the variant fill, which carries chips and the navigation bar. */
-internal fun glassVariantAlpha(dark: Boolean, solid: Boolean, level: Float): Float {
+internal fun glassVariantAlpha(dark: Boolean, level: Float): Float {
     val solidAlpha = if (dark) 0.72f else 0.84f
-    if (solid) return solidAlpha
     val glassyAlpha = if (dark) 0.18f else 0.30f
     return (solidAlpha - level.coerceIn(0f, 1f) * (solidAlpha - glassyAlpha)).coerceIn(0f, 1f)
 }
 
-/** How strong the aurora is. Solid only turns it down; it stays behind every screen. */
-internal fun glassPeak(dark: Boolean, solid: Boolean, scale: Float = 1f): Float {
-    val base = when {
-        solid && dark -> 0.22f
-        solid -> 0.14f
-        dark -> 0.52f
-        else -> 0.34f
-    }
+/** How strong the aurora is, after the contrast policy's scale. */
+internal fun glassPeak(dark: Boolean, scale: Float = 1f): Float {
+    val base = if (dark) 0.52f else 0.34f
     return base * scale.coerceIn(0f, 1f)
 }
 
@@ -460,11 +436,10 @@ internal fun glassBase(dark: Boolean): Color = if (dark) Color(0xFF07070B) else 
 internal fun glassBackdropColours(
     accent: Accent,
     dark: Boolean,
-    solid: Boolean,
     scale: Float = 1f,
 ): List<Color> {
     val base = glassBase(dark)
-    val peak = glassPeak(dark, solid, scale)
+    val peak = glassPeak(dark, scale)
     return listOf(base) + glassBlobs(accent, dark).map { (_, _, colour) ->
         colour.copy(alpha = peak).over(base)
     }
@@ -474,13 +449,12 @@ internal fun glassBackdropColours(
 internal fun glassSurfaceColours(
     accent: Accent,
     dark: Boolean,
-    solid: Boolean,
     level: Float,
     scale: Float = 1f,
 ): List<Color> {
     val fill = if (dark) Tile else Color.White
-    val alpha = glassSurfaceAlpha(dark, solid, level)
-    return glassBackdropColours(accent, dark, solid, scale).map { backdrop ->
+    val alpha = glassSurfaceAlpha(dark, level)
+    return glassBackdropColours(accent, dark, scale).map { backdrop ->
         fill.copy(alpha = alpha).over(backdrop)
     }
 }
@@ -489,13 +463,12 @@ internal fun glassSurfaceColours(
 internal fun glassVariantColours(
     accent: Accent,
     dark: Boolean,
-    solid: Boolean,
     level: Float,
     scale: Float = 1f,
 ): List<Color> {
     val base = if (dark) darkScheme(accent) else lightScheme(accent)
-    val alpha = glassVariantAlpha(dark, solid, level)
-    return glassBackdropColours(accent, dark, solid, scale).map { backdrop ->
+    val alpha = glassVariantAlpha(dark, level)
+    return glassBackdropColours(accent, dark, scale).map { backdrop ->
         base.surfaceVariant.copy(alpha = alpha).over(backdrop)
     }
 }
@@ -511,14 +484,13 @@ internal fun glassVariantColours(
 internal fun auroraScale(
     accent: Accent,
     dark: Boolean,
-    solid: Boolean,
     policy: ContrastPolicy,
 ): Float {
     if (!policy.enforced) return 1f
     val base = if (dark) darkScheme(accent) else lightScheme(accent)
     var scale = 1f
     while (scale >= MIN_AURORA - 1e-4f) {
-        val page = glassBackdropColours(accent, dark, solid, scale)
+        val page = glassBackdropColours(accent, dark, scale)
         val body = ensureContrast(base.onSurface, page, policy.ratio)
         val secondary = ensureContrast(base.onSurfaceVariant, page, policy.ratio)
         val ink = ensureContrast(base.primary, page, policy.ratio)
@@ -541,12 +513,11 @@ internal const val MIN_AURORA = 0.35f
 internal fun glassTextSurfaces(
     accent: Accent,
     dark: Boolean,
-    solid: Boolean,
     level: Float,
     scale: Float,
-): List<Color> = glassBackdropColours(accent, dark, solid, scale) +
-    glassSurfaceColours(accent, dark, solid, level, scale) +
-    glassVariantColours(accent, dark, solid, level, scale)
+): List<Color> = glassBackdropColours(accent, dark, scale) +
+    glassSurfaceColours(accent, dark, level, scale) +
+    glassVariantColours(accent, dark, level, scale)
 
 /**
  * The same list for any theme: opaque colours in Dark and Light, composited ones in Glass. Every
@@ -557,11 +528,10 @@ internal fun textSurfaces(
     glass: Boolean,
     accent: Accent,
     dark: Boolean,
-    solid: Boolean,
     level: Float,
     scale: Float = 1f,
 ): List<Color> = if (glass) {
-    glassTextSurfaces(accent, dark, solid, level, scale)
+    glassTextSurfaces(accent, dark, level, scale)
 } else {
     val base = if (dark) darkScheme(accent) else lightScheme(accent)
     listOf(base.background, base.surfaceVariant, base.surface)
@@ -577,17 +547,16 @@ internal fun textSurfaces(
 internal fun maxGlassLevel(
     accent: Accent,
     dark: Boolean,
-    solid: Boolean,
     policy: ContrastPolicy,
 ): Float {
     if (!policy.enforced) return 1f
     val base = if (dark) darkScheme(accent) else lightScheme(accent)
-    val scale = auroraScale(accent, dark, solid, policy)
+    val scale = auroraScale(accent, dark, policy)
     var last = 0f
     var level = 0f
     while (level <= 1f + 1e-4f) {
-        val surfaces = glassSurfaceColours(accent, dark, solid, level, scale) +
-            glassVariantColours(accent, dark, solid, level, scale)
+        val surfaces = glassSurfaceColours(accent, dark, level, scale) +
+            glassVariantColours(accent, dark, level, scale)
         val body = ensureContrast(base.onSurface, surfaces, policy.ratio)
         val secondary = ensureContrast(base.onSurfaceVariant, surfaces, policy.ratio)
         val ink = ensureContrast(base.primary, surfaces, policy.ratio)
@@ -624,13 +593,12 @@ internal fun accentHolds(
     policy: ContrastPolicy,
     glass: Boolean,
     dark: Boolean,
-    solid: Boolean,
     level: Float,
 ): Boolean {
     if (!policy.enforced) return true
     val base = if (dark) darkScheme(accent) else lightScheme(accent)
-    val scale = if (glass) auroraScale(accent, dark, solid, policy) else 1f
-    val surfaces = textSurfaces(glass, accent, dark, solid, level, scale)
+    val scale = if (glass) auroraScale(accent, dark, policy) else 1f
+    val surfaces = textSurfaces(glass, accent, dark, level, scale)
     val body = ensureContrast(base.onSurface, surfaces, policy.ratio)
     val secondary = ensureContrast(base.onSurfaceVariant, surfaces, policy.ratio)
     val ink = accentInk(base.primary, surfaces, policy)
@@ -663,7 +631,6 @@ private val AppTypography = Typography().let { base ->
 fun GlassTubeTheme(
     mode: ThemeMode,
     accent: Accent = Accents.cyan,
-    solidSurfaces: Boolean = false,
     glassDark: Boolean? = null,
     glassLevel: Float = 0.42f,
     contrast: ContrastPolicy = ContrastPolicy.AA,
@@ -678,7 +645,7 @@ fun GlassTubeTheme(
     }
     val glass = mode == ThemeMode.GLASS
     val baseScheme = when {
-        glass -> glassScheme(accent, dark, solidSurfaces, glassLevel)
+        glass -> glassScheme(accent, dark, glassLevel)
         dark -> darkScheme(accent)
         else -> lightScheme(accent)
     }
@@ -687,13 +654,13 @@ fun GlassTubeTheme(
     // The page behind the cards does not move with the dial, so its strength is remembered against
     // the things that do change it, not against the level the finger is dragging.
     val aurora = if (glass) {
-        remember(accent, dark, solidSurfaces, contrast) {
-            auroraScale(accent, dark, solidSurfaces, contrast)
+        remember(accent, dark, contrast) {
+            auroraScale(accent, dark, contrast)
         }
     } else {
         1f
     }
-    val surfaces = textSurfaces(glass, accent, dark, solidSurfaces, glassLevel, aurora)
+    val surfaces = textSurfaces(glass, accent, dark, glassLevel, aurora)
     val scheme = if (contrast.enforced) {
         baseScheme.copy(
             onSurfaceVariant = ensureContrast(baseScheme.onSurfaceVariant, surfaces, contrast.ratio),
@@ -714,7 +681,6 @@ fun GlassTubeTheme(
             GlassBackdropSpec(
                 accent = accent,
                 dark = dark,
-                solid = solidSurfaces,
                 scale = aurora,
             )
         } else {
@@ -776,20 +742,16 @@ fun ThemeBackdrop(modifier: Modifier = Modifier) {
  * Glass is a pane, not a light bulb: the backdrop is a slow aurora of three accent-adjacent hues,
  * not one radial glow in the middle. It is drawn once per frame from constants — no animation, no
  * blur, nothing to tick — because the skill's cost model says a moving backdrop is not glass.
- *
- * `solid` only turns the aurora down. Solid is the same theme with the dial near zero, not a
- * different backdrop, so switching between the two keeps the accent and the layout identical.
  */
 private data class GlassBackdropSpec(
     val accent: Accent,
     val dark: Boolean,
-    val solid: Boolean,
     val scale: Float,
 )
 
 private fun DrawScope.drawGlassBackdrop(spec: GlassBackdropSpec) {
     drawRect(glassBase(spec.dark))
-    val peak = glassPeak(spec.dark, spec.solid, spec.scale)
+    val peak = glassPeak(spec.dark, spec.scale)
     // Same three blobs the contrast measurement reads, so a card cannot be checked against a
     // backdrop that is not on screen.
     glassBlobs(spec.accent, spec.dark).forEach { (fraction, spread, colour) ->
@@ -812,7 +774,7 @@ private fun DrawScope.drawGlassBackdrop(spec: GlassBackdropSpec) {
 
 /**
  * The colour at a fraction of its own alpha. `copy(alpha = x)` replaces the alpha, so a tile built
- * with a fixed one looks the same in Glass and in Solid; multiplying keeps the theme's transparency
+ * with a fixed one looks the same in Glass and in Dark; multiplying keeps the theme's transparency
  * and only takes some of it.
  */
 fun Color.faded(fraction: Float): Color = copy(alpha = alpha * fraction)

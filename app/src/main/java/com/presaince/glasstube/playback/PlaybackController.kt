@@ -30,13 +30,29 @@ import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import com.presaince.glasstube.core.AppLog
 import com.presaince.glasstube.core.AppResult
+import com.presaince.glasstube.core.CHOPPY_HOLD_MS
+import com.presaince.glasstube.core.DEGRADE_TOLERANCE_DEFAULT
+import com.presaince.glasstube.core.DEGRADE_TOLERANCE_MAX
+import com.presaince.glasstube.core.KEY_QUALITY_SESSION
 import com.presaince.glasstube.core.NetworkMonitor
+import com.presaince.glasstube.core.QualityStop
+import com.presaince.glasstube.core.activeTransport
+import com.presaince.glasstube.core.choppyWater
+import com.presaince.glasstube.core.freshEpisodes
+import com.presaince.glasstube.core.lowerStop
+import com.presaince.glasstube.core.panelShortSidePx
+import com.presaince.glasstube.core.qualityInForce
+import com.presaince.glasstube.core.qualityKey
+import com.presaince.glasstube.core.qualityStops
+import com.presaince.glasstube.core.shouldDegrade
+import com.presaince.glasstube.core.snapToLadder
 import com.presaince.glasstube.core.transportLabel
 import com.presaince.glasstube.data.db.HistoryEntity
 import com.presaince.glasstube.data.db.GlassTubeDb
 import com.presaince.glasstube.data.db.ProgressEntity
 import com.presaince.glasstube.data.model.StreamSet
 import com.presaince.glasstube.data.sponsorblock.Segment
+import com.presaince.glasstube.data.sponsorblock.SponsorBarStyle
 import com.presaince.glasstube.data.sponsorblock.SponsorBlock
 import com.presaince.glasstube.data.sponsorblock.SponsorCategories
 import kotlinx.coroutines.CoroutineScope
@@ -63,6 +79,8 @@ data class PlaybackState(
     val videoHeight: Int = 0,
     val sponsorSkip: Boolean = true,
     val sponsorCategories: Set<String> = SponsorCategories.default,
+    /** How the one progress line divides itself between the playhead and the segments. */
+    val sponsorBarStyle: SponsorBarStyle = SponsorBarStyle.default,
     val segments: List<Segment> = emptyList(),
     val lastSkip: Segment? = null,
     /** Set while something is loaded, so the shell can show a mini-player. */
@@ -83,6 +101,27 @@ data class PlaybackState(
     val networkDown: Boolean = false,
     /** How much of the stream ExoPlayer is holding, 0..100. Only the buffering pill reads it. */
     val bufferedPercent: Int = 0,
+    /** Media buffered ahead of the playhead, in ms. The choppy rule reads it, and the log keeps it. */
+    val forwardBufferMs: Long = 0,
+    /** How long the runway has been too short to play from. Zero when the stream is keeping up. */
+    val choppyForMs: Long = 0,
+    /**
+     * Whether a choppy stream may be stepped down a rung. On by default, and only ever for the
+     * session: the stop the reader chose is never rewritten by a bad connection.
+     */
+    val autoDegrade: Boolean = true,
+    /** How many choppy episodes inside [DEGRADE_WINDOW_MS] before one rung is given up. */
+    val degradeTolerance: Int = DEGRADE_TOLERANCE_DEFAULT,
+    /** The ceiling in force: the reader's pick, or the rung this session stepped down to. */
+    val qualityHeight: Int = 0,
+    /** Non-null while the ladder, not the reader, moved the picture. */
+    val degradedTo: Int? = null,
+    /** Captions on, the track to read (null is the source's best), and the text size index. */
+    val captionsOn: Boolean = false,
+    val captionLanguage: String? = null,
+    val captionSize: Int = 1,
+    /** The equaliser, the level and "even out volume". */
+    val sound: SoundSettings = SoundSettings(),
 )
 
 /**
@@ -250,6 +289,18 @@ class PlaybackController(
         }
     }
 
+    /**
+     * Our own audio session id. The effects attach to the session the player renders into, and
+     * Media3 offers no getter for a session it generated itself, so this one is chosen here and
+     * handed to both.
+     */
+    private val audioSessionId: Int = runCatching {
+        (appContext.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager)
+            ?.generateAudioSessionId() ?: 0
+    }.getOrDefault(0)
+
+    private val audioTuning = AudioTuning(log)
+
     val player: ExoPlayer = ExoPlayer.Builder(appContext)
         // A fat buffer behind the playhead: seeking back 30s must play immediately, not re-queue.
         // The disk cache holds the rest; the memory stops at 60s because at 1080p and above every
@@ -361,7 +412,15 @@ class PlaybackController(
     private val _state = MutableStateFlow(
         PlaybackState(
             sponsorSkip = prefs.getBoolean(KEY_SPONSOR_SKIP, true),
+            autoDegrade = prefs.getBoolean(KEY_AUTO_DEGRADE, true),
+            degradeTolerance = prefs.getInt(KEY_DEGRADE_TOLERANCE, DEGRADE_TOLERANCE_DEFAULT),
+            qualityHeight = qualityInForceNow(),
             sponsorCategories = readSponsorCategories(),
+            sponsorBarStyle = SponsorBarStyle.fromKey(prefs.getString(KEY_SPONSOR_BAR_STYLE, null)),
+            captionsOn = prefs.getBoolean(KEY_CAPTIONS_ON, false),
+            captionLanguage = prefs.getString(KEY_CAPTION_LANGUAGE, null),
+            captionSize = prefs.getInt(KEY_CAPTION_SIZE, 1),
+            sound = readSound(),
         ),
     )
     val state: StateFlow<PlaybackState> = _state.asStateFlow()
@@ -440,9 +499,54 @@ class PlaybackController(
     private var recoveryJob: Job? = null
     /** Quiet tries spent on the current video. Reset only when a different video plays. */
     private var recoveryAttempts = 0
+    /** When the runway first went short with the buffer not growing, or 0 while it is fine. */
+    private var choppySinceMs = 0L
+    /** One log line per choppy spell, not four a second. */
+    private var choppyLogged = false
+    /** Last forward-buffer sample, so this tick can tell a filling stream from a draining one. */
+    private var lastForwardMs = 0L
+
+    /** Choppy moments and stalls inside the degrade window. One list, one owner, cleared per video. */
+    private val degradeEpisodes = mutableListOf<Long>()
+
+    /** The budget ran out and the picture still could not keep up: said once, not four a second. */
+    private var gaveUpLogged = false
+
+    /**
+     * The ceiling the extractor will be asked for. The session's own step-down outranks the stored
+     * choice, because a connection that cannot carry the pick has already said so.
+     */
+    private fun qualityInForceNow(): Int = runCatching {
+        snapToLadder(
+            qualityInForce(
+                prefs.getInt(qualityKey(activeTransport(appContext)), 0),
+                prefs.getInt(KEY_QUALITY_SESSION, 0),
+            ),
+            panelShortSidePx(appContext),
+        )
+    }.getOrDefault(0)
+
+    /** A new attempt starts with clean stopwatches, so neither rule inherits the last one. */
+    private fun clearThresholds() {
+        stallSinceMs = 0L
+        stallLogged = false
+        choppySinceMs = 0L
+        choppyLogged = false
+        lastForwardMs = 0L
+    }
 
     init {
         screenOn = screenInteractive()
+        // The effects need the session the player will render into, so both are told the same id
+        // before anything is prepared. A refused session costs the sound shaping only.
+        if (audioSessionId > 0) {
+            runCatching { player.setAudioSessionId(audioSessionId) }
+                .onFailure { log.warn("sound", "session refused: ${it.message}") }
+            audioTuning.attach(audioSessionId)
+            applySound()
+        } else {
+            log.warn("sound", "no audio session: effects stay off")
+        }
         ContextCompat.registerReceiver(
             appContext,
             screenReceiver,
@@ -566,9 +670,17 @@ class PlaybackController(
         historyPhase = HistoryPhase.Fresh
         historyWatchedMs = 0L
         historyRowId = null
-        // A different video starts with a clean recovery budget. The same video keeps what it
-        // has spent, so the play() called by a retry cannot refill its own allowance.
-        if (videoId != currentVideoId) recoveryAttempts = 0
+        // A different video starts with a clean recovery budget and at the reader's own ceiling.
+        // The same video keeps what it has spent, so the play() called by a retry cannot refill
+        // its own allowance, and keeps the rung it stepped down to, because that is the one that
+        // was working.
+        if (videoId != currentVideoId) {
+            recoveryAttempts = 0
+            degradeEpisodes.clear()
+            gaveUpLogged = false
+            prefs.edit().remove(KEY_QUALITY_SESSION).apply()
+            _state.update { it.copy(qualityHeight = qualityInForceNow(), degradedTo = null) }
+        }
         val host = streams.muxedUrl?.let { hostOf(it) }
             ?: listOfNotNull(streams.videoUrl, streams.audioUrl).joinToString(",") { hostOf(it) }
         log.info("player", "play $videoId (${if (streams.muxedUrl != null) "muxed" else "split"} host=$host net=${transportLabel(appContext)})")
@@ -590,8 +702,7 @@ class PlaybackController(
             player.seekTo(startMs)
             player.playWhenReady = true
             player.setPlaybackSpeed(normalSpeed)
-            stallSinceMs = 0L
-            stallLogged = false
+            clearThresholds()
             log.info("player", "warm restart $videoId at ${startMs}ms")
             _state.update {
                 it.copy(
@@ -665,9 +776,8 @@ class PlaybackController(
         } else {
             pendingResumeMs = null
         }
-        // A new attempt starts with a clean stopwatch, so the retry rule can arm again.
-        stallSinceMs = 0L
-        stallLogged = false
+        // A new attempt starts with clean stopwatches, so both rules can arm again.
+        clearThresholds()
         player.playWhenReady = true
         player.setPlaybackSpeed(normalSpeed)
         // The service goes foreground only now, with an item that carries a title: starting it at
@@ -716,8 +826,7 @@ class PlaybackController(
         segmentsJob?.cancel()
         recoveryJob?.cancel()
         recoveryAttempts = 0
-        stallSinceMs = 0L
-        stallLogged = false
+        clearThresholds()
         _state.update {
             it.copy(
                 isPlaying = false,
@@ -826,6 +935,20 @@ class PlaybackController(
         }
     }
 
+    fun setAutoDegrade(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_AUTO_DEGRADE, enabled).apply()
+        _state.update { it.copy(autoDegrade = enabled) }
+        log.info("player", "auto degrade ${if (enabled) "on" else "off"}")
+    }
+
+    /** How patient the drop is. One means the first thin moment acts, ten is close to never. */
+    fun setDegradeTolerance(episodes: Int) {
+        val clamped = episodes.coerceIn(1, DEGRADE_TOLERANCE_MAX)
+        prefs.edit().putInt(KEY_DEGRADE_TOLERANCE, clamped).apply()
+        _state.update { it.copy(degradeTolerance = clamped) }
+        log.info("player", "auto degrade after $clamped choppy episodes in 30s")
+    }
+
     fun setSponsorSkip(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_SPONSOR_SKIP, enabled).apply()
         _state.update { it.copy(sponsorSkip = enabled) }
@@ -853,9 +976,107 @@ class PlaybackController(
         normalSpeed = prefs.getFloat(KEY_SPEED, 1f)
         watchThresholdToken = prefs.getString(KEY_WATCH_THRESHOLD, "30s") ?: "30s"
         val skip = prefs.getBoolean(KEY_SPONSOR_SKIP, true)
+        val autoDegrade = prefs.getBoolean(KEY_AUTO_DEGRADE, true)
+        val degradeTolerance = prefs.getInt(KEY_DEGRADE_TOLERANCE, DEGRADE_TOLERANCE_DEFAULT)
         val categories = readSponsorCategories()
-        _state.update { it.copy(sponsorSkip = skip, sponsorCategories = categories) }
+        val barStyle = SponsorBarStyle.fromKey(prefs.getString(KEY_SPONSOR_BAR_STYLE, null))
+        _state.update {
+            it.copy(
+                sponsorSkip = skip,
+                autoDegrade = autoDegrade,
+                degradeTolerance = degradeTolerance,
+                // A restore may have changed the stored ceiling; the session step-down still
+                // outranks it until the reader picks again.
+                qualityHeight = qualityInForceNow(),
+                sponsorCategories = categories,
+                sponsorBarStyle = barStyle,
+                captionsOn = prefs.getBoolean(KEY_CAPTIONS_ON, false),
+                captionLanguage = prefs.getString(KEY_CAPTION_LANGUAGE, null),
+                captionSize = prefs.getInt(KEY_CAPTION_SIZE, 1),
+                sound = readSound(),
+            )
+        }
+        applySound()
         if (skip) applyCategoryFilter() else sponsorPrefetch.cancel()
+    }
+
+    /**
+     * Captions on or off, and the language to read. Both are remembered across videos: a reader
+     * who wants German captions wants them on the next video too. A null language means "the
+     * best track this video offers", which the source picks.
+     */
+    fun setCaptionsEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_CAPTIONS_ON, enabled).apply()
+        _state.update { it.copy(captionsOn = enabled) }
+        log.info("captions", if (enabled) "on" else "off")
+    }
+
+    fun setCaptionLanguage(tag: String?) {
+        if (tag.isNullOrBlank()) prefs.edit().remove(KEY_CAPTION_LANGUAGE).apply()
+        else prefs.edit().putString(KEY_CAPTION_LANGUAGE, tag).apply()
+        _state.update { it.copy(captionLanguage = tag?.takeIf { it.isNotBlank() }) }
+        log.info("captions", "language ${tag ?: "best"}")
+    }
+
+    /** The caption text size, as an index into the player's three sizes. */
+    fun setCaptionSize(index: Int) {
+        val clamped = index.coerceIn(0, 2)
+        prefs.edit().putInt(KEY_CAPTION_SIZE, clamped).apply()
+        _state.update { it.copy(captionSize = clamped) }
+    }
+
+    /**
+     * The equaliser, the level and "even out volume". Each choice is written on its own so a
+     * backup restore or one tap cannot lose another, and every one of them re-applies the whole
+     * shape to the effects: the effect has no notion of a partial update.
+     */
+    private fun readSound(): SoundSettings = SoundSettings(
+        enabled = prefs.getBoolean(KEY_SOUND_ENABLED, false),
+        preset = SoundPreset.fromKey(prefs.getString(KEY_SOUND_PRESET, null)),
+        levelDb = prefs.getInt(KEY_SOUND_LEVEL_DB, 0).coerceIn(0, SOUND_MAX_LEVEL_DB),
+        evenOut = prefs.getBoolean(KEY_SOUND_EVEN_OUT, false),
+    )
+
+    fun sound(): SoundSettings = _state.value.sound
+
+    fun setSoundEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_SOUND_ENABLED, enabled).apply()
+        _state.update { it.copy(sound = it.sound.copy(enabled = enabled)) }
+        applySound()
+        log.info("sound", if (enabled) "on" else "off")
+    }
+
+    fun setSoundPreset(preset: SoundPreset) {
+        prefs.edit().putString(KEY_SOUND_PRESET, preset.key).apply()
+        _state.update { it.copy(sound = it.sound.copy(preset = preset)) }
+        applySound()
+        log.info("sound", "preset ${preset.key}")
+    }
+
+    fun setSoundLevel(levelDb: Int) {
+        val clamped = levelDb.coerceIn(0, SOUND_MAX_LEVEL_DB)
+        prefs.edit().putInt(KEY_SOUND_LEVEL_DB, clamped).apply()
+        _state.update { it.copy(sound = it.sound.copy(levelDb = clamped)) }
+        applySound()
+        log.info("sound", "level +${clamped}dB")
+    }
+
+    fun setSoundEvenOut(evenOut: Boolean) {
+        prefs.edit().putBoolean(KEY_SOUND_EVEN_OUT, evenOut).apply()
+        _state.update { it.copy(sound = it.sound.copy(evenOut = evenOut)) }
+        applySound()
+        log.info("sound", "even out ${if (evenOut) "on" else "off"}")
+    }
+
+    private fun applySound() {
+        audioTuning.apply(_state.value.sound)
+    }
+
+    /** Which of the three ways the progress line shares itself. Drawn live, so no refetch. */
+    fun setSponsorBarStyle(style: SponsorBarStyle) {
+        prefs.edit().putString(KEY_SPONSOR_BAR_STYLE, style.key).apply()
+        _state.update { it.copy(sponsorBarStyle = style) }
+        log.info("player", "sponsor bar style ${style.key}")
     }
 
     /** One category on or off. The next video uses it, and the current one re-filters now. */
@@ -889,6 +1110,8 @@ class PlaybackController(
      */
     fun retryNow() {
         recoveryAttempts = 0
+        degradeEpisodes.clear()
+        gaveUpLogged = false
         _state.update { it.copy(recoveryAttempts = 0) }
         recover(afterError = player.playerError != null)
     }
@@ -903,8 +1126,7 @@ class PlaybackController(
         val position = player.currentPosition
         val resumePlayback = player.playWhenReady
         recoveryAttempts++
-        stallSinceMs = 0L
-        stallLogged = false
+        clearThresholds()
         _state.update { it.copy(recoveryAttempts = recoveryAttempts, stalledForMs = 0) }
         log.warn(
             "player",
@@ -928,6 +1150,70 @@ class PlaybackController(
         }
     }
 
+    /**
+     * One rung down, then the same video back at the playhead. The step-down is written to the
+     * session key rather than the reader's own, because a bad ten minutes on a train must not
+     * rewrite the ceiling they chose. It does not spend a quiet try: it is the cheaper answer.
+     */
+    private fun degrade(stop: QualityStop?, positionMs: Long) {
+        val videoId = currentVideoId ?: return
+        if (stop == null) return
+        prefs.edit().putInt(KEY_QUALITY_SESSION, stop.height).apply()
+        degradeEpisodes.clear()
+        clearThresholds()
+        log.warn(
+            "player",
+            "degrade to ${stop.label} for $videoId at ${positionMs}ms " +
+                "net=${transportLabel(appContext)}",
+        )
+        _state.update { it.copy(qualityHeight = stop.height, degradedTo = stop.height) }
+        reloadAt(videoId, positionMs)
+    }
+
+    /** Fresh signed streams at the ceiling in force, then the same video back at the playhead. */
+    private fun reloadAt(videoId: String, positionMs: Long) {
+        recoveryJob = scope.launch {
+            delay(RECOVERY_DELAY_MS)
+            when (val fresh = refreshStreams(videoId)) {
+                is AppResult.Ok ->
+                    play(videoId, currentTitle, currentChannel, currentThumb, fresh.value, positionMs)
+                is AppResult.Err ->
+                    log.error("player", "reload streams failed for $videoId: ${fresh.message}")
+            }
+        }
+    }
+
+    /**
+     * Out of quiet tries with the picture still not moving. The pill already offers a retry; what
+     * was missing was a line in the log, which is why the 2026-11-11 report ("buffers then stops")
+     * arrived with nothing after it.
+     */
+    private fun giveUp(stalledForMs: Long) {
+        if (gaveUpLogged) return
+        gaveUpLogged = true
+        log.error(
+            "player",
+            "gave up on $currentVideoId at ${player.currentPosition}ms after " +
+                "$recoveryAttempts tries, stalled ${stalledForMs}ms " +
+                "net=${transportLabel(appContext)} quality=${qualityInForceNow()}",
+        )
+    }
+
+    /**
+     * The reader's pick. It clears the session step-down and is written to the connection's own
+     * key, so the next video starts where they asked rather than where the last one ended up.
+     */
+    fun setQuality(height: Int) {
+        prefs.edit()
+            .putInt(qualityKey(activeTransport(appContext)), height)
+            .remove(KEY_QUALITY_SESSION)
+            .apply()
+        degradeEpisodes.clear()
+        _state.update { it.copy(qualityHeight = height, degradedTo = null) }
+        val videoId = currentVideoId ?: return
+        reloadAt(videoId, player.currentPosition)
+    }
+
     private fun tick() {
         val current = _state.value
         val position = player.currentPosition.coerceAtLeast(0L)
@@ -948,6 +1234,11 @@ class PlaybackController(
         val stalled = stalledForMs(stallSinceMs, nowMs)
         if (stalled >= STALL_LOG_MS && !stallLogged && currentVideoId != null && !preparing) {
             stallLogged = true
+            // A stall is the most severe episode there is, so it is stamped like a choppy moment.
+            // The action itself does not need the count — twenty seconds of a still picture is
+            // conclusive — but a mixed run (choppy, choppy, stall) should read as one bad
+            // connection rather than three unrelated ones.
+            degradeEpisodes += nowMs
             log.warn(
                 "player",
                 "stalled ${stalled}ms on $currentVideoId at ${player.currentPosition}ms " +
@@ -956,6 +1247,39 @@ class PlaybackController(
         }
         if (stalled != current.stalledForMs) {
             _state.update { it.copy(stalledForMs = stalled) }
+        }
+        // Choppy water: the picture is playing, but being fed slower than it is being played. The
+        // buffer ahead of the playhead is the measure, and only a stream that has stopped growing
+        // counts — a fresh load and a seek both start at zero and climb, and neither is a fault.
+        // A stall is this same thing happening in full; this is the half minute before it.
+        val forward = (player.bufferedPosition - position).coerceAtLeast(0L)
+        val rising = forward > lastForwardMs
+        lastForwardMs = forward
+        val wantsBytes = player.playbackState == Player.STATE_READY &&
+            player.playWhenReady && !preparing && currentVideoId != null
+        if (wantsBytes && !rising && choppyWater(forward, player.playbackParameters.speed)) {
+            if (choppySinceMs == 0L) choppySinceMs = nowMs
+        } else {
+            choppySinceMs = 0L
+            choppyLogged = false
+        }
+        val choppy = stalledForMs(choppySinceMs, nowMs)
+        if (choppy >= CHOPPY_HOLD_MS && !choppyLogged) {
+            choppyLogged = true
+            degradeEpisodes += nowMs
+            log.warn(
+                "player",
+                "choppy runway=${forward}ms speed=${player.playbackParameters.speed} on " +
+                    "$currentVideoId at ${position}ms net=${transportLabel(appContext)}",
+            )
+        }
+        if (choppy != current.choppyForMs) {
+            _state.update { it.copy(choppyForMs = choppy) }
+        }
+        // Published in half-second buckets: the value moves every tick and nothing draws it that
+        // finely.
+        if (forward / 500 != current.forwardBufferMs / 500) {
+            _state.update { it.copy(forwardBufferMs = forward) }
         }
         // The buffering pill's percentage. Only published while the picture is actually waiting,
         // so a playing video does not churn the state four times a second.
@@ -968,19 +1292,32 @@ class PlaybackController(
             _state.update { it.copy(bufferedPercent = buffered) }
         }
 
-        // Recovery is owned here, not by the screen: a stall on the mini-player or with the
-        // activity gone still gets its two tries, and the budget is per video, not per visit.
-        if (
-            recoveryJob?.isActive != true &&
-            shouldRecover(
+        // Recovery and the quality ladder are one decision, owned here and not by the screen: a
+        // stall on the mini-player or with the activity gone still gets the ladder, and the budget
+        // is per video, not per visit.
+        val ladder = qualityStops(panelShortSidePx(appContext))
+        val action = tickAction(
+            TickSignals(
                 hasVideo = currentVideoId != null,
                 hasError = current.playerError != null,
-                stalledForMs = stalled,
-                attemptsUsed = recoveryAttempts,
                 networkDown = current.networkDown,
-            )
-        ) {
-            recover(afterError = current.playerError != null)
+                recoveryInFlight = recoveryJob?.isActive == true,
+                attemptsUsed = recoveryAttempts,
+                stalledForMs = stalled,
+                autoDegrade = current.autoDegrade,
+                choppyWanted = shouldDegrade(
+                    freshEpisodes(degradeEpisodes, nowMs),
+                    nowMs,
+                    current.degradeTolerance,
+                ),
+                rungAvailable = lowerStop(qualityInForceNow(), ladder) != null,
+            ),
+        )
+        when (action) {
+            TickAction.Degrade -> degrade(lowerStop(qualityInForceNow(), ladder), position)
+            TickAction.Recover -> recover(afterError = current.playerError != null)
+            TickAction.GiveUp -> giveUp(stalled)
+            TickAction.None -> Unit
         }
 
         // No seek while buffering: a seek discards buffered data and restarts buffering, so a
@@ -1204,10 +1541,20 @@ class PlaybackController(
         const val RECOVERY_DELAY_MS = 1_200L
 
         const val KEY_SPONSOR_SKIP = "sponsor_skip"
+        const val KEY_AUTO_DEGRADE = "auto_degrade"
+        const val KEY_DEGRADE_TOLERANCE = "auto_degrade_episodes"
         const val KEY_SPONSOR_CATEGORIES = "sponsor_categories"
+        const val KEY_SPONSOR_BAR_STYLE = "sponsor_bar_style"
         const val KEY_SPEED_PRESETS = "speed_presets"
         const val KEY_WATCH_THRESHOLD = "watch_threshold"
         const val KEY_STREAM_CACHE_MB = "stream_cache_mb"
+        const val KEY_CAPTIONS_ON = "captions_on"
+        const val KEY_CAPTION_LANGUAGE = "caption_language"
+        const val KEY_CAPTION_SIZE = "caption_size"
+        const val KEY_SOUND_ENABLED = "sound_enabled"
+        const val KEY_SOUND_PRESET = "sound_preset"
+        const val KEY_SOUND_LEVEL_DB = "sound_level_db"
+        const val KEY_SOUND_EVEN_OUT = "sound_even_out"
         /** Two gigabytes holds a two-hour podcast at 720p, or the last forty minutes of 1080p. */
         const val DEFAULT_STREAM_CACHE_MB = 2048
 

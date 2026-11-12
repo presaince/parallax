@@ -122,7 +122,13 @@ class AppContainer(context: Context) {
     }
 
     val content: ContentRepository by lazy {
-        ContentRepository(source, db, log, playbackBusy = { playback.state.value.isBuffering })
+        ContentRepository(
+            source,
+            db,
+            log,
+            playbackBusy = { playback.state.value.isBuffering },
+            hideLive = { prefs.getBoolean("hide_live", false) },
+        )
             // Seeded from the stored setting, so the feed's first paint already obeys it.
             .also {
                 it.setHideWatchedPercent(

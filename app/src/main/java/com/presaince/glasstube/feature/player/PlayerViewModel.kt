@@ -38,6 +38,14 @@ data class PlayerUiState(
     val error: String? = null,
     /** Why the stream failed, when the source could classify it. Drives the copy and the retry. */
     val errorKind: SourceError? = null,
+    /** Every track the video offers, empty when it has none. The CC control needs this list. */
+    val captionTracks: List<com.presaince.glasstube.data.model.CaptionTrackInfo> = emptyList(),
+    /** True once the track list has been asked for, so the control does not appear late. */
+    val captionsLoaded: Boolean = false,
+    /** The track being read, or null when the video has none. */
+    val captionTrack: com.presaince.glasstube.data.model.CaptionTrackInfo? = null,
+    /** The chosen track's cues, downloaded only while captions are on. */
+    val captionCues: List<com.presaince.glasstube.data.model.Cue> = emptyList(),
 )
 
 /**
@@ -96,21 +104,6 @@ class PlayerViewModel(
     }
 
     /**
-     * Loads the same video again at a given position, for when the quality changes mid-watch.
-     */
-    fun reloadAt(positionMs: Long) {
-        if (inFlight) return
-        inFlight = true
-        viewModelScope.launch {
-            try {
-                loadOnce(positionMs)
-            } finally {
-                inFlight = false
-            }
-        }
-    }
-
-    /**
      * The view model outlives the screen: it is keyed by the video, not by the route. Reopening a
      * video that was stopped therefore reuses a "loaded" state over a stopped player — a black
      * frame with no error. If the controller is not playing this video, load again.
@@ -135,6 +128,115 @@ class PlayerViewModel(
                     it.copy(aiChapters = result.value.map { chapter -> Chapter(chapter.atSec, chapter.title) })
                 }
                 is AppResult.Err -> log.info("chapters", "AI chapters for ${summary.id}: ${result.message}")
+            }
+        }
+    }
+
+    /**
+     * The track list, then the cues if captions are already on. Asked for once the first frame is
+     * up, so the request never competes with the picture. An empty list is an answer, not a
+     * failure: most videos have no captions and the CC control then has nothing to offer.
+     */
+    private var captionsRequested = false
+
+    fun loadCaptions() {
+        if (captionsRequested) return
+        captionsRequested = true
+        viewModelScope.launch {
+            val tracks = when (val result = source.captionTracks(summary.id)) {
+                is AppResult.Ok -> result.value
+                is AppResult.Err -> {
+                    log.info("captions", "track list for ${summary.id}: ${result.message}")
+                    emptyList()
+                }
+            }
+            val track = pickCaptionTrack(tracks, playback.state.value.captionLanguage)
+            _state.update {
+                it.copy(captionTracks = tracks, captionsLoaded = true, captionTrack = track)
+            }
+            if (playback.state.value.captionsOn) loadCues(track)
+        }
+    }
+
+    /**
+     * The CC menu's only entry point: a track means store its language and switch captions on,
+     * null is Off. Both halves are written together because the menu has no "on" row of its own —
+     * a tap on a track *is* the ask, and a track tap that left them off would be a tap that did
+     * nothing.
+     */
+    fun chooseCaptionTrack(track: com.presaince.glasstube.data.model.CaptionTrackInfo?) {
+        val pick = captionPick(track)
+        val chosen = track?.takeIf { pick.on }
+        val alreadyLoaded = chosen != null &&
+            _state.value.captionTrack?.languageTag == chosen.languageTag &&
+            _state.value.captionCues.isNotEmpty()
+        playback.setCaptionLanguage(pick.languageTag)
+        playback.setCaptionsEnabled(pick.on)
+        // The old language's lines must not sit under a new language's fetch.
+        _state.update {
+            it.copy(
+                captionTrack = chosen,
+                captionCues = if (chosen == null || it.captionTrack?.languageTag != chosen.languageTag) {
+                    emptyList()
+                } else {
+                    it.captionCues
+                },
+            )
+        }
+        if (chosen != null && !alreadyLoaded) loadCues(chosen)
+    }
+
+    /**
+     * Captions were switched on somewhere else — the Playback setting, or a backup restore — while
+     * this video is open. Nothing in the CC menu ran, so the cues have to be asked for here.
+     */
+    fun fetchCuesIfOn() {
+        if (!playback.state.value.captionsOn) return
+        val track = _state.value.captionTrack
+        if (track == null) {
+            // The list has not landed yet; loadCaptions fetches for itself when it does.
+            if (!captionsRequested) loadCaptions()
+            return
+        }
+        if (_state.value.captionCues.isEmpty()) loadCues(track)
+    }
+
+    /**
+     * Downloads one track. A failure clears the cues rather than showing the previous language's
+     * lines: the picture would then carry words that are not being said. One request per language
+     * at a time, so the menu's own fetch and the screen's enable hook cannot both ask.
+     */
+    private var cuesLoadingFor: String? = null
+
+    private fun loadCues(track: com.presaince.glasstube.data.model.CaptionTrackInfo?) {
+        val chosen = track ?: return
+        if (cuesLoadingFor == chosen.languageTag) return
+        cuesLoadingFor = chosen.languageTag
+        viewModelScope.launch {
+            try {
+                when (val result = source.captions(summary.id, chosen.languageTag)) {
+                    is AppResult.Ok -> _state.update {
+                        // A slow answer for a language the reader has already moved past is
+                        // dropped rather than written over the current one.
+                        if (it.captionTrack?.languageTag != chosen.languageTag) {
+                            it
+                        } else {
+                            it.copy(captionCues = result.value.cues)
+                        }
+                    }
+                    is AppResult.Err -> {
+                        log.info("captions", "cues for ${summary.id} ${chosen.languageTag}: ${result.message}")
+                        _state.update {
+                            if (it.captionTrack?.languageTag != chosen.languageTag) {
+                                it
+                            } else {
+                                it.copy(captionCues = emptyList())
+                            }
+                        }
+                    }
+                }
+            } finally {
+                if (cuesLoadingFor == chosen.languageTag) cuesLoadingFor = null
             }
         }
     }

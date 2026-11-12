@@ -59,9 +59,13 @@ class CommentsViewModel(
     private val resync: ResyncEngine,
     private val resyncStore: ResyncStore,
     val videoId: String,
+    /** Whether the section was open the last time the reader left it. */
+    startExpanded: Boolean = false,
+    /** Told on every open and close, so the next page opens the same way. */
+    private val onExpandedChange: (Boolean) -> Unit = {},
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow(CommentsUiState())
+    private val _state = MutableStateFlow(CommentsUiState(expanded = startExpanded))
     val state: StateFlow<CommentsUiState> = _state.asStateFlow()
 
     init {
@@ -116,6 +120,7 @@ class CommentsViewModel(
     fun toggleExpanded() {
         val nowExpanded = !_state.value.expanded
         _state.update { it.copy(expanded = nowExpanded) }
+        onExpandedChange(nowExpanded)
         if (nowExpanded && !firstPageRequested) {
             firstPageRequested = true
             loadFirstPage()

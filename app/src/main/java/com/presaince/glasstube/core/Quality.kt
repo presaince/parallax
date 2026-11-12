@@ -84,6 +84,17 @@ const val KEY_QUALITY_WIFI = "video_quality"
 const val KEY_QUALITY_CELLULAR = "video_quality_cellular"
 
 /**
+ * A rung this session stepped down to because the connection could not carry the chosen one. It is
+ * separate from the reader's choice on purpose: a bad ten minutes on a train must not rewrite the
+ * ceiling they picked, so the ladder lowers this and the picker clears it.
+ */
+const val KEY_QUALITY_SESSION = "video_quality_session"
+
+/** What to actually ask for: a session step-down outranks the stored choice. Pure. */
+fun qualityInForce(storedHeight: Int, sessionHeight: Int): Int =
+    if (sessionHeight > 0) sessionHeight else storedHeight
+
+/**
  * The stop one step down the ladder from [height], for a video that keeps stalling. Auto is not a
  * step: it is a ceiling, and the honest answer to "this is too much for this connection" is a
  * height somebody can name. Null means there is nothing lower to offer, so the caller says so
@@ -97,6 +108,53 @@ fun lowerStop(height: Int, stops: List<QualityStop>): QualityStop? {
     if (height <= 0) return offered.lastOrNull { it.height <= 720 }
     return offered.lastOrNull { it.height < height }
 }
+
+/**
+ * The runway ahead of the playhead, in wall-clock milliseconds, below which a stream is choppy.
+ * Wall clock and not media time, because the buffer drains at the playback speed: at 2x the same
+ * six seconds of buffer is three seconds of picture. That is the whole of why 2x buffers where 1x
+ * does not, and why a rule measured in media time can never see it.
+ */
+const val CHOPPY_RUNWAY_MS = 6_000L
+
+/**
+ * How long a short runway must hold before it counts. A fresh load and a seek both start with
+ * nothing buffered, and neither is choppy water — the caller only feeds samples from a stream
+ * that has stopped growing.
+ */
+const val CHOPPY_HOLD_MS = 3_000L
+
+/**
+ * Whether the picture is being fed slower than it is being played: what is buffered ahead of the
+ * playhead, divided by the speed it drains at, is a shorter lead than [CHOPPY_RUNWAY_MS]. Pure,
+ * so the 2x case has a test without a device.
+ */
+fun choppyWater(forwardBufferMs: Long, speed: Float): Boolean {
+    val rate = speed.coerceIn(0.25f, 4f)
+    return (forwardBufferMs / rate).toLong() < CHOPPY_RUNWAY_MS
+}
+
+/**
+ * The window a choppy episode is judged in. One thin moment is noise — the player recovers and
+ * nobody notices. Several inside half a minute is a connection that cannot carry the speed, and
+ * acting on the first one is what made the old rule read as a bug.
+ */
+const val DEGRADE_WINDOW_MS = 30_000L
+
+/** Choppy moments tolerated inside the window before the picture steps down. */
+const val DEGRADE_TOLERANCE_DEFAULT = 3
+const val DEGRADE_TOLERANCE_MAX = 10
+
+/** The stamps that can still change the next answer: anything older is outside the window. */
+fun freshEpisodes(episodes: List<Long>, nowMs: Long): List<Long> =
+    episodes.filter { it > nowMs - DEGRADE_WINDOW_MS }
+
+/**
+ * Whether this episode is one too many. Pure, so the patience rule has a test without a device.
+ * A tolerance below one is still one: a rule that always fires is not a setting.
+ */
+fun shouldDegrade(episodes: List<Long>, nowMs: Long, tolerance: Int): Boolean =
+    freshEpisodes(episodes, nowMs).size >= tolerance.coerceIn(1, DEGRADE_TOLERANCE_MAX)
 
 /**
  * What to call a stored height, given what ExoPlayer actually resolved. A chosen stop is a request,

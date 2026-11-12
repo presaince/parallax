@@ -59,11 +59,13 @@ fun Throwable.toSourceError(): SourceError = when (this) {
         SourceError.ExtractorBroken
     }
     // Members-only arrives as a plain unavailability whose only distinguishing feature is its
-    // wording; there is no extractor type for it, so it is read before the generic case.
-    is ContentNotAvailableException -> if (isMembersOnly()) {
-        SourceError.MembersOnly
-    } else {
-        SourceError.PrivateOrRemoved
+    // wording; there is no extractor type for it, so it is read before the generic case. A
+    // scheduled stream is the same shape and is read first, because "will begin in a few
+    // moments" is the one thing that makes "private or removed" wrong (`192409`).
+    is ContentNotAvailableException -> when {
+        isNotStarted() -> SourceError.NotStarted
+        isMembersOnly() -> SourceError.MembersOnly
+        else -> SourceError.PrivateOrRemoved
     }
     is ExtractionException -> SourceError.ExtractorBroken
     is IOException -> SourceError.NetworkFailure
@@ -77,4 +79,17 @@ private fun Throwable.isSabrOnly(): Boolean =
 internal fun Throwable.isMembersOnly(): Boolean {
     val text = message?.lowercase() ?: return false
     return "members" in text && ("channel" in text || "members-only" in text || "paid" in text)
+}
+
+/**
+ * A premiere or a scheduled stream that has not begun. The extractor's own text is
+ * "This live event will begin in a few moments", and ExoPlayer's form carries the
+ * `LIVE_STREAM_OFFLINE` prefix. Narrow on purpose: a stream that has *ended* is a different
+ * sentence and stays private-or-removed.
+ */
+internal fun Throwable.isNotStarted(): Boolean {
+    val text = message?.lowercase() ?: return false
+    if ("live_stream_offline" in text) return true
+    if ("live event" in text && "begin" in text) return true
+    return "live stream" in text && ("not started" in text || "will begin" in text || "starts soon" in text)
 }

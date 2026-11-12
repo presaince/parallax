@@ -37,9 +37,13 @@ falls back to the closest lower height, and the player's readout says what resol
 
 **Edge.** The ceiling is kept per connection: mobile data has its own stop, and everything that is
 not cellular — Wi-Fi, Ethernet, a VPN that reports no transport, no network — uses the Wi-Fi stop.
-The pick happens when streams are fetched, so a change applies from the next load.
+The pick happens when streams are fetched, so a change applies from the next load. A step down the
+ladder made because the connection could not carry the chosen stop is kept apart from that choice,
+for the session only: the picker clears it and the next video starts at the stored stop again, so a
+bad ten minutes does not quietly lower what the reader asked for.
 
-**Enforced by** `data/source/NewPipeSource.kt`, `core/Quality.kt`, `PlaybackController.kt`.
+**Enforced by** `data/source/NewPipeSource.kt`, `core/Quality.kt` (`qualityInForce`,
+`KEY_QUALITY_SESSION`), `PlaybackController.kt`.
 
 **Rule.** With the screen off the player stops fetching video and keeps the sound.
 
@@ -49,6 +53,34 @@ decoder start, so the picture is frozen for a moment while the audio continues. 
 stream cannot do this and keeps downloading the file as before.
 
 **Enforced by** `PlaybackController.kt` (`ACTION_SCREEN_OFF`/`ACTION_SCREEN_ON`, `setVideoTrackEnabled`).
+
+**Rule.** Captions are the video's own tracks, drawn by this app, and off until asked for.
+
+**Edge.** The CC control appears only once the track list is known, and only when the list is not
+empty. The stored language wins while the video still offers it; otherwise a human track comes
+before a machine one and English before the rest. Cues are read from the player's own position on
+the same 250 ms tick as the progress bar, a cue's end is exclusive, and two cues over the same
+moment are joined rather than one silently winning. The track is fetched after the first frame, so
+it never competes with the picture, and switching the language clears the old text rather than
+leaving words that are not being said. Captions appear in the picture and in fullscreen, not in the
+mini card or picture-in-picture, and they take no touches, so the seek and level gestures work
+through them.
+
+**Enforced by** `data/source/NewPipeSource.kt` (`captionTracks`, `captions`),
+`feature/player/Captions.kt`, `feature/player/PlayerViewModel.kt`, `feature/player/PlayerScreen.kt`.
+
+**Rule.** Sound shaping is one equaliser, one level and one compressor, and all three are off until
+asked for.
+
+**Edge.** The effects attach to the player's own audio session, which is chosen here because Media3
+offers no getter for a session it generated itself. A device that refuses an effect loses the
+shaping and never the video: every attach and write is guarded and logged. "Even out volume" is a
+compressor with makeup gain, not loudness normalisation — nothing measures a track's loudness — and
+the limiter at -1 dB is what stops a boosted band or a raised level from clipping. Choosing a
+preset, a level or even-out turns the whole thing on, because a control that does nothing reads as
+broken.
+
+**Enforced by** `playback/Sound.kt`, `PlaybackController.kt`, `feature/settings/SettingsSections.kt`.
 
 **Rule.** The media notification carries artwork and media controls; its restart button is optional.
 
@@ -95,18 +127,26 @@ by the extractor's wording, since it arrives as a plain unavailability.
 for the same two retries.
 
 **Edge.** `PlaybackController` measures buffering in its 250 ms tick and publishes `stalledForMs`;
-at 15 s it logs one line with the network label, and at 20 s the stall spends one of the two quiet
-tries. The stopwatch runs only while the player is trying to play, so pausing a slow load never
+at 15 s it logs one line with the network label, and at 20 s the stall becomes a decision. What
+happens next is one rule in one place (`PlaybackTick.tickAction`): with auto-degrade on and a stop
+below available, a full stall steps one rung down and reloads at the playhead without spending a
+quiet try; otherwise the stall spends one of the two quiet tries, and past both the log says `gave
+up` once instead of buffering in silence. An error is not a height problem, so it skips the ladder
+and asks for fresh streams at the same height. A picture that keeps playing but is fed slower than
+it plays is the milder case: it has to meet the degrade tolerance, and with nowhere to step it is
+left alone rather than spending a retry on a stream that is merely slow. The stopwatch runs only
+while the player is trying to play, so pausing a slow load never
 ends in a retry that starts the video on its own. The player's own client gives a stalled socket
 8 s to answer, against the extractor's 30 s, because a wait that long reads as a hang. The pill
 under the picture states exactly one fact — fetching, loading the video, buffering, stalled or
 broken — and past the two quiet retries it is pressable rather than a word with nothing behind it.
 
-Both retries, and the budget behind them, belong to the controller rather than the screen: they
-fire with the activity gone or the mini-player showing, and a new video gets a fresh two while the
-same video keeps what it has spent. A tap on the pill resets the budget on purpose.
+Both retries, the ladder and the budget behind them belong to the controller rather than the screen:
+they fire with the activity gone or the mini-player showing, and a new video gets a fresh two while
+the same video keeps what it has spent. A tap on the pill resets the budget on purpose.
 
-**Enforced by** `PlaybackController.kt` (`stalledForMs`, `shouldRecover`, `STALL_LOG_MS`),
+**Enforced by** `PlaybackController.kt` (`stalledForMs`, `STALL_LOG_MS`),
+`playback/PlaybackTick.kt` (`tickAction`, which delegates the budget to `shouldRecover`),
 `feature/player/PlayerStatus.kt`, `PlayerScreen.kt`, `di/AppContainer.kt` (`playerHttp`).
 
 **Rule.** Played bytes stay on disk and are read before the network. The cache is capped by a
@@ -206,8 +246,8 @@ four-line fold and are no longer used by the screen.
 **Enforced by** `feature/player/PlayerScreen.kt` (`DescriptionBlock`, `descriptionBody`),
 `feature/player/Chapters.kt` (`timestampLine`, `parseChapters`).
 
-**Rule.** Chapters render as a horizontal strip of cards by default; Settings can make it a plain
-list.
+**Rule.** Chapters render as a horizontal strip of cards by default; Appearance can make it a
+plain list or leave the panel out entirely.
 
 **Edge.** The strip is collapsible like the description. Each card seeks on tap. The chapter the
 playhead is inside is marked in the primary colour, and its picture carries a 2dp border; before the
@@ -216,7 +256,8 @@ the poster thumbnail, loaded only when the row is on screen. A
 timestamp line may be wrapped in brackets or parentheses, follow a bullet or dash, and use
 three-digit minutes ("100:30"); the title is what remains after the timestamp.
 
-**Rule.** At the end of a video, related videos appear under "Up next" behind a Settings switch.
+**Rule.** At the end of a video, related videos appear under "Up next" behind a switch in
+Settings → Feed.
 
 **Edge.** The list is prefetched once the load stages reach it (or at three quarters through, so
 a slow comments fetch cannot stall the end screen) and is hidden entirely when the switch is off.
@@ -255,19 +296,22 @@ bottom of the picture.
 
 **Enforced by** `PlayerScreen.kt` (`item(key = "actions")`).
 
-**Rule.** The panel has two modes: **This moment** (the link carries the playhead) and **A clip**
-(the link carries the start; the end travels in the text).
+**Rule.** The panel has two shapes, and the bar decides which: **a moment** (one handle; the link
+carries the playhead) and **a clip** (two handles; dragging the end away from the start makes one).
+There are no mode buttons.
 
-**Edge.** A YouTube link can only carry one time, so the text is `link&t=<start>s` plus a second
-line `1:20–2:05`. The bar shows a live playhead line; the video keeps playing behind the sheet.
+**Edge.** The sheet opens with the start at the playhead and the end thirty seconds later, clamped to
+the video. An end within a second of the start is a moment and the second handle is not drawn. A clip
+is shared as `…&t=<start>s&end=<end>s`; YouTube ignores `end` and GlassTube reads it. The bar shows a
+live playhead line; the video keeps playing behind the sheet.
 
 **Enforced by** `PlayerScreen.kt` (`ShareSheet`).
 
-**Rule.** Both ends can be played to; the end lands two seconds early so the last moment can be
-checked.
+**Rule.** Both ends can be played to, and `Go to end` lands on the end itself, so the label and the
+picture agree. Six nudges (−30, −10, −2, +2, +10, +30 seconds) move the start and seek to it.
 
-**Edge.** `Go to end` seeks to `end - 2 s`, clamped at 0. `Sync to now` pulls the end (clip mode) or
-the whole moment (moment mode) to the playhead; if the playhead is before the start, both move.
+**Edge.** `Sync to now` pulls the end in a clip, or the start in a moment, to the playhead; if the
+playhead is before the start, the end stays a second past it.
 
 **Enforced by** `PlayerScreen.kt` (`ShareSheet`).
 
@@ -352,6 +396,16 @@ stream ended.
 stream by up to three hours.
 
 **Enforced by** `ContentRepository.kt` (`LIVE_GRACE_MS`).
+
+**Rule.** Live is hidden by one switch and fetched by another. Hiding live also stops the live tab
+being asked for, because every fetched stream would be filtered out at render; the fetch switch
+applies to the next refresh, not to the next launch.
+
+**Edge.** Both rows sit in Settings → Feed. The switch writes the preference and tells the
+repository in the same tap.
+
+**Enforced by** `SettingsSections.kt` (`FeedSection`), `ContentRepository.kt`
+(`hideLive`, `setFeedLive`).
 
 **Rule.** Library has three readings: a channel grid, sections by channel, and Collections.
 
@@ -485,8 +539,9 @@ video row once comments load.
 
 **Rule.** Notes are transcript-only: speech becomes text, and no audio file is ever written.
 
-**Edge.** One microphone, always visible. Dictation pauses playback; saving resumes it if dictation
-had paused it. Typing starts a note at the playhead. Newest first; tapping the text edits it.
+**Edge.** One microphone, always visible: it is the note field's trailing icon, not a row of its
+own. Dictation pauses playback; saving resumes it if dictation had paused it. Typing starts a note
+at the playhead. Newest first; tapping the text edits it.
 
 **Enforced by** `feature/notes/NotesTab.kt`, `feature/notes/VoiceInput.kt`,
 `PlaybackController.kt` (resume-after-dictation).
@@ -513,7 +568,52 @@ are fetched into the shared stream cache up to two minutes ahead, so the seek la
 instead of a spinner. Blocks under 30 s, and a far side already buffered or already fetched, are
 left alone; disabling skipping cancels the fetch.
 
+**Edge.** The player has one progress line, and segments and the playhead share it. Settings offers
+three ways: Covered (segments fill it, the accent covers what is watched), Tinted (the watched part
+carries a wash of the accent over them), and Hairline (a thin accent line down the centre). The
+choice is stored by key, applies to the video already playing, and defaults to Covered.
+
 **Enforced by** `data/sponsorblock/*`, `PlaybackController.kt`, `SponsorPrefetch.kt`.
+
+---
+
+## Up next
+
+**Rule.** Up next shows the whole related list the source returns. One tap on the refresh control
+opens one video from that pool — its own related videos are fetched and the unseen ones appended —
+so the list grows instead of being reordered.
+
+**Edge.** The pool grows in the order it was built, so the video's own suggestions stay at the top.
+It stops at sixty. A video is opened at most once, and the playing video is never opened: it would
+return the list already on screen. When nothing is left to open, the control says so rather than
+repainting the same list.
+
+**Edge.** Settings → Playback → Refresh Up next picks which end of the pool the next tap opens.
+Wider takes the shallowest unopened video, so every hop stays a child of the video being watched;
+Deeper takes the newest, so the walk follows a chain away from it. The stored key is
+`related_direction`, default wider.
+
+**Edge.** The traversal is `data/discover/RelatedWalk.kt`, shared with Bored: Bored's one-page
+answer, Bored's deep walk and Up next all call the same hop. There is no second related walker.
+
+**Enforced by** `data/discover/RelatedWalk.kt`, `RelatedPool.kt`, `feature/player/PlayerScreen.kt`,
+`feature/settings/SettingsSections.kt`.
+
+---
+
+## Cards
+
+**Rule.** Every card takes its five text parts from `CardText` in `ui/component/`: header (15sp,
+accent), title (15sp), meta (13sp), body (15sp), action (12sp). A card names its parts; it never
+sets a size of its own.
+
+**Edge.** Section headers on the player page, video card titles, the mini-player's title, comment
+authors and comment bodies all read from that one object, so two cards side by side cannot disagree
+about how big a title is.
+
+**Enforced by** `ui/component/CardText.kt`, used by `VideoRow.kt`, `MiniPlayer.kt`,
+`feature/player/PlayerScreen.kt`, `feature/comments/CommentsSection.kt`,
+`feature/notes/NotesTab.kt`.
 
 ---
 
@@ -604,13 +704,10 @@ is Settings' job. Notification permission is asked there, once, with context.
 changing any theme never recreates the Activity.
 
 **Edge.** Glass takes light or dark from the last ordinary theme chosen; there is no separate
-control. `Surfaces` is one block cut across: Glass on top, Solid underneath. Solid is Glass with
-the aurora turned down and the cards nearly closed, not a second copy of Dark or Light. Glass has
-to be visibly glass: its cards sit at 0.42 (dark) / 0.66 (light) alpha over an aurora at full
-strength, and Solid is 0.88 / 0.94 over a quiet one, so the two settings look different on a real
-page rather than only in a preview. The Glass tile's fill is continuous like the volume/brightness
-pill and opens at 42%. Tapping the half in use flips to the other; tapping the other
-half chooses it. Eighteen accents start at 20°, a deep
+control. Glass has to be visibly glass: its cards sit at 0.42 (dark) / 0.66 (light) alpha over an
+aurora at full strength, so the see-through is real on a page and not only in a preview. The Glass
+tile's fill is continuous like the volume/brightness pill and opens at 42%; dragging anywhere on
+the tile sets the level, and a tap chooses the theme. Eighteen accents start at 20°, a deep
 orange, so the wheel reads warm to cool and the first swatch is the colour a reader expects.
 Prefs keep the 200° brand cyan slot. One line of chips — Shuffle, Daily, Hourly, Openly — where
 the master sits beside its three rhythms and switching it off mutes the other three without moving
@@ -637,15 +734,28 @@ policy at the current fill, and keeps the current one when none do.
 **Enforced by** `ui/theme/Contrast.kt`, `ui/theme/Theme.kt`, `ui/theme/ThemeController.kt`,
 `feature/settings/SettingsSections.kt` (`ContrastCard`), `ui/theme/ThemeContrastTest.kt`.
 
-**Rule.** Preview is the second section, in a card of its own, and every control that changes it is
+**Rule.** Preview is the third section, in a card of its own, and every control that changes it is
 inside that card, directly under the card being previewed.
 
-**Edge.** The layout buttons are Side, Classic and Minimal; the six facts are tap buttons in three
-rows of two, not switches. The preview is full width, so the chosen shape is never judged from a
+**Edge.** The layout buttons are Side, Classic and Minimal; the ten facts are tap buttons in rows
+of two, not switches. The preview is full width, so the chosen shape is never judged from a
 thumbnail-sized stand-in.
 
 **Enforced by** `feature/settings/SettingsSections.kt` (`PreviewSection`, `PreviewCard`),
 `ui/component/CardStyle.kt`.
+
+**Rule.** Appearance owns what anything looks like, including the player and the video page:
+fullscreen progress bar, the notification's restart button, the tint from the video, the chapter
+style, the page order, chapter timestamps and which side the section labels sit on. Playback owns
+only how a video plays — gestures, seek base, speed presets, quality ceiling, stream cache and
+picture-in-picture — and Feed owns what the lists offer.
+
+**Edge.** A row is searchable only if it is in `settingsEntries`, and the entry's title is the
+words on screen. A row that is added without an entry is invisible to search, which is how eleven
+rows once went missing; `SettingsSearchTest` pins the moved rows to their sections.
+
+**Enforced by** `feature/settings/SettingsRegistry.kt`,
+`feature/settings/SettingsSections.kt`, `feature/settings/SettingsSearchTest.kt`.
 
 **Rule.** Loading a video shows the video's own thumbnail as the wait: it breathes and a soft band
 crosses it.
@@ -668,7 +778,7 @@ follows the phone's setting. The smallest labels were the ones that read as a sq
 
 **Edge.** A pushed screen paints the same aurora or theme background as its floor, so the pager
 underneath never shows through. A tile that wants a soft fill multiplies the scheme's alpha with
-`faded(n)`; `copy(alpha = n)` would replace it and make the tile identical in Glass and Solid.
+`faded(n)`; `copy(alpha = n)` would replace it and make the tile the same in Glass and in Dark.
 
 **Enforced by** `Theme.kt` (`ThemeBackdrop`).
 
@@ -708,7 +818,9 @@ uploads do not change by country, so the feed is never fetched more than once.
 always; the note and the screenshot are what the person typed and chose. The "Include logs" switch is
 on by default: on carries the last 300 log lines and a redacted copy of the settings; off sends the
 note alone, or the note and screenshot, with `logsIncluded: false` in the bundle. A filed report
-leaves one `bug: filed <name>` line in the log, so Diagnostics is the history of what was sent.
+leaves one `bug: filed <name>: <note>` line in the log — the words the person typed, flattened and
+capped at 120 characters, because the file name alone is not a history of anything. Diagnostics is
+therefore the history of what was sent.
 
 **Enforced by** `feature/settings/BugScreen.kt`, `core/BugReport.kt`, `core/BugUpload.kt`.
 

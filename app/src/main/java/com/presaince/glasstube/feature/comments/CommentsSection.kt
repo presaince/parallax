@@ -9,8 +9,10 @@ import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.clickable
@@ -22,7 +24,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -33,7 +34,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -52,7 +52,9 @@ import com.presaince.glasstube.core.SortRow
 import com.presaince.glasstube.core.formatDuration
 import com.presaince.glasstube.core.plural
 import com.presaince.glasstube.data.model.Comment
+import com.presaince.glasstube.ui.component.CardText
 import com.presaince.glasstube.ui.component.LinkifiedText
+import com.presaince.glasstube.ui.component.sectionCard
 import com.presaince.glasstube.ui.theme.accentTextColour
 
 /**
@@ -74,7 +76,12 @@ fun LazyListScope.commentsItems(
     labelsRight: Boolean = false,
 ) {
     item(key = "comments-header") {
-        CommentsHeader(state = state, viewModel = viewModel, labelsRight = labelsRight)
+        // The same card every other section header on this page sits in. It used to be bare text
+        // at 16dp, 8dp right of the description and 8dp left of Up next, which is the drift the
+        // reader notices before they can name it.
+        Column(modifier = Modifier.fillMaxWidth().sectionCard()) {
+            CommentsHeader(state = state, viewModel = viewModel, labelsRight = labelsRight)
+        }
     }
     if (!state.expanded) return
 
@@ -167,8 +174,8 @@ private fun CommentsHeader(
                 ?.takeIf { it > 0 && (state.items.isNotEmpty() || state.loading) }
                 ?.let { "Comments ($it)" }
                 ?: "Comments",
-            style = MaterialTheme.typography.titleSmall,
-            color = accentTextColour(),
+            style = CardText.header,
+            color = CardText.headerInk,
         )
         if (!labelsRight) Spacer(modifier = Modifier.weight(1f))
         Icon(
@@ -291,19 +298,24 @@ private fun CommentRow(
         }
     }
     val context = LocalContext.current
-    Surface(
-        color = if (alignedSec != null) {
-            // An aligned comment is the one the app has touched; give it a quiet tint.
-            MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
-        } else {
-            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
-        },
-        shape = RoundedCornerShape(12.dp),
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-    ) {
+    // A comment is a row, not a card. The page's cards are section headers, and a stack of
+    // rounded boxes made this section read as a pile of unrelated notes 8dp inside every other
+    // section. The divider the caller puts after each row is what separates them.
+    Box(modifier = Modifier.fillMaxWidth()) {
+        if (alignedSec != null) {
+            // An aligned comment is the one the app has touched. Inside a bubble that was a tint
+            // on the fill; on a plain row it is a band behind the words, edge to edge, so it
+            // reads as a highlight rather than as one card among many.
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)),
+            )
+        }
         Column(
             modifier = Modifier
-                .padding(10.dp)
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 10.dp)
                 .clickable(enabled = expandable, onClick = toggleMost),
         ) {
         // The name sits on the right, in the same column as the chevron: the words are what the
@@ -321,7 +333,7 @@ private fun CommentRow(
             }
             Text(
                 text = comment.author,
-                style = MaterialTheme.typography.labelMedium,
+                style = CardText.meta,
                 color = MaterialTheme.colorScheme.primary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -340,7 +352,7 @@ private fun CommentRow(
             LinkifiedText(
                 text = comment.text,
                 maxLines = if (expanded) Int.MAX_VALUE else 6,
-                style = MaterialTheme.typography.bodyMedium,
+                style = CardText.body,
                 colour = MaterialTheme.colorScheme.onSurface,
                 onTapElsewhere = if (expandable) toggleMost else null,
                 // Only while folded: once open, the chevron has to stay so the card can close

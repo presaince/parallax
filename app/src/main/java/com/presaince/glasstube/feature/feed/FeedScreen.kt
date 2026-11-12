@@ -208,10 +208,12 @@ fun FeedScreen(
 }
 
 /**
- * The part of the feed that scrolls: the sort control, then the three modes. While a refresh is
- * running the sort control steps aside for the river plus a line saying where the refresh has got
- * to — a counter, a percentage and the channel it has just passed, because an animation with no
- * number is a wait nobody can plan around.
+ * The part of the feed that scrolls: the three modes and the sort control on one row, so the
+ * first video is not two storeys down. The modes keep one shape whatever the list is sorted by,
+ * which is why the sort word — the only part whose width changes — sits on the far right and
+ * absorbs it. While a refresh is running the sort steps aside for the river plus a line saying
+ * where the refresh has got to — a counter, a percentage and the channel it has just passed,
+ * because an animation with no number is a wait nobody can plan around.
  */
 @Composable
 private fun FeedHeader(
@@ -224,13 +226,27 @@ private fun FeedHeader(
     onTab: (FeedTab) -> Unit,
     showSort: Boolean = true,
 ) {
-    Column(modifier = Modifier.fillMaxWidth().padding(top = 2.dp)) {
-        if (showSort) {
-            Row(
-                modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (refreshing) {
+    Row(
+        modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp).padding(top = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        ModeButton("Feed", tab == FeedTab.FEED) { onTab(FeedTab.FEED) }
+        ModeButton("History", tab == FeedTab.HISTORY) { onTab(FeedTab.HISTORY) }
+        ModeButton("Hidden", tab == FeedTab.HIDDEN) { onTab(FeedTab.HIDDEN) }
+        // The right hand of the row owns everything whose width can change: the sort word, or
+        // the refresh line. The modes to its left never move.
+        Box(
+            modifier = Modifier.weight(1f),
+            contentAlignment = Alignment.CenterEnd,
+        ) {
+            if (!showSort) {
+                // The Hidden list has no order to choose, so this end stays empty.
+            } else if (refreshing) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     SineRiver(
                         modifier = Modifier.weight(1f).height(24.dp).padding(end = 8.dp),
                         alpha = 0.55f,
@@ -245,23 +261,14 @@ private fun FeedHeader(
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
-                } else {
-                    SortControl(
-                        state = sortState,
-                        onState = onSortState,
-                        options = options,
-                        modifier = Modifier.weight(1f),
-                    )
                 }
+            } else {
+                SortControl(
+                    state = sortState,
+                    onState = onSortState,
+                    options = options,
+                )
             }
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            ModeButton("Feed", tab == FeedTab.FEED) { onTab(FeedTab.FEED) }
-            ModeButton("History", tab == FeedTab.HISTORY) { onTab(FeedTab.HISTORY) }
-            ModeButton("Hidden", tab == FeedTab.HIDDEN) { onTab(FeedTab.HIDDEN) }
         }
     }
 }

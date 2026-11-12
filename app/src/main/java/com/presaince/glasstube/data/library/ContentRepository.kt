@@ -49,6 +49,11 @@ class ContentRepository(
     private val log: AppLog,
     /** Player buffering state, so a feed refresh does not compete with the first frame. */
     private val playbackBusy: () -> Boolean = { false },
+    /**
+     * Whether live and upcoming videos are hidden from every list. A hidden stream is fetched and
+     * then thrown away, so the live tab is not asked at all while this is true.
+     */
+    private val hideLive: () -> Boolean = { false },
 ) {
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -152,10 +157,11 @@ class ContentRepository(
                         async {
                             val uploads = async { source.channelUploads(subscription.url) }
                             val info = source.channelInfo(subscription.url)
-                            // The live tab is asked only when the channel reports it. YouTube's own
-                            // tab list is the authority; asking a channel with no Live tab is a
-                            // failure, and the repair path logs failures as faults.
-                            val lives = if (_feedLive.value && hasLiveTab(info)) {
+                            // The live tab is asked only when the channel reports it, and only
+                            // when a live stream could actually appear: with live hidden every
+                            // fetched stream is filtered out at render, so the request is waste.
+                            val wantLive = _feedLive.value && !hideLive()
+                            val lives = if (wantLive && hasLiveTab(info)) {
                                 async { source.channelTab(subscription.url, LIVE_FILTER) }
                             } else {
                                 null

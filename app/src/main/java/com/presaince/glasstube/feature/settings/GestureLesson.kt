@@ -4,12 +4,14 @@
  */
 package com.presaince.glasstube.feature.settings
 
+import com.presaince.glasstube.feature.player.gesture.LadderStep
+
 /**
  * The gesture lesson's ladder, with no Compose in it.
  *
  * The player has three stops on this stage — normal, mini, super-mini — and the lesson has to
- * teach the way down and the way back. Keeping the thresholds and the round-trip completion here
- * means the pointer loop cannot quietly count a drag that never reached the bar.
+ * teach the way down and the way back. Which drag counts as a step is the player's own rule
+ * (`ladderStep`); what is left here is the stop it lands on, and when the lesson is finished.
  */
 internal object GestureLesson {
 
@@ -17,11 +19,11 @@ internal object GestureLesson {
     const val MINI = 1
     const val BAR = 2
 
-    /** The level after one vertical travel in the centre third. */
-    fun nextLevel(level: Int, travelPx: Float, thresholdPx: Float): Int = when {
-        travelPx > thresholdPx -> (level + 1).coerceAtMost(BAR)
-        travelPx < -thresholdPx -> (level - 1).coerceAtLeast(NORMAL)
-        else -> level
+    /** The stop one step in [step]'s direction, clamped at both ends. */
+    fun stepped(level: Int, step: LadderStep): Int = when (step) {
+        LadderStep.Down -> (level + 1).coerceAtMost(BAR)
+        LadderStep.Up -> (level - 1).coerceAtLeast(NORMAL)
+        LadderStep.None -> level
     }
 
     /** The fourth step is done only when the bar was reached and the card came back up. */

@@ -5,6 +5,7 @@
 package com.presaince.glasstube.data.source
 
 import com.presaince.glasstube.core.AppResult
+import com.presaince.glasstube.data.model.CaptionTrackInfo
 import com.presaince.glasstube.data.model.Channel
 import com.presaince.glasstube.data.model.Comment
 import com.presaince.glasstube.data.model.Page
@@ -28,16 +29,24 @@ interface VideoSource {
     suspend fun streams(id: String): AppResult<StreamSet>
     suspend fun comments(id: String, page: String? = null): AppResult<Page<Comment>>
     suspend fun related(id: String): AppResult<List<VideoSummary>>
-
-    /**
-     * The same list, with the cache skipped. Up next's reshuffle is the only caller: asking the
-     * same id twice inside the cache window returns the same videos, which made the button look
-     * like it did nothing.
-     */
-    suspend fun relatedFresh(id: String): AppResult<List<VideoSummary>> = related(id)
     suspend fun channelUploads(channelUrl: String, page: String? = null): AppResult<Page<VideoSummary>>
     suspend fun channelInfo(channelUrl: String): AppResult<Channel>
     suspend fun subtitles(id: String): AppResult<SubtitleTrack>
+
+    /**
+     * What caption tracks the video offers, without downloading any. A source that cannot list
+     * them serves an empty list, which the player reads as "no CC control", not as an error.
+     */
+    suspend fun captionTracks(id: String): AppResult<List<CaptionTrackInfo>> =
+        AppResult.Ok(emptyList())
+
+    /**
+     * One caption track, parsed. [languageTag] null means the best available, which is the order
+     * [subtitles] has always used: human before machine, English before the rest. A tag that is
+     * not offered falls back to that same rule rather than failing the video.
+     */
+    suspend fun captions(id: String, languageTag: String?): AppResult<SubtitleTrack> =
+        subtitles(id)
 
     /**
      * One of a channel's tabs by its filter name: "videos", "shorts", "livestreams". Sources that

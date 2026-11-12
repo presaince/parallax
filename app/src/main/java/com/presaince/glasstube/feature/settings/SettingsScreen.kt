@@ -55,6 +55,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.presaince.glasstube.BuildConfig
 import com.presaince.glasstube.data.auth.PostingManager
+import com.presaince.glasstube.data.library.ContentRepository
 import com.presaince.glasstube.data.resync.ResyncStore
 import com.presaince.glasstube.playback.PlaybackController
 import com.presaince.glasstube.ui.theme.ThemeController
@@ -84,6 +85,10 @@ fun SettingsScreen(
         context.getSharedPreferences("glasstube", Context.MODE_PRIVATE)
             .getBoolean("hide_live", false)
     }
+    val hideWatchedPercent = remember {
+        context.getSharedPreferences("glasstube", Context.MODE_PRIVATE)
+            .getInt(ContentRepository.KEY_HIDE_WATCHED, 0)
+    }
     val speeds = remember { playback.speedPresets() }
     val regionLabel = remember {
         val codes = com.presaince.glasstube.data.source.readContentRegions(context)
@@ -106,12 +111,24 @@ fun SettingsScreen(
 
     val summaries = mapOf(
         SettingsSectionId.APPEARANCE to "${modeLabel(theme.mode)} · ${theme.accent.label}",
-        SettingsSectionId.PLAYBACK to buildString {
-            append("%.1f–%.1f×".format(speeds.first(), speeds.last()))
-            append(" · ")
-            append(if (hideLive) "live hidden" else "live shown")
+        SettingsSectionId.PLAYBACK to "%.1f–%.1f×".format(speeds.first(), speeds.last()),
+        SettingsSectionId.SOUND to if (playbackState.sound.enabled) {
+            "On · ${playbackState.sound.preset.label}"
+        } else {
+            "Off"
         },
-        SettingsSectionId.FEEDBACK to if (
+        SettingsSectionId.FEED to buildString {
+            append(if (hideLive) "live hidden" else "live shown")
+            append(" · ")
+            append(
+                if (hideWatchedPercent <= 0) {
+                    "watched kept"
+                } else {
+                    "watched past $hideWatchedPercent% hidden"
+                },
+            )
+        },
+        SettingsSectionId.HAPTICS to if (
             context.getSharedPreferences("glasstube", Context.MODE_PRIVATE)
                 .getBoolean("haptics_enabled", true)
         ) "Haptics on" else "Haptics off",
@@ -210,7 +227,12 @@ fun SettingsScreen(
                 }
             } else {
                 items(results, key = { it.title }) { entry ->
-                    ResultRow(entry = entry, onClick = { onOpenSection(entry.section) })
+                    ResultRow(
+                        entry = entry,
+                        onClick = {
+                            if (entry.runs) onRunSetup() else onOpenSection(entry.section)
+                        },
+                    )
                 }
             }
         }
@@ -302,7 +324,7 @@ private fun ResultRow(entry: SettingsEntry, onClick: () -> Unit) {
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = entry.section.title,
+                text = if (entry.runs) "Starts the setup" else entry.section.title,
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

@@ -6,6 +6,7 @@ package com.presaince.glasstube.data.backup
 
 import com.presaince.glasstube.data.resync.ResyncSettings
 import com.presaince.glasstube.data.sponsorblock.SponsorCategories
+import com.presaince.glasstube.playback.SoundPreset
 import com.presaince.glasstube.playback.PlaybackController
 import com.presaince.glasstube.ui.component.CardLayout
 import com.presaince.glasstube.ui.theme.Accents
@@ -63,7 +64,6 @@ internal object SettingsSchema {
             PrefField("accent", "accent", PrefKind.STRING, Accents.cyan.name),
             PrefField("contrast", "contrast_policy", PrefKind.STRING, ContrastPolicy.AA.stored),
             PrefField("shuffle", "accent_shuffle", PrefKind.STRING, ShuffleCadence.OFF.name),
-            PrefField("solid", "solid_surfaces", PrefKind.BOOL, false),
             // The glass dial's resting fill; Theme.readGlassLevel uses the same 0.42.
             PrefField("glassLevel", "glass_level_v2", PrefKind.FLOAT, 0.42f),
             PrefField("loadingStyle", "loading_style", PrefKind.INT, 0),
@@ -92,6 +92,10 @@ internal object SettingsSchema {
                 SponsorCategories.default,
             ),
             PrefField("speed", "playback_speed", PrefKind.FLOAT, 1f),
+            PrefField("autoDegrade", "auto_degrade", PrefKind.BOOL, true),
+            // Choppy moments in 30 s before the picture gives up a rung. Three is the default:
+            // one is what the old rule did, and it read as a bug.
+            PrefField("degradeTolerance", "auto_degrade_episodes", PrefKind.INT, 3),
             PrefField("watchThreshold", "watch_threshold", PrefKind.STRING, "30s"),
             // The feed's own cut, in percent: 0 is off. Kept apart from watchThreshold, which
             // decides when an open is a watch rather than when a video leaves the feed.
@@ -111,6 +115,11 @@ internal object SettingsSchema {
             PrefField("pipOnLeave", "pip_on_leave", PrefKind.BOOL, true),
             PrefField("restartButton", "notification_restart", PrefKind.BOOL, true),
             PrefField("chaptersStyle", "chapters_style", PrefKind.INT, 0),
+            PrefField("captionsOn", "captions_on", PrefKind.BOOL, false),
+            // Empty means "the best track each video offers". Stored as the extractor's language
+            // tag ("en", "de"), so a restore reads the same value the player wrote.
+            PrefField("captionLanguage", "caption_language", PrefKind.STRING, ""),
+            PrefField("captionSize", "caption_size", PrefKind.INT, 1),
             PrefField("playerSections", "player_sections", PrefKind.STRING, ""),
             PrefField("chapterTimestamps", "chapter_timestamps", PrefKind.BOOL, true),
             PrefField("playerLabelsRight", "player_labels_right", PrefKind.BOOL, false),
@@ -124,6 +133,12 @@ internal object SettingsSchema {
                 PrefKind.STRING,
                 PlaybackController.DEFAULT_PRESETS.joinToString(","),
             ),
+        ),
+        "sound" to listOf(
+            PrefField("soundOn", "sound_enabled", PrefKind.BOOL, false),
+            PrefField("soundPreset", "sound_preset", PrefKind.STRING, SoundPreset.FLAT.key),
+            PrefField("soundLevelDb", "sound_level_db", PrefKind.INT, 0),
+            PrefField("evenOut", "sound_even_out", PrefKind.BOOL, false),
         ),
         "feedback" to listOf(
             PrefField("haptics", "haptics_enabled", PrefKind.BOOL, true),

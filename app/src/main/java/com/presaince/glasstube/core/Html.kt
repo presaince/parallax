@@ -6,6 +6,10 @@ package com.presaince.glasstube.core
 
 import android.text.Html
 
+/** One image tag, with its attributes, so the alt text can be rescued from it. */
+private val IMG_TAG = Regex("<img\\b[^>]*>", RegexOption.IGNORE_CASE)
+private val ALT_ATTR = Regex("""alt\s*=\s*["']([^"']*)["']""", RegexOption.IGNORE_CASE)
+
 /**
  * YouTube sends descriptions and comment text as HTML with entities: `&amp;apos;`, `&#128515;`,
  * `<a href="…">`, `<br>`. Rendering that raw puts tag soup on screen. This turns it into the string
@@ -21,16 +25,22 @@ fun cleanHtml(raw: String): String {
     // pass turns the newlines that <br> and <p> produced back into spaces, which is why the
     // description used to arrive as one paragraph.
     val decoded = raw.replace("&amp;", "&")
-    val hasTags = decoded.contains('<') && decoded.contains('>')
+    // YouTube's richer descriptions carry some marks as images ("<img … alt="📷">"), and the
+    // platform parser drops an image with no ImageGetter. The alt text is the mark, so it
+    // becomes the text (`121704`).
+    val withAlt = IMG_TAG.replace(decoded) { tag ->
+        ALT_ATTR.find(tag.value)?.groupValues?.get(1).orEmpty()
+    }
+    val hasTags = withAlt.contains('<') && withAlt.contains('>')
     // Entities can arrive without a single tag ("I&amp;apos;m here"), and those still need the
     // platform table — otherwise "&apos;" reaches the screen verbatim.
-    val hasEntities = decoded.contains('&')
+    val hasEntities = withAlt.contains('&')
     val text = if (hasTags || hasEntities) {
-        runCatching { Html.fromHtml(decoded, Html.FROM_HTML_MODE_LEGACY).toString() }
-            .getOrElse { decoded }
+        runCatching { Html.fromHtml(withAlt, Html.FROM_HTML_MODE_LEGACY).toString() }
+            .getOrElse { withAlt }
     } else {
         // Plain text with nothing to decode: keep the author's line breaks untouched.
-        decoded
+        withAlt
     }
     return text
         .replace("\u200B", "")

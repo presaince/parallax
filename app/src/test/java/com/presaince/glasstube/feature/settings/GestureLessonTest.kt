@@ -4,6 +4,7 @@
  */
 package com.presaince.glasstube.feature.settings
 
+import com.presaince.glasstube.feature.player.gesture.LadderStep
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -12,26 +13,24 @@ import org.junit.Test
 /** The lesson's three-stop ladder and the rule that the fourth step needs the round trip. */
 class GestureLessonTest {
 
-    private val threshold = 20f
-
     @Test
     fun `down walks to the bar and stops there`() {
-        assertEquals(1, GestureLesson.nextLevel(GestureLesson.NORMAL, 30f, threshold))
-        assertEquals(2, GestureLesson.nextLevel(GestureLesson.MINI, 30f, threshold))
-        assertEquals(2, GestureLesson.nextLevel(GestureLesson.BAR, 30f, threshold))
+        assertEquals(GestureLesson.MINI, GestureLesson.stepped(GestureLesson.NORMAL, LadderStep.Down))
+        assertEquals(GestureLesson.BAR, GestureLesson.stepped(GestureLesson.MINI, LadderStep.Down))
+        assertEquals(GestureLesson.BAR, GestureLesson.stepped(GestureLesson.BAR, LadderStep.Down))
     }
 
     @Test
     fun `up walks back to normal and stops there`() {
-        assertEquals(1, GestureLesson.nextLevel(GestureLesson.BAR, -30f, threshold))
-        assertEquals(0, GestureLesson.nextLevel(GestureLesson.MINI, -30f, threshold))
-        assertEquals(0, GestureLesson.nextLevel(GestureLesson.NORMAL, -30f, threshold))
+        assertEquals(GestureLesson.MINI, GestureLesson.stepped(GestureLesson.BAR, LadderStep.Up))
+        assertEquals(GestureLesson.NORMAL, GestureLesson.stepped(GestureLesson.MINI, LadderStep.Up))
+        assertEquals(GestureLesson.NORMAL, GestureLesson.stepped(GestureLesson.NORMAL, LadderStep.Up))
     }
 
     @Test
-    fun `a short drag does not move a step`() {
-        assertEquals(1, GestureLesson.nextLevel(GestureLesson.MINI, 10f, threshold))
-        assertEquals(1, GestureLesson.nextLevel(GestureLesson.MINI, -10f, threshold))
+    fun `no step leaves the card where it is`() {
+        assertEquals(GestureLesson.MINI, GestureLesson.stepped(GestureLesson.MINI, LadderStep.None))
+        assertEquals(GestureLesson.BAR, GestureLesson.stepped(GestureLesson.BAR, LadderStep.None))
     }
 
     @Test

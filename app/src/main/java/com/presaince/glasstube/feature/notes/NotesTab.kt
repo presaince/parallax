@@ -41,7 +41,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -83,6 +82,7 @@ import com.presaince.glasstube.data.db.NoteEntity
 import com.presaince.glasstube.data.db.GlassTubeDb
 import com.presaince.glasstube.playback.PlaybackController
 import kotlin.math.sin
+import com.presaince.glasstube.ui.component.CardText
 import com.presaince.glasstube.ui.theme.accentTextColour
 
 /**
@@ -196,15 +196,17 @@ fun NotesTab(
         }
     }
 
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-        shape = RoundedCornerShape(14.dp),
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
-    ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            val editing = state.editing
-            // One top row: the list tools as a bordered group on the left, then the state, the
-            // microphone and (only with a draft) the save tick.
+    // No surface of its own. The body of a section flows under its header card, on the page, at
+    // the same 24dp left edge as the description and the comments; a second card at a different
+    // radius and a stronger fill was the one block on this page that did not belong to the rule.
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
+        val editing = state.editing
+        val caption = state.message ?: editing?.let { formatDuration(it.atSec) }
+        // One top row: the list tools as a bordered group on the left, then the state and (only
+        // with a draft) the save tick. The microphone is in the field now, where a dictation
+        // control belongs and where it costs no height at all, so this row is only drawn when it
+        // has something to say: an empty one would be 40dp of nothing above the text box.
+        if ((editing == null && state.notes.size >= 2) || caption != null || editing != null) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (editing == null && state.notes.size >= 2) {
                     Row(
@@ -255,7 +257,6 @@ fun NotesTab(
                     }
                 }
                 Spacer(Modifier.weight(1f))
-                val caption = state.message ?: editing?.let { formatDuration(it.atSec) }
                 if (caption != null) {
                     Text(
                         text = caption,
@@ -270,15 +271,6 @@ fun NotesTab(
                         modifier = Modifier.padding(end = 8.dp),
                     )
                 }
-                RecordingMic(
-                    recording = dictating,
-                    onClick = {
-                        if (state.editing == null) {
-                            viewModel.begin(playbackState.positionMs / 1000)
-                        }
-                        dictate()
-                    },
-                )
                 if (editing != null && !dictating) {
                     IconButton(onClick = { leaveEditor() }) {
                         Icon(
@@ -307,122 +299,139 @@ fun NotesTab(
                     }
                 }
             }
+        }
 
-            // The field is always here: typing is the other way in, and it starts a note at the
-            // playhead on the first keystroke. The microphone fills the same field.
-            var fieldFocused by remember { mutableStateOf(false) }
-            LaunchedEffect(editing) {
-                // A saved note must not leave the cursor blinking in a field the keyboard has
-                // already left. Focus belongs to whoever is typing, not to the last draft.
-                if (editing == null) {
-                    fieldFocused = false
-                    focus.clearFocus()
-                }
+        // The field is always here: typing is the other way in, and it starts a note at the
+        // playhead on the first keystroke. The microphone fills the same field.
+        var fieldFocused by remember { mutableStateOf(false) }
+        LaunchedEffect(editing) {
+            // A saved note must not leave the cursor blinking in a field the keyboard has
+            // already left. Focus belongs to whoever is typing, not to the last draft.
+            if (editing == null) {
+                fieldFocused = false
+                focus.clearFocus()
             }
-            // The river runs inside the box, behind the text. It is the only dictation animation,
-            // and it dims as soon as the field is focused so typing is clean.
-            Box(modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
-                NoteRiver(
-                    recording = dictating,
-                    dimmed = fieldFocused,
-                    modifier = Modifier.matchParentSize(),
-                )
-                OutlinedTextField(
-                    value = editing?.text.orEmpty(),
-                    onValueChange = { text ->
-                        if (state.editing == null) {
-                            viewModel.begin(playbackState.positionMs / 1000)
+        }
+        // The river runs inside the box, behind the text. It is the only dictation animation,
+        // and it dims as soon as the field is focused so typing is clean.
+        Box(modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
+            NoteRiver(
+                recording = dictating,
+                dimmed = fieldFocused,
+                modifier = Modifier.matchParentSize(),
+            )
+            OutlinedTextField(
+                value = editing?.text.orEmpty(),
+                onValueChange = { text ->
+                    if (state.editing == null) {
+                        viewModel.begin(playbackState.positionMs / 1000)
+                    }
+                    viewModel.updateDraft(text)
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .onFocusChanged {
+                        fieldFocused = it.isFocused
+                        if (it.isFocused && dictating) {
+                            // Typing ends the microphone: two inputs into one field at the
+                            // same time is how a note ends up half-spoken, half-typed.
+                            voice.stop()
+                            dictating = false
+                            playback.resumeAfterDictation(resumeAfterDictation)
+                            resumeAfterDictation = false
                         }
-                        viewModel.updateDraft(text)
                     },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .onFocusChanged {
-                            fieldFocused = it.isFocused
-                            if (it.isFocused && dictating) {
-                                // Typing ends the microphone: two inputs into one field at the
-                                // same time is how a note ends up half-spoken, half-typed.
-                                voice.stop()
-                                dictating = false
-                                playback.resumeAfterDictation(resumeAfterDictation)
-                                resumeAfterDictation = false
+                minLines = 2,
+                maxLines = 5,
+                shape = RoundedCornerShape(6.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = Color.Transparent,
+                    unfocusedContainerColor = Color.Transparent,
+                    disabledContainerColor = Color.Transparent,
+                ),
+                placeholder = {
+                    Text(
+                        text = "talk or type what you're thinking",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                },
+                trailingIcon = {
+                    // The microphone sits where a dictation control belongs, and the field's own
+                    // height pays for it. As a separate row it cost 40dp above the box for one
+                    // button, and the section read taller than the ones around it for no reason.
+                    RecordingMic(
+                        recording = dictating,
+                        onClick = {
+                            if (state.editing == null) {
+                                viewModel.begin(playbackState.positionMs / 1000)
                             }
+                            // The keyboard has no work while talking, and a focused field dims
+                            // the river: listening should look like listening.
+                            focus.clearFocus()
+                            dictate()
                         },
-                    minLines = 2,
-                    maxLines = 5,
-                    shape = RoundedCornerShape(6.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = Color.Transparent,
-                        unfocusedContainerColor = Color.Transparent,
-                        disabledContainerColor = Color.Transparent,
-                    ),
-                    placeholder = {
-                        Text(
-                            text = "talk or type what you're thinking",
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                    },
-                )
-            }
+                    )
+                },
+            )
+        }
 
-            if (deleted != null) {
-                // The row is gone before this shows: the strip is the way back, not a warning.
-                deleted?.let { gone ->
-                    AnimatedVisibility(visible = true, enter = fadeIn(), exit = fadeOut()) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                text = "Note deleted",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.weight(1f),
-                            )
-                            TextButton(onClick = {
-                                viewModel.restore(gone)
-                                deleted = null
-                            }) {
-                                Text("Undo")
-                            }
+        if (deleted != null) {
+            // The row is gone before this shows: the strip is the way back, not a warning.
+            deleted?.let { gone ->
+                AnimatedVisibility(visible = true, enter = fadeIn(), exit = fadeOut()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "Note deleted",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = {
+                            viewModel.restore(gone)
+                            deleted = null
+                        }) {
+                            Text("Undo")
                         }
                     }
                 }
             }
+        }
 
-            if (state.notes.isNotEmpty()) {
-                // A plain column, not a lazy list: this card lives inside the player's own
-                // LazyColumn, and a second scroll container inside an item has no bounded height.
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    // Newest first, and each new row slides in instead of appearing.
-                    state.notes.sortedByDescending { it.createdAt }.forEach { note ->
-                        key(note.id) {
-                            AnimatedVisibility(
-                                visible = true,
-                                enter = slideInVertically(initialOffsetY = { -it / 3 }) + fadeIn(),
-                            ) {
-                                Column {
-                                    NoteRow(
-                                        note = note,
-                                        onSeek = { playback.seekTo(note.atSec * 1000) },
-                                        onCopy = {
-                                            clipboard.setText(
-                                                AnnotatedString(
-                                                    "[${formatDuration(note.atSec)}] ${note.text}",
-                                                ),
-                                            )
-                                            viewModel.flash("Copied the note")
-                                        },
-                                        onEdit = { viewModel.beginEdit(note) },
-                                        onDelete = {
-                                            deleted = note
-                                            viewModel.delete(note.id)
-                                        },
-                                    )
-                                    HorizontalDivider(
-                                        color = MaterialTheme.colorScheme.surfaceVariant,
-                                    )
-                                }
+        if (state.notes.isNotEmpty()) {
+            // A plain column, not a lazy list: this card lives inside the player's own
+            // LazyColumn, and a second scroll container inside an item has no bounded height.
+            Column(modifier = Modifier.fillMaxWidth()) {
+                // Newest first, and each new row slides in instead of appearing.
+                state.notes.sortedByDescending { it.createdAt }.forEach { note ->
+                    key(note.id) {
+                        AnimatedVisibility(
+                            visible = true,
+                            enter = slideInVertically(initialOffsetY = { -it / 3 }) + fadeIn(),
+                        ) {
+                            Column {
+                                NoteRow(
+                                    note = note,
+                                    onSeek = { playback.seekTo(note.atSec * 1000) },
+                                    onCopy = {
+                                        clipboard.setText(
+                                            AnnotatedString(
+                                                "[${formatDuration(note.atSec)}] ${note.text}",
+                                            ),
+                                        )
+                                        viewModel.flash("Copied the note")
+                                    },
+                                    onEdit = { viewModel.beginEdit(note) },
+                                    onDelete = {
+                                        deleted = note
+                                        viewModel.delete(note.id)
+                                    },
+                                )
+                                HorizontalDivider(
+                                    color = MaterialTheme.colorScheme.surfaceVariant,
+                                )
                             }
                         }
                     }
@@ -577,11 +586,11 @@ private fun NoteRow(
     onEdit: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
         // The text owns the full width; tapping it is the edit.
         Text(
             text = note.text,
-            style = MaterialTheme.typography.bodyMedium,
+            style = CardText.body,
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable(onClick = onEdit)

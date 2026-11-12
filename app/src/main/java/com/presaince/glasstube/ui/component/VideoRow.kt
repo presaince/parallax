@@ -254,7 +254,7 @@ private fun CardWords(
         if (showTitle) {
             Text(
                 text = title,
-                style = MaterialTheme.typography.titleSmall,
+                style = CardText.title,
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -267,7 +267,7 @@ private fun CardWords(
                 if (channel != null) {
                     Text(
                         text = channel,
-                        style = MaterialTheme.typography.bodySmall,
+                        style = CardText.meta,
                         // A channel you follow is one you chose; the accent says so on every card.
                         color = if (subscribed) {
                             MaterialTheme.colorScheme.primary
@@ -286,7 +286,7 @@ private fun CardWords(
                 if (line.isNotBlank()) {
                     Text(
                         text = line,
-                        style = MaterialTheme.typography.bodySmall,
+                        style = CardText.meta,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,

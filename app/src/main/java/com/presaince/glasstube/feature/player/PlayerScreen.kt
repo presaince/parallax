@@ -19,6 +19,7 @@ import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
@@ -55,8 +56,8 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import com.presaince.glasstube.ui.component.LevelPill
-import com.presaince.glasstube.ui.component.LevelReadout
 import com.presaince.glasstube.ui.component.readoutLeft
 import com.presaince.glasstube.ui.component.readoutTop
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -92,6 +93,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -125,6 +128,8 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -133,9 +138,12 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -147,40 +155,52 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.media3.ui.PlayerView
 import com.presaince.glasstube.R
 import com.presaince.glasstube.core.AppLog
-import com.presaince.glasstube.core.LEVEL_BAND_TOP_DP
 import com.presaince.glasstube.core.SourceError
 import com.presaince.glasstube.core.activeTransport
 import com.presaince.glasstube.core.formatDuration
-import com.presaince.glasstube.core.lowerStop
 import com.presaince.glasstube.core.panelShortSidePx
-import com.presaince.glasstube.core.qualityKey
 import com.presaince.glasstube.core.qualityStops
-import com.presaince.glasstube.core.snapToLadder
 import com.presaince.glasstube.core.timeAgo
 import com.presaince.glasstube.data.auth.PostingManager
 import com.presaince.glasstube.data.db.GlassTubeDb
+import com.presaince.glasstube.data.discover.RelatedDirection
+import com.presaince.glasstube.data.discover.RelatedNode
+import com.presaince.glasstube.data.discover.RelatedWalk
+import com.presaince.glasstube.data.discover.frontierFor
+import com.presaince.glasstube.data.discover.mergePool
 import com.presaince.glasstube.data.library.ContentRepository
 import com.presaince.glasstube.data.model.VideoSummary
 import com.presaince.glasstube.data.resync.ResyncEngine
 import com.presaince.glasstube.data.resync.ResyncStore
 import com.presaince.glasstube.data.source.Thumbnails
 import com.presaince.glasstube.data.source.VideoSource
+import com.presaince.glasstube.data.sponsorblock.SponsorBarStyle
 import com.presaince.glasstube.feature.comments.CommentsViewModel
 import com.presaince.glasstube.feature.feed.hiddenVideo
 import com.presaince.glasstube.feature.comments.commentsItems
 import com.presaince.glasstube.feature.notes.NotesTab
 import com.presaince.glasstube.feature.player.gesture.SeekRate
+import com.presaince.glasstube.feature.player.gesture.LadderStep
 import com.presaince.glasstube.feature.player.gesture.Zone
+import com.presaince.glasstube.feature.player.gesture.ladderStep
 import com.presaince.glasstube.feature.player.gesture.playbackGestures
 import com.presaince.glasstube.ui.component.CardStyle
+import com.presaince.glasstube.ui.component.CardText
 import com.presaince.glasstube.ui.component.GlassTubeMark
+import com.presaince.glasstube.ui.component.Hud
+import com.presaince.glasstube.ui.component.HudPill
+import com.presaince.glasstube.ui.component.LevelTravel
 import com.presaince.glasstube.ui.component.LinkifiedText
 import com.presaince.glasstube.ui.component.SineRiver
 import com.presaince.glasstube.ui.component.compactCount
 import com.presaince.glasstube.ui.component.rememberTicks
+import com.presaince.glasstube.ui.component.sectionCard
 import com.presaince.glasstube.ui.theme.faded
 import com.presaince.glasstube.ui.theme.glassTubeFilterChipColors
 import coil3.compose.AsyncImage
+import coil3.compose.AsyncImagePainter
+import coil3.compose.rememberAsyncImagePainter
+import coil3.request.ImageRequest
 import com.presaince.glasstube.playback.PlaybackController
 import com.presaince.glasstube.playback.PlaybackState
 import com.presaince.glasstube.playback.STALL_RETRY_LIMIT
@@ -197,8 +217,7 @@ private const val CONTROLS_TIMEOUT_MS = 3_000L
 private const val UNDO_VISIBLE_MS = 4_500L
 private const val UNDO_MIN_MS = 2_000L
 
-/** How many suggestions Up next shows at once; a reshuffle slides this window over the pool. */
-private const val RELATED_WINDOW = 10
+/** How many suggestions Up next fetches per hop is [RelatedWalk]'s business; the pool caps itself. */
 
 /**
  * The video page. Controls live on the video and hide themselves: one tap anywhere on the picture
@@ -225,6 +244,12 @@ fun PlayerScreen(
     clipStartMs: Long? = null,
     clipEndMs: Long? = null,
 ) {
+    val context = LocalContext.current
+    // One preferences handle for the page's section states, read before the comments section is
+    // built so a section left open is open on the first frame rather than after a tap.
+    val sectionPrefs = remember {
+        context.getSharedPreferences(SectionOpenState.PREFS, Context.MODE_PRIVATE)
+    }
     val viewModel: PlayerViewModel = viewModel(
         key = video.id,
         factory = viewModelFactory {
@@ -234,7 +259,19 @@ fun PlayerScreen(
     val commentsViewModel: CommentsViewModel = viewModel(
         key = "comments-${video.id}",
         factory = viewModelFactory {
-            initializer { CommentsViewModel(content, posting, resync, resyncStore, video.id) }
+            initializer {
+                CommentsViewModel(
+                    content,
+                    posting,
+                    resync,
+                    resyncStore,
+                    video.id,
+                    startExpanded = SectionOpenState.read(sectionPrefs, PlayerSection.Comments),
+                    onExpandedChange = { open ->
+                        SectionOpenState.write(sectionPrefs, PlayerSection.Comments, open)
+                    },
+                )
+            }
         },
     )
 
@@ -262,6 +299,18 @@ fun PlayerScreen(
         commentsReady = commentsReady,
     )
 
+    // Captions ride the same gate as the rest: the track list is asked for once the picture is
+    // up, so listing them never competes with the first frame.
+    LaunchedEffect(playbackState.firstFrameReady, video.id) {
+        if (playbackState.firstFrameReady) viewModel.loadCaptions()
+    }
+
+    // Captions can also be switched on without the CC menu — the Playback setting, a restore. The
+    // menu's own path fetches for itself, so this only matters when the flag moves on its own.
+    LaunchedEffect(playbackState.captionsOn, video.id) {
+        if (playbackState.captionsOn) viewModel.fetchCuesIfOn()
+    }
+
     // Reopening a video that was stopped reuses this view model. If the controller no longer owns
     // this video, play it again instead of sitting on a loaded title over a black frame.
     LaunchedEffect(playbackState.videoId) {
@@ -271,7 +320,6 @@ fun PlayerScreen(
     // The quiet retries are the controller's, not this screen's: they have to fire with the
     // activity gone and with the mini-player showing, and their budget belongs to the video.
 
-    val context = LocalContext.current
     val cardStyle = remember(CardStyle.revision) { CardStyle.read(context) }
     val activity = remember {
         var current: Context? = context
@@ -293,11 +341,11 @@ fun PlayerScreen(
     // until the finger lifts: the timestamp is locked at the start of the gesture and released
     // on the exact seek at the end, so a scrub never rewrites what a quiet tap would have shared.
     var shareLockedMs by remember { mutableStateOf<Long?>(null) }
-    var descriptionExpanded by remember { mutableStateOf(false) }
-    var notesExpanded by remember { mutableStateOf(false) }
+    var descriptionExpanded by rememberSectionOpen(PlayerSection.Description)
+    var notesExpanded by rememberSectionOpen(PlayerSection.Notes)
     var notesCount by remember { mutableIntStateOf(0) }
-    var chaptersExpanded by remember { mutableStateOf(true) }
-    var sponsorExpanded by remember { mutableStateOf(false) }
+    var chaptersExpanded by rememberSectionOpen(PlayerSection.Chapters)
+    var sponsorExpanded by rememberSectionOpen(PlayerSection.Sponsor)
     // Row, plain list, or not drawn at all. Hidden exists because the description keeps its own
     // timestamps: a reader who wants the text version of a chapter list should not have to read
     // the same list twice.
@@ -307,7 +355,7 @@ fun PlayerScreen(
                 .getInt("chapters_style", ChaptersStyle.Row.stored),
         )
     }
-    // The page's section order, as the reader arranged it in Settings.
+    // The page's section order, as the reader arranged it in Settings → Appearance.
     val sectionOrder = remember {
         resolveSectionOrder(
             context.getSharedPreferences("glasstube", Context.MODE_PRIVATE)
@@ -404,7 +452,12 @@ fun PlayerScreen(
     // A video opens clean: the picture only, no controls until the first tap.
     var controlsVisible by remember { mutableStateOf(false) }
     var speedHolding by remember { mutableStateOf(false) }
-    var speedPanelOpen by remember { mutableStateOf(false) }
+    // Which popup is up over the picture, if any. The idle timer reads it, so a menu cannot be
+    // taken away by the controls leaving under it.
+    var openOverlay by remember { mutableStateOf(PlayerOverlay.None) }
+    // Bumped by every tap on the picture, so the idle clock measures the wait since the last touch
+    // rather than since the controls appeared.
+    var interaction by remember { mutableIntStateOf(0) }
     var speedAnchor by remember { mutableStateOf(Offset.Zero) }
     var fullscreen by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -457,11 +510,15 @@ fun PlayerScreen(
         onDispose { restoreSystemBrightness(activity?.window) }
     }
 
-    // Controls fade out while playing, and stay while paused or while the speed panel is open.
-    LaunchedEffect(controlsVisible, playbackState.isPlaying, speedPanelOpen) {
-        if (controlsVisible && playbackState.isPlaying && !speedPanelOpen) {
+    // Controls fade out while playing, and stay while paused or while a menu is open. The clock
+    // restarts on every touch: a menu opened two seconds after the controls appeared used to get
+    // one second before the picture took the anchor out from under it.
+    LaunchedEffect(controlsVisible, playbackState.isPlaying, openOverlay, interaction) {
+        if (shouldHideControls(controlsVisible, playbackState.isPlaying, openOverlay)) {
             delay(CONTROLS_TIMEOUT_MS)
-            controlsVisible = false
+            if (shouldHideControls(controlsVisible, playbackState.isPlaying, openOverlay)) {
+                controlsVisible = false
+            }
         }
     }
 
@@ -486,15 +543,9 @@ fun PlayerScreen(
     val panelPx = remember { panelShortSidePx(context) }
     val qualityLadder = remember(panelPx) { qualityStops(panelPx) }
     val qualityTransport = remember { activeTransport(context) }
-    var qualityHeight by remember(qualityTransport, panelPx) {
-        mutableIntStateOf(
-            snapToLadder(
-                context.getSharedPreferences("glasstube", Context.MODE_PRIVATE)
-                    .getInt(qualityKey(qualityTransport), 0),
-                panelPx,
-            ),
-        )
-    }
+    // The ceiling in force lives on the controller, which is also what steps it down: the ladder
+    // has to see a stall, and the stopwatch that knows about one runs in the controller.
+    val qualityHeight = playbackState.qualityHeight
     // A quality change loads a different file, so the picture has to build a new buffer: there is
     // nothing "already buffered" to fall back on. Saying so beats a pill that reads like a stall
     // (`111445`).
@@ -502,28 +553,21 @@ fun PlayerScreen(
     LaunchedEffect(playbackState.firstFrameReady) {
         if (playbackState.firstFrameReady) switchingQuality = false
     }
-    // `110114`: a video that has spent both quiet retries is asking for a smaller picture. One
-    // step down per video, written to the ladder in force, and said out loud — a silent quality
-    // change is indistinguishable from the app getting worse.
-    var degradedOnce by remember(video.id) { mutableStateOf(false) }
-    LaunchedEffect(playbackState.recoveryAttempts, video.id) {
-        if (!degradedOnce && playbackState.recoveryAttempts >= STALL_RETRY_LIMIT) {
-            val lower = lowerStop(qualityHeight, qualityLadder)
-            if (lower != null) {
-                degradedOnce = true
-                context.getSharedPreferences("glasstube", Context.MODE_PRIVATE)
-                    .edit()
-                    .putInt(qualityKey(qualityTransport), lower.height)
-                    .apply()
-                qualityHeight = lower.height
-                switchingQuality = true
-                Toast.makeText(
-                    context,
-                    "Kept stalling, so the picture dropped to ${lower.label}",
-                    Toast.LENGTH_LONG,
-                ).show()
-                viewModel.reloadAt(playback.state.value.positionMs)
-            }
+    // The ladder's own step-down arrives as state: it is decided in the controller, where the
+    // stall stopwatch lives, so it also happens with the screen gone. This only says so.
+    var qualityNotice by remember(video.id) { mutableStateOf<String?>(null) }
+    LaunchedEffect(playbackState.degradedTo, video.id) {
+        val lowered = playbackState.degradedTo ?: return@LaunchedEffect
+        switchingQuality = true
+        qualityNotice =
+            "${com.presaince.glasstube.core.qualityLabel(lowered)} — this connection cannot keep up"
+    }
+    // The notice is a statement, not a dialog: it says what changed and leaves. A toast said the
+    // same thing in a different voice, at the bottom of the screen, over a picture it was about.
+    LaunchedEffect(qualityNotice) {
+        if (qualityNotice != null) {
+            delay(4_000)
+            qualityNotice = null
         }
     }
     val chapters = remember(loadState.description) { parseChapters(loadState.description) }
@@ -579,20 +623,26 @@ fun PlayerScreen(
             )
             val tappable = playbackState.recoveryAttempts >= STALL_RETRY_LIMIT &&
                 (status == PlayerStatus.Stalled || status == PlayerStatus.Broken)
-            val statusLine = if (switchingQuality) "Switching quality…" else when (status) {
-                PlayerStatus.Offline -> "No connection — playing will retry"
-                PlayerStatus.Broken ->
-                    if (tappable) "Stream broken — tap to retry" else "Stream broken — retrying"
-                PlayerStatus.Stalled ->
-                    if (tappable) "Stalled — tap to retry" else "Stalled — retrying"
-                PlayerStatus.Fetching -> "Fetching…"
-                PlayerStatus.WaitingForFirstFrame -> "Loading video…"
-                PlayerStatus.Buffering -> if (playbackState.bufferedPercent > 0) {
-                    "Buffering ${playbackState.bufferedPercent}%"
-                } else {
-                    "Buffering…"
+            val statusLine = when {
+                // A statement outranks progress: the drop is the fact the reader needs, and
+                // "Switching quality…" underneath it would read as a second thing going wrong.
+                qualityNotice != null -> qualityNotice
+                switchingQuality -> "Switching quality…"
+                else -> when (status) {
+                    PlayerStatus.Offline -> "No connection — playing will retry"
+                    PlayerStatus.Broken ->
+                        if (tappable) "Stream broken — tap to retry" else "Stream broken — retrying"
+                    PlayerStatus.Stalled ->
+                        if (tappable) "Stalled — tap to retry" else "Stalled — retrying"
+                    PlayerStatus.Fetching -> "Fetching…"
+                    PlayerStatus.WaitingForFirstFrame -> "Loading video…"
+                    PlayerStatus.Buffering -> if (playbackState.bufferedPercent > 0) {
+                        "Buffering ${playbackState.bufferedPercent}%"
+                    } else {
+                        "Buffering…"
+                    }
+                    PlayerStatus.Hidden -> null
                 }
-                PlayerStatus.Hidden -> null
             }
             if (statusLine != null && loadState.error == null) {
                 Box(
@@ -615,6 +665,9 @@ fun PlayerScreen(
                     contentAlignment = Alignment.Center,
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
+                        // A statement is not progress, so it carries no spinner and no gap: the
+                        // pill closes around the words instead of reserving a glyph's width.
+                        val progress = qualityNotice == null && !tappable
                         if (tappable) {
                             Icon(
                                 imageVector = Icons.Default.Refresh,
@@ -622,14 +675,14 @@ fun PlayerScreen(
                                 modifier = Modifier.size(14.dp),
                                 tint = Color.White,
                             )
-                        } else {
+                        } else if (progress) {
                             CircularProgressIndicator(
                                 modifier = Modifier.size(14.dp),
                                 color = Color.White,
                                 strokeWidth = 2.dp,
                             )
                         }
-                        Spacer(Modifier.width(8.dp))
+                        if (progress || tappable) Spacer(Modifier.width(8.dp))
                         Text(
                             text = statusLine,
                             style = MaterialTheme.typography.labelMedium,
@@ -675,7 +728,7 @@ fun PlayerScreen(
                 playback.togglePlayPause()
                 if (starting) controlsVisible = false
             },
-            onOpenSpeedPopup = { anchor -> speedAnchor = anchor; speedPanelOpen = true },
+            onOpenSpeedPopup = { anchor -> speedAnchor = anchor; openOverlay = PlayerOverlay.Speed },
             onSpeedAdjust = { speed, _ -> playback.setSpeed(speed) },
             onSpeedEnd = { hud = null },
             onSpeedHold = { speedHolding = it },
@@ -699,23 +752,28 @@ fun PlayerScreen(
             },
             qualityStops = qualityLadder,
             onPickQuality = { height ->
-                context.getSharedPreferences("glasstube", Context.MODE_PRIVATE)
-                    .edit()
-                    .putInt(qualityKey(qualityTransport), height)
-                    .apply()
-                qualityHeight = height
                 switchingQuality = true
-                // The stream is chosen when it loads, so the same video is loaded again from here.
-                viewModel.reloadAt(playback.state.value.positionMs)
+                // The controller owns the ceiling and the reload, so the picker and the ladder
+                // cannot disagree about which height is in force.
+                playback.setQuality(height)
             },
             speedPresets = playback.speedPresets(),
+            captions = CaptionChoice(
+                tracks = loadState.captionTracks,
+                on = playbackState.captionsOn,
+                chosen = loadState.captionTrack,
+                loaded = loadState.captionsLoaded,
+            ),
+            onCaptions = { track -> viewModel.chooseCaptionTrack(track) },
+            overlay = openOverlay,
+            onOverlay = { openOverlay = it },
         )
-        if (speedPanelOpen) {
+        if (openOverlay == PlayerOverlay.Speed) {
             SpeedPanel(
                 speed = playbackState.speed,
                 presets = playback.speedPresets(),
                 onSpeed = playback::setSpeed,
-                onDismiss = { speedPanelOpen = false },
+                onDismiss = { openOverlay = PlayerOverlay.None },
                 anchor = speedAnchor,
             )
         }
@@ -724,7 +782,7 @@ fun PlayerScreen(
     val gestures: Modifier = Modifier.playbackGestures(
         // A press on the speed dial, or an open speed panel, owns the gesture. Restarting the
         // picture detector disabled is what stops the same drag from also being a brightness swipe.
-        enabled = !speedHolding && !speedPanelOpen,
+        enabled = !speedHolding && openOverlay != PlayerOverlay.Speed,
         onVerticalStart = { zone, _ ->
             dragDown = 0f
             dragUp = 0f
@@ -806,23 +864,23 @@ fun PlayerScreen(
             hud = null
             val centre = dragZone != Zone.Left && dragZone != Zone.Right
             val elapsed = SystemClock.uptimeMillis() - dragStartedAt
-            // A flick counts even when it is short; a slow drag has to travel to be meant.
-            val flungDown = dragDown > 0.03f && elapsed < 260
-            val flungUp = dragUp > 0.03f && elapsed < 260
-            when {
-                centre && (dragDown > 0.22f || flungDown) -> {
+            // The lesson runs the same rule, so a drag that steps there steps here.
+            when (ladderStep(dragDown, dragUp, elapsed)) {
+                LadderStep.Down -> {
                     // One step down: full screen to normal, normal to minimized.
                     dragDown = 0f
                     dragUp = 0f
-                    if (effectiveFullscreen) exitFullscreen() else onBack()
+                    if (centre) {
+                        if (effectiveFullscreen) exitFullscreen() else onBack()
+                    }
                 }
-                centre && !effectiveFullscreen && (dragUp > 0.22f || flungUp) -> {
+                LadderStep.Up -> {
                     // One step back up: normal to full screen. At full screen an up swipe stays.
                     dragDown = 0f
                     dragUp = 0f
-                    enterFullscreen()
+                    if (centre && !effectiveFullscreen) enterFullscreen()
                 }
-                else -> {
+                LadderStep.None -> {
                     dragDown = 0f
                     dragUp = 0f
                 }
@@ -936,11 +994,15 @@ fun PlayerScreen(
             // A tap that hides the controls must not move the play disc on its way out: the
             // disc re-placing itself under the finger that asked for a hide reads as a second
             // button appearing. Only a tap that reveals the controls chooses where they go.
-            if (controlsVisible) {
-                controlsVisible = false
-            } else {
-                tapAt = at
-                controlsVisible = true
+            // With a popup up, the tap closes the popup and leaves the controls where they are.
+            interaction++
+            when {
+                openOverlay != PlayerOverlay.None -> openOverlay = PlayerOverlay.None
+                controlsVisible -> controlsVisible = false
+                else -> {
+                    tapAt = at
+                    controlsVisible = true
+                }
             }
         },
     )
@@ -992,9 +1054,11 @@ fun PlayerScreen(
                 ) {
                     androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
                         if (duration > 0L) {
-                            // Two layers that never share pixels: sponsors on top half, playhead
-                            // on bottom half. Overlap is the 50/50 split by construction.
-                            val half = size.height / 2f
+                            // One line, three ways to divide it (`SponsorBarStyle`). The segments
+                            // always fill the full height, so the bar reads as a single strip of
+                            // colour rather than two stacked ones; the style decides how much of
+                            // that strip the playhead takes back.
+                            val style = playbackState.sponsorBarStyle
                             for (segment in segments) {
                                 val start = (segment.startMs.toFloat() / duration).coerceIn(0f, 1f)
                                 val end = (segment.endMs.toFloat() / duration).coerceIn(0f, 1f)
@@ -1006,18 +1070,45 @@ fun PlayerScreen(
                                     ),
                                     size = androidx.compose.ui.geometry.Size(
                                         (end - start) * size.width,
-                                        half,
+                                        size.height,
                                     ),
                                 )
                             }
-                            drawRect(
-                                color = primary,
-                                topLeft = androidx.compose.ui.geometry.Offset(0f, half),
-                                size = androidx.compose.ui.geometry.Size(
-                                    progressFraction * size.width,
-                                    half,
-                                ),
-                            )
+                            when (style) {
+                                // The accent covers what has been watched; the segments still
+                                // ahead keep their colour.
+                                SponsorBarStyle.COVER -> drawRect(
+                                    color = primary,
+                                    size = androidx.compose.ui.geometry.Size(
+                                        progressFraction * size.width,
+                                        size.height,
+                                    ),
+                                )
+                                // A wash rather than a cover, so the segments underneath are still
+                                // legible behind it.
+                                SponsorBarStyle.TINT -> drawRect(
+                                    color = primary.copy(alpha = 0.45f),
+                                    size = androidx.compose.ui.geometry.Size(
+                                        progressFraction * size.width,
+                                        size.height,
+                                    ),
+                                )
+                                // A hairline down the centre: both facts visible at once.
+                                SponsorBarStyle.HAIRLINE -> {
+                                    val lineHeight = 2.dp.toPx()
+                                    drawRect(
+                                        color = primary,
+                                        topLeft = androidx.compose.ui.geometry.Offset(
+                                            0f,
+                                            (size.height - lineHeight) / 2f,
+                                        ),
+                                        size = androidx.compose.ui.geometry.Size(
+                                            progressFraction * size.width,
+                                            lineHeight,
+                                        ),
+                                    )
+                                }
+                            }
                             if (clipFocused && (clipStartMs != null || clipEndMs != null)) {
                                 val cs = ((clipStartMs ?: 0L).toFloat() / duration)
                                     .coerceIn(0f, 1f)
@@ -1093,6 +1184,13 @@ fun PlayerScreen(
 
     val lastSkip = playbackState.lastSkip
     val currentSegment = playbackState.segments.firstOrNull { it.contains(playbackState.positionMs) }
+    // The words at this moment, read off the same tick as the bar: no timer of the caption's own,
+    // so a cue cannot drift from the picture by a frame or by a second.
+    val captionText = if (playbackState.captionsOn) {
+        cueAt(loadState.captionCues, playbackState.positionMs)
+    } else {
+        null
+    }
     LaunchedEffect(lastSkip) {
         if (lastSkip != null) {
             kotlinx.coroutines.delay(3000)
@@ -1122,23 +1220,27 @@ fun PlayerScreen(
                 ) {
                     surface(Modifier.fillMaxSize())
                     overlay()
-                    lastSkip?.let { seg ->
-                        SponsorChip(
-                            text = "Skipped ${com.presaince.glasstube.data.sponsorblock.SponsorCategories.label(seg.category)} · ${formatDuration(seg.startMs / 1000)} → ${formatDuration(seg.endMs / 1000)}",
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(top = 64.dp, end = 12.dp),
-                        )
-                    }
-                    currentSegment?.let { seg ->
-                        if (lastSkip == null) {
+                    // Centred, and only while the clip indicator is not using the same slot: the
+                    // two pills at top centre would sit on top of each other.
+                    if (!clipFocused) {
+                        lastSkip?.let { seg ->
                             SponsorChip(
-                                text = "${com.presaince.glasstube.data.sponsorblock.SponsorCategories.label(seg.category)} ends at ${formatDuration(seg.endMs / 1000)}",
-                                onClick = { userSeek(seg.endMs) },
+                                text = "Skipped ${com.presaince.glasstube.data.sponsorblock.SponsorCategories.label(seg.category)} · ${formatDuration(seg.startMs / 1000)} → ${formatDuration(seg.endMs / 1000)}",
                                 modifier = Modifier
-                                    .align(Alignment.TopEnd)
-                                    .padding(top = 64.dp, end = 12.dp),
+                                    .align(Alignment.TopCenter)
+                                    .padding(top = 64.dp),
                             )
+                        }
+                        currentSegment?.let { seg ->
+                            if (lastSkip == null) {
+                                SponsorChip(
+                                    text = "${com.presaince.glasstube.data.sponsorblock.SponsorCategories.label(seg.category)} ends at ${formatDuration(seg.endMs / 1000)}",
+                                    onClick = { userSeek(seg.endMs) },
+                                    modifier = Modifier
+                                        .align(Alignment.TopCenter)
+                                        .padding(top = 64.dp),
+                                )
+                            }
                         }
                     }
                     seekUndo?.let { undo ->
@@ -1159,6 +1261,13 @@ fun PlayerScreen(
                             modifier = Modifier.align(Alignment.BottomCenter),
                         ) { progressLine() }
                     }
+                    CaptionOverlay(
+                        text = captionText,
+                        sizeIndex = playbackState.captionSize,
+                        raised = controlsVisible && progressInFullscreen,
+                        raisedBottom = 84.dp,
+                        modifier = Modifier.align(Alignment.BottomCenter),
+                    )
                 }
             }
         }
@@ -1183,23 +1292,27 @@ fun PlayerScreen(
                 ) {
                 surface(Modifier.fillMaxSize())
                 overlay()
-                lastSkip?.let { seg ->
-                    SponsorChip(
-                        text = "Skipped ${com.presaince.glasstube.data.sponsorblock.SponsorCategories.label(seg.category)} · ${formatDuration(seg.startMs / 1000)} → ${formatDuration(seg.endMs / 1000)}",
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(top = 64.dp, end = 12.dp),
-                    )
-                }
-                currentSegment?.let { seg ->
-                    if (lastSkip == null) {
+                // Centred, and only while the clip indicator is not using the same slot: the two
+                // pills at top centre would sit on top of each other.
+                if (!clipFocused) {
+                    lastSkip?.let { seg ->
                         SponsorChip(
-                            text = "${com.presaince.glasstube.data.sponsorblock.SponsorCategories.label(seg.category)} ends at ${formatDuration(seg.endMs / 1000)}",
-                            onClick = { userSeek(seg.endMs) },
+                            text = "Skipped ${com.presaince.glasstube.data.sponsorblock.SponsorCategories.label(seg.category)} · ${formatDuration(seg.startMs / 1000)} → ${formatDuration(seg.endMs / 1000)}",
                             modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(top = 64.dp, end = 12.dp),
+                                .align(Alignment.TopCenter)
+                                .padding(top = 64.dp),
                         )
+                    }
+                    currentSegment?.let { seg ->
+                        if (lastSkip == null) {
+                            SponsorChip(
+                                text = "${com.presaince.glasstube.data.sponsorblock.SponsorCategories.label(seg.category)} ends at ${formatDuration(seg.endMs / 1000)}",
+                                onClick = { userSeek(seg.endMs) },
+                                modifier = Modifier
+                                    .align(Alignment.TopCenter)
+                                    .padding(top = 64.dp),
+                            )
+                        }
                     }
                 }
                 if (clipFocused) {
@@ -1250,6 +1363,13 @@ fun PlayerScreen(
                     visible = showProgress,
                     modifier = Modifier.align(Alignment.BottomCenter),
                 ) { progressLine() }
+                CaptionOverlay(
+                    text = captionText,
+                    sizeIndex = playbackState.captionSize,
+                    raised = controlsVisible,
+                    raisedBottom = 84.dp,
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                )
                 // Video failures (members-only, private, and the rest) get the whole black frame,
                 // because that is what the failure is sitting on. A permanent failure says its own
                 // sentence and offers no Retry: pressing it again cannot change the answer, and a
@@ -1325,8 +1445,8 @@ fun PlayerScreen(
             context.getSharedPreferences("glasstube", Context.MODE_PRIVATE)
                 .getBoolean("end_related_enabled", true)
         }
-        var relatedToShow by remember(video.id) {
-            mutableStateOf<List<com.presaince.glasstube.data.model.VideoSummary>>(emptyList())
+        var relatedPool by remember(video.id) {
+            mutableStateOf<List<RelatedNode>>(emptyList())
         }
         // What the source last answered: -1 until the first fetch, then 1. Kept as a plain flag so
         // the automatic fetch runs once per video and a manual refresh is never swallowed by it.
@@ -1338,7 +1458,11 @@ fun PlayerScreen(
             if (stage != PlayerLoadStage.UpNext) return@LaunchedEffect
             if (relatedAnswered >= 0) return@LaunchedEffect
             when (val result = source.related(video.id)) {
-                is com.presaince.glasstube.core.AppResult.Ok -> relatedToShow = result.value.take(RELATED_WINDOW)
+                // The whole page, not a slice of it: a ten-video window hid half of what YouTube
+                // had already sent, which made the old refresh look like a shuffle.
+                is com.presaince.glasstube.core.AppResult.Ok -> relatedPool = result.value
+                    .distinctBy { it.id }
+                    .map { RelatedNode(it, listOf(it.title)) }
                 // A failed first fetch keeps whatever is there: an empty Up next reads as "nothing
                 // follows this video", which is a worse lie than a stale row.
                 is com.presaince.glasstube.core.AppResult.Err -> Unit
@@ -1347,35 +1471,53 @@ fun PlayerScreen(
         }
 
         val relatedScope = rememberCoroutineScope()
+        val relatedWalk = remember { RelatedWalk(source) }
         var relatedRefreshing by remember(video.id) { mutableStateOf(false) }
         var relatedNote by remember(video.id) { mutableStateOf<String?>(null) }
-        var relatedExpanded by remember(video.id) { mutableStateOf(true) }
+        // Kept across videos: Up next is a section the reader leaves as they like it.
+        var relatedExpanded by rememberSectionOpen(PlayerSection.UpNext)
+        // Which videos have been opened. The seeds come from here, never from a shuffle, so two
+        // taps can never open the same video twice and hand back the same twenty.
+        var relatedOpened by remember(video.id) { mutableStateOf(emptySet<String>()) }
 
         /**
-         * The button refetches and reshuffles. The first version rotated a window over a cached
-         * pool, so a small pool looped the same videos and the cache made the tap instant. Now the
-         * cache is bypassed and the order is shuffled, so each tap is a real fetch and a visibly
-         * different list.
+         * One tap, one hop of the related graph — the same hop Bored walks, seeded from whichever
+         * end of the pool the setting names. Wider opens the shallowest video not yet opened,
+         * deeper the newest, so it stays on topic or walks away from it by one video per tap.
          */
         fun refreshRelated() {
             if (relatedRefreshing) return
+            val direction = RelatedDirection.fromKey(
+                context.getSharedPreferences("glasstube", Context.MODE_PRIVATE)
+                    .getString("related_direction", null),
+            )
+            val frontier = frontierFor(
+                pool = relatedPool,
+                expanded = relatedOpened,
+                direction = direction,
+                playingId = video.id,
+            )
+            if (frontier.isEmpty()) {
+                relatedNote = "Nothing left to open. Every suggestion here has been walked."
+                return
+            }
             relatedRefreshing = true
             relatedNote = null
             relatedScope.launch {
-                when (val result = source.relatedFresh(video.id)) {
-                    is com.presaince.glasstube.core.AppResult.Ok -> {
-                        val fresh = result.value.distinctBy { it.id }
-                        if (fresh.isEmpty()) {
-                            relatedNote = "This video has no suggestions."
-                        } else {
-                            relatedToShow = fresh.shuffled().take(RELATED_WINDOW)
-                            if (fresh.size <= RELATED_WINDOW) {
-                                relatedNote = "Only ${fresh.size} suggestions exist, so this is all of them."
-                            }
-                        }
-                    }
-                    is com.presaince.glasstube.core.AppResult.Err ->
-                        relatedNote = result.message
+                val children = relatedWalk.hop(
+                    frontier = frontier,
+                    visited = relatedPool.mapTo(mutableSetOf()) { it.video.id } + video.id,
+                )
+                // The seed is spent either way: a video with no suggestions of its own must not be
+                // the frontier of every later tap.
+                relatedOpened = relatedOpened + frontier.map { it.video.id }
+                val before = relatedPool.size
+                relatedPool = mergePool(relatedPool, children)
+                val added = relatedPool.size - before
+                val via = frontier.single().video.title
+                relatedNote = when {
+                    added > 0 -> "Added $added via $via · ${relatedPool.size} in all"
+                    else -> "$via had nothing new to offer."
                 }
                 relatedRefreshing = false
             }
@@ -1604,13 +1746,13 @@ fun PlayerScreen(
             }
 
 
-            // The page below the picture, in the order set in Settings → Playback. Each part is a
+            // The page below the picture, in the order set in Settings → Appearance. Each part is a
             // whole lazy item (My notes is its header and its body), so a reorder moves sections
             // and Compose keeps the reader's place.
             for (section in sectionOrder) when (section) {
                 PlayerSection.Description -> if (loadState.description.isNotBlank()) {
                     item(key = "description") {
-                        Column(modifier = Modifier.fillMaxWidth().playerCard()) {
+                        Column(modifier = Modifier.fillMaxWidth().sectionCard()) {
                             DescriptionBlock(
                                 description = loadState.description,
                                 expanded = descriptionExpanded,
@@ -1623,11 +1765,12 @@ fun PlayerScreen(
                 }
                 PlayerSection.Chapters -> if (shownChapters.isNotEmpty() && !chaptersHidden) {
                     item(key = "chapters") {
-                        Column(modifier = Modifier.fillMaxWidth().playerCard()) {
+                        Column(modifier = Modifier.fillMaxWidth().sectionCard()) {
                             ChaptersBlock(
                                 chapters = shownChapters,
                                 videoId = video.id,
                                 thumbnailUrl = video.thumbnailUrl,
+                                previewFrames = loadState.previewFrames,
                                 horizontal = chaptersStyle == ChaptersStyle.Row,
                                 showTimestamps = chapterTimestamps,
                                 labelsRight = labelsRight,
@@ -1640,13 +1783,14 @@ fun PlayerScreen(
                                 ),
                                 onToggle = { chaptersExpanded = !chaptersExpanded },
                                 onSeek = { seconds -> userSeek(seconds * 1000) },
+                                log = log,
                             )
                         }
                     }
                 }
                 PlayerSection.Sponsor -> if (playbackState.segments.isNotEmpty()) {
                     item(key = "sponsor") {
-                        Column(modifier = Modifier.fillMaxWidth().playerCard()) {
+                        Column(modifier = Modifier.fillMaxWidth().sectionCard()) {
                             SponsorSegmentsBlock(
                                 segments = playbackState.segments,
                                 positionMs = playbackState.positionMs,
@@ -1666,7 +1810,31 @@ fun PlayerScreen(
                     // header is the tap target, not just the word: a collapsed section that
                     // ignores a tap anywhere but the chevron is a section people think is broken.
                     item(key = "notes-header") {
-                        Column(modifier = Modifier.fillMaxWidth().playerCard()) {
+                        Column(modifier = Modifier.fillMaxWidth().sectionCard()) {
+                        // The record button lives in the card once expanded: one microphone, not
+                        // two. Which side it sits on follows the section's label side, so this
+                        // header reads like the ones above it instead of hugging the chevron
+                        // whatever the setting says.
+                        val record: @Composable () -> Unit = {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primary)
+                                    .clickable {
+                                        notesExpanded = true
+                                        dictateSignal++
+                                    },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    painter = painterResource(R.drawable.ic_mic),
+                                    contentDescription = "Record a note",
+                                    tint = MaterialTheme.colorScheme.onPrimary,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
+                        }
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -1676,37 +1844,23 @@ fun PlayerScreen(
                                 .heightIn(min = 44.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Spacer(Modifier.weight(1f))
-                            // The record button lives in the card once expanded: one microphone,
-                            // not two. It sits left of the title, so the header reads the same way
-                            // the comments header does, right-aligned against the chevron.
-                            if (!notesExpanded) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .clip(CircleShape)
-                                        .background(MaterialTheme.colorScheme.primary)
-                                        .clickable {
-                                            notesExpanded = true
-                                            dictateSignal++
-                                        },
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    Icon(
-                                        painter = painterResource(R.drawable.ic_mic),
-                                        contentDescription = "Record a note",
-                                        tint = MaterialTheme.colorScheme.onPrimary,
-                                        modifier = Modifier.size(18.dp),
-                                    )
+                            if (labelsRight) {
+                                Spacer(Modifier.weight(1f))
+                                if (!notesExpanded) {
+                                    record()
+                                    Spacer(Modifier.width(6.dp))
                                 }
-                                Spacer(Modifier.width(6.dp))
                             }
                             Text(
                                 text = if (notesCount > 0) "My notes ($notesCount)" else "My notes",
-                                style = MaterialTheme.typography.titleSmall,
-                                color = accentTextColour(),
+                                style = CardText.header,
+                                color = CardText.headerInk,
                             )
-                            if (!labelsRight) Spacer(Modifier.weight(1f))
+                            Spacer(Modifier.weight(1f))
+                            if (!labelsRight && !notesExpanded) {
+                                record()
+                                Spacer(Modifier.width(6.dp))
+                            }
                             Icon(
                                 imageVector = if (notesExpanded) {
                                     Icons.Default.KeyboardArrowUp
@@ -1750,53 +1904,32 @@ fun PlayerScreen(
                     labelsRight = labelsRight,
                 )
 
-                PlayerSection.UpNext -> if (endEnabled && relatedToShow.isNotEmpty()) {
+                PlayerSection.UpNext -> if (endEnabled && relatedPool.isNotEmpty()) {
                     item(key = "related") {
-                        // Same inner padding as the blocks above it (16dp sides, 4dp top and
-                        // bottom): 16 all round made this one card visibly taller than its
-                        // neighbours for no reason a reader could see.
+                        // The card is the header; the rows flow under it. They used to sit inside
+                        // it, which put this section's text 8dp right of every other one and a
+                        // card inside a card on the page.
+                        Column(modifier = Modifier.fillMaxWidth()) {
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .playerCard()
+                                .sectionCard()
                                 .padding(horizontal = 16.dp, vertical = 4.dp),
                         ) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable { relatedExpanded = !relatedExpanded }
-                                    .padding(vertical = 4.dp),
+                                    .heightIn(min = 44.dp)
+                                    .clickable { relatedExpanded = !relatedExpanded },
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 if (labelsRight) Spacer(Modifier.weight(1f))
                                 Text(
                                     text = "Up next",
-                                    style = MaterialTheme.typography.titleSmall,
-                                    color = accentTextColour(),
+                                    style = CardText.header,
+                                    color = CardText.headerInk,
                                     modifier = if (labelsRight) Modifier else Modifier.weight(1f),
                                 )
-                                if (relatedRefreshing) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(14.dp),
-                                        strokeWidth = 2.dp,
-                                        color = accentTextColour(),
-                                    )
-                                    Spacer(Modifier.width(8.dp))
-                                }
-                                // Another page from the same source, on demand. One related()
-                                // call per video returns the same set, so the answer is often
-                                // "nothing new" — and that is what the line under the header says.
-                                IconButton(
-                                    onClick = { refreshRelated() },
-                                    enabled = !relatedRefreshing,
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Refresh,
-                                        contentDescription = "Refresh up next",
-                                        tint = accentTextColour(),
-                                        modifier = Modifier.size(18.dp),
-                                    )
-                                }
                                 Icon(
                                     imageVector = if (relatedExpanded) {
                                         Icons.Filled.KeyboardArrowUp
@@ -1811,23 +1944,76 @@ fun PlayerScreen(
                                     tint = accentTextColour(),
                                 )
                             }
-                            relatedNote?.let { note ->
-                                Text(
-                                    text = note,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
+                            // The control that grows the list lives in the card, under the title,
+                            // where the other sections put their own — not on the header line and
+                            // not at the end of a list long enough to hide it. It is a button, not
+                            // a line of text: a label the same size as the title reads as a second
+                            // heading, and a control nobody recognises is not a control.
                             if (relatedExpanded) {
-                                relatedToShow.forEach { next ->
+                                FilledTonalButton(
+                                    onClick = { refreshRelated() },
+                                    enabled = !relatedRefreshing,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 4.dp, bottom = 2.dp),
+                                    colors = ButtonDefaults.filledTonalButtonColors(
+                                        containerColor = MaterialTheme.colorScheme.primary
+                                            .copy(alpha = 0.18f),
+                                        contentColor = accentTextColour(),
+                                    ),
+                                ) {
+                                    if (relatedRefreshing) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(14.dp),
+                                            strokeWidth = 2.dp,
+                                            color = accentTextColour(),
+                                        )
+                                    } else {
+                                        Icon(
+                                            imageVector = Icons.Filled.Refresh,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(18.dp),
+                                        )
+                                    }
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        if (relatedRefreshing) {
+                                            "Opening one more…"
+                                        } else {
+                                            "More like this"
+                                        },
+                                    )
+                                }
+                                // The last hop's result belongs to the list it grew, so it folds
+                                // away with it: a collapsed section should be its title alone.
+                                relatedNote?.let { note ->
+                                    Text(
+                                        text = note,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(bottom = 4.dp),
+                                    )
+                                }
+                            }
+                        }
+                        // 16dp here plus VideoRow's own 8dp is the page's 24dp text edge, the same
+                        // one the description and the comments use.
+                        if (relatedExpanded) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                            ) {
+                                relatedPool.forEach { next ->
                                     com.presaince.glasstube.ui.component.VideoRow(
-                                        video = next,
-                                        watches = watches[next.id],
-                                        onClick = { onOpenVideo(next) },
+                                        video = next.video,
+                                        watches = watches[next.video.id],
+                                        onClick = { onOpenVideo(next.video) },
                                         onChannel = onOpenChannel,
                                     )
                                 }
                             }
+                        }
                         }
                     }
                 }
@@ -1870,8 +2056,8 @@ private fun DescriptionBlock(
             if (labelsRight) Spacer(modifier = Modifier.weight(1f))
             Text(
                 text = "Description",
-                style = MaterialTheme.typography.labelMedium,
-                color = accentTextColour(),
+                style = CardText.header,
+                color = CardText.headerInk,
                 modifier = if (labelsRight) Modifier else Modifier.weight(1f),
             )
             Icon(
@@ -2040,8 +2226,8 @@ private fun SponsorSegmentsBlock(
         ) {
             Text(
                 text = "SponsorBlock (${segments.size})",
-                style = MaterialTheme.typography.labelMedium,
-                color = accentTextColour(),
+                style = CardText.header,
+                color = CardText.headerInk,
                 modifier = Modifier.weight(1f),
             )
             Icon(
@@ -2111,7 +2297,92 @@ private fun SponsorSegmentsBlock(
     }
 }
 
-/** The storyboard tile at [frameMs]: the page image cropped to one cell. */
+/**
+ * One storyboard cell: the page image that holds it, drawn through a source rectangle so the crop
+ * is exact whatever the sheet's own size is.
+ *
+ * Two faults made the first version a jumble (`111049`). A box was scaled to the grid and offset,
+ * which asks Coil for a page-sized image at the box's size — a twenty-five cell sheet arrived at
+ * about twelve pixels a cell and was then blown up. And a chapter whose page was missing drew the
+ * last page's cell instead of nothing. Now the page is requested at its own size, the cell is
+ * cropped by its pixel rectangle, and a missing cell leaves the fallback picture in place.
+ */
+@Composable
+private fun StoryboardTile(
+    frameset: com.presaince.glasstube.data.model.PreviewFrames,
+    frameMs: Long,
+    fallbackUrl: String,
+    width: Dp,
+    height: Dp,
+    radius: Dp = 6.dp,
+    border: Modifier = Modifier,
+    log: AppLog? = null,
+    logTag: String = "segments",
+) {
+    val cell = remember(frameset, frameMs) { frameset.cellAt(frameMs) }
+    val sheetUrl = cell?.let { frameset.urls.getOrNull(it.page) }.orEmpty()
+    val context = LocalContext.current
+    val request = remember(sheetUrl, frameset) {
+        if (sheetUrl.isBlank()) {
+            null
+        } else {
+            ImageRequest.Builder(context)
+                .data(sheetUrl)
+                .size(
+                    coil3.size.Size(
+                        frameset.frameWidth * frameset.framesPerPageX,
+                        frameset.frameHeight * frameset.framesPerPageY,
+                    ),
+                )
+                .build()
+        }
+    }
+    val painter = if (request == null) null else rememberAsyncImagePainter(request)
+    val state = painter?.state
+    val bitmap = ((state as? AsyncImagePainter.State.Success)?.result?.image as? coil3.BitmapImage)?.bitmap
+    if (log != null) {
+        LaunchedEffect(cell, sheetUrl) {
+            val hostPath = runCatching {
+                val uri = java.net.URI(sheetUrl)
+                "${uri.host ?: "unknown"}${uri.path ?: ""}"
+            }.getOrDefault("unknown")
+            log.info(
+                logTag,
+                "tile frame=$frameMs page=${cell?.page} cell=${cell?.x},${cell?.y} " +
+                    "pages=${frameset.urls.size} grid=${frameset.framesPerPageX}x${frameset.framesPerPageY} " +
+                    "frames=${frameset.totalCount} host=$hostPath",
+            )
+        }
+    }
+    Box(
+        modifier = Modifier
+            .size(width = width, height = height)
+            .clip(RoundedCornerShape(radius))
+            .then(border),
+    ) {
+        // The upload thumbnail sits behind the crop, so a slow or missing page is still a picture.
+        AsyncImage(
+            model = fallbackUrl,
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize(),
+        )
+        if (bitmap != null && cell != null) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                drawImage(
+                    image = bitmap.asImageBitmap(),
+                    srcOffset = IntOffset(cell.x, cell.y),
+                    srcSize = IntSize(cell.width, cell.height),
+                    dstOffset = IntOffset.Zero,
+                    dstSize = IntSize(size.width.roundToInt(), size.height.roundToInt()),
+                    filterQuality = FilterQuality.Medium,
+                )
+            }
+        }
+    }
+}
+
+/** The small bordered tile a sponsor segment row draws. */
 @Composable
 private fun PreviewTile(
     frameset: com.presaince.glasstube.data.model.PreviewFrames,
@@ -2120,92 +2391,67 @@ private fun PreviewTile(
     fallbackUrl: String,
     log: AppLog? = null,
 ) {
-    val tile = frameset.tileAt(frameMs)
-    val (page, col, row) = tile ?: Triple(0, 0, 0)
-    val url = frameset.urls.getOrNull(page).orEmpty()
-    var loaded by remember(url, col, row, frameMs) { androidx.compose.runtime.mutableStateOf(false) }
-    var failed by remember(url, col, row, frameMs) { androidx.compose.runtime.mutableStateOf(url.isBlank()) }
-    androidx.compose.runtime.LaunchedEffect(url, col, row, frameMs) {
-        val hostPath = runCatching {
-            val uri = java.net.URI(url)
-            "${uri.host ?: "unknown"}${uri.path ?: ""}"
-        }.getOrDefault("unknown")
-        log?.info("segments", "tile frame=$frameMs page=$page col=$col row=$row host=$hostPath")
-    }
-    Box(
-        modifier = Modifier
-            .size(width = 64.dp, height = 36.dp)
-            .clip(RoundedCornerShape(6.dp))
-            .border(2.dp, borderColor, RoundedCornerShape(6.dp)),
-    ) {
-        // The quartile frame is the placeholder behind the tile, so a slow or failed
-        // storyboard page still shows a picture instead of black.
-        AsyncImage(
-            model = fallbackUrl,
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize(),
-        )
-        if (!failed) {
-            Box(
-                modifier = Modifier
-                    .size(
-                        width = (64 * frameset.framesPerPageX).dp,
-                        height = (36 * frameset.framesPerPageY).dp,
-                    )
-                    .offset((-64 * col).dp, (-36 * row).dp),
-            ) {
-                AsyncImage(
-                    model = url,
-                    contentDescription = null,
-                    contentScale = ContentScale.FillBounds,
-                    onError = { failed = true; log?.warn("segments", "tile failed frame=$frameMs url=${runCatching { java.net.URI(url).host }.getOrNull()}") },
-                    onSuccess = { loaded = true },
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
-        }
-    }
-}
-
-/** The frame 5 seconds into the segment, clamped to stay inside it. */
-private fun segmentFrameMs(segment: com.presaince.glasstube.data.sponsorblock.Segment): Long {
-    val length = (segment.endMs - segment.startMs).coerceAtLeast(0L)
-    return if (length > 5_000L) segment.startMs + 5_000L else segment.startMs + length / 2
+    StoryboardTile(
+        frameset = frameset,
+        frameMs = frameMs,
+        fallbackUrl = fallbackUrl,
+        width = 64.dp,
+        height = 36.dp,
+        border = Modifier.border(2.dp, borderColor, RoundedCornerShape(6.dp)),
+        log = log,
+    )
 }
 
 /**
- * The nearest auto-captured frame to [segmentFrameMs]. YouTube exposes only four URL frames
- * (hqdefault + hq1/2/3 at ~25/50/75%), so the nearest quartile is the closest a URL gets to
- * the +5s picture. Coil loads it only when the row scrolls on screen.
+ * A chapter's own frame: the storyboard cell at its start when the video has a storyboard, and the
+ * upload's thumbnail when it does not. No test: it chooses between two draws at a fixed size, and
+ * the cell arithmetic it depends on is [PreviewFrames.cellAt]'s, which is tested.
  */
-private fun segmentThumbUrl(
-    videoId: String,
-    segment: com.presaince.glasstube.data.sponsorblock.Segment,
-    durationMs: Long,
-): String {
-    if (durationMs <= 0L) return "https://i.ytimg.com/vi/$videoId/hqdefault.jpg"
-    val fraction = segmentFrameMs(segment).toFloat() / durationMs.toFloat()
-    val name = when {
-        fraction < 0.125f -> "hqdefault"
-        fraction < 0.375f -> "hq1"
-        fraction < 0.625f -> "hq2"
-        fraction < 0.875f -> "hq3"
-        else -> "hqdefault"
+@Composable
+private fun ChapterFrame(
+    frameset: com.presaince.glasstube.data.model.PreviewFrames?,
+    startSec: Long,
+    thumbnailUrl: String,
+    width: Dp,
+    height: Dp,
+    radius: Dp,
+    border: Modifier = Modifier,
+) {
+    if (frameset != null) {
+        StoryboardTile(
+            frameset = frameset,
+            frameMs = startSec * 1000,
+            fallbackUrl = thumbnailUrl,
+            width = width,
+            height = height,
+            radius = radius,
+            border = border,
+        )
+    } else {
+        AsyncImage(
+            model = thumbnailUrl,
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .size(width = width, height = height)
+                .clip(RoundedCornerShape(radius))
+                .then(border),
+        )
     }
-    return "https://i.ytimg.com/vi/$videoId/$name.jpg"
 }
 
 /**
  * The chapter list: the description's timestamps, one tap per chapter. Collapsible header. The
- * body is either a row of small cards or a plain list, per the Settings toggle. Each chapter has
- * no frame of its own, so the video's thumbnail stands in for all of them.
+ * body is either a row of small cards or a plain list, per the Settings toggle. Each chapter draws
+ * the storyboard frame at its own start, so the pictures differ (`111049`); a video without a
+ * storyboard falls back to one thumbnail for all of them.
  */
 @Composable
 private fun ChaptersBlock(
     chapters: List<Chapter>,
     videoId: String,
     thumbnailUrl: String?,
+    previewFrames: List<com.presaince.glasstube.data.model.PreviewFrames>,
     horizontal: Boolean,
     showTimestamps: Boolean,
     labelsRight: Boolean,
@@ -2213,15 +2459,27 @@ private fun ChaptersBlock(
     activeIndex: Int,
     onToggle: () -> Unit,
     onSeek: (Long) -> Unit,
+    log: AppLog? = null,
 ) {
     val thumb = Thumbnails.forVideo(videoId, thumbnailUrl)
+    val frameset = remember(previewFrames) { previewFrames.firstOrNull() }
+    // One line per chapter block: a tile the sheet cannot cover is the difference between "the app
+    // has no frames" and "the row asked for a page that is not in the list", and both used to look
+    // like a repeated thumbnail (`111049`).
+    LaunchedEffect(frameset) {
+        val sheet = frameset ?: return@LaunchedEffect
+        log?.info(
+            "chapters",
+            "storyboard pages=${sheet.urls.size} grid=${sheet.framesPerPageX}x${sheet.framesPerPageY} " +
+                "frames=${sheet.totalCount} eachMs=${sheet.durationPerFrameMs}",
+        )
+    }
     val listState = rememberLazyListState()
     // Keep the active chapter in view. Skipped when it is -1 (before the first mark).
     LaunchedEffect(activeIndex) {
         if (activeIndex >= 0) listState.animateScrollToItem(activeIndex)
     }
-    // One canonical thumbnail for every chapter: same picture, no extra fetches.
-    fun frame(index: Int): String = thumb
+    // One canonical fallback for videos with no storyboard: same picture, no extra fetches.
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
         Row(
             modifier = Modifier
@@ -2233,8 +2491,8 @@ private fun ChaptersBlock(
             if (labelsRight) Spacer(Modifier.weight(1f))
             Text(
                 text = "Chapters (${chapters.size})",
-                style = MaterialTheme.typography.labelMedium,
-                color = accentTextColour(),
+                style = CardText.header,
+                color = CardText.headerInk,
                 modifier = if (labelsRight) Modifier else Modifier.weight(1f),
             )
             Icon(
@@ -2258,24 +2516,22 @@ private fun ChaptersBlock(
                             .clickable { onSeek(chapter.atSec) },
                     ) {
                         Box {
-                            AsyncImage(
-                                model = frame(index),
-                                contentDescription = null,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier
-                                    .size(width = 120.dp, height = 68.dp)
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .then(
-                                        if (active) {
-                                            Modifier.border(
-                                                2.dp,
-                                                MaterialTheme.colorScheme.primary,
-                                                RoundedCornerShape(6.dp),
-                                            )
-                                        } else {
-                                            Modifier
-                                        },
-                                    ),
+                            ChapterFrame(
+                                frameset = frameset,
+                                startSec = chapter.atSec,
+                                thumbnailUrl = thumb,
+                                width = 120.dp,
+                                height = 68.dp,
+                                radius = 6.dp,
+                                border = if (active) {
+                                    Modifier.border(
+                                        2.dp,
+                                        MaterialTheme.colorScheme.primary,
+                                        RoundedCornerShape(6.dp),
+                                    )
+                                } else {
+                                    Modifier
+                                },
                             )
                             // The time used to sit on the frame in white, which is unreadable
                             // over half of YouTube's thumbnails. It is part of the caption now,
@@ -2317,13 +2573,13 @@ private fun ChaptersBlock(
                         .padding(horizontal = 16.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    AsyncImage(
-                        model = frame(index),
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier
-                            .size(width = 64.dp, height = 36.dp)
-                            .clip(RoundedCornerShape(4.dp)),
+                    ChapterFrame(
+                        frameset = frameset,
+                        startSec = chapter.atSec,
+                        thumbnailUrl = thumb,
+                        width = 64.dp,
+                        height = 36.dp,
+                        radius = 4.dp,
                     )
                     if (showTimestamps) {
                         Text(
@@ -2373,31 +2629,48 @@ private fun FadingProgressBar(
 }
 
 /**
- * How far a level travels per pixel of drag: the full range across half the picture's height.
+ * The words on the picture. One line per cue while the caption sits still, centred at the
+ * bottom edge, lifting clear of the progress bar and the control strip when they fade in.
  *
- * The rate is deliberately unchanged, because it is the part that felt right. What was missing was
- * somewhere to put the last few percent: a drag that began near the top of the picture ran out of
- * screen before it ran out of level. `core/LevelBand.kt` owns that answer — the band, and a magnet
- * at each end — and this factor is only the middle of the gesture.
+ * The scrim is drawn per caption rather than as a gradient over the picture: a permanent band
+ * at the bottom of a video would be chrome nobody asked for. It takes no pointer input, so the
+ * tap and drag gestures on the picture keep working through it.
  */
-private const val LevelTravel = 2f
-
-/** What the gesture HUD is saying: a time, a speed, or a level's percentage. */
-private data class Hud(
-    val label: String? = null,
-    /** A smaller line under the primary one, such as the position a scrub is heading for. */
-    val secondary: String? = null,
-    /** A level, volume or brightness, drawn as a pill above the finger. */
-    val fraction: Float? = null,
-    /** The level's mark, so the readout says which level it is. */
-    val icon: Int? = null,
-    /** Scrub progress through the video, 0..1, drawn as a bar inside the pill. */
-    val progress: Float? = null,
-    /** Finger position as a fraction of the picture. The readout follows it. */
-    val anchor: Offset? = null,
-    /** Speed readout: a vertical pill on the left edge at the finger's height. */
-    val leftEdge: Boolean = false,
-)
+@Composable
+private fun CaptionOverlay(
+    text: String?,
+    sizeIndex: Int,
+    raised: Boolean,
+    raisedBottom: androidx.compose.ui.unit.Dp,
+    modifier: Modifier = Modifier,
+) {
+    if (text.isNullOrBlank()) return
+    val size = CaptionSize.of(sizeIndex)
+    val bottom by animateDpAsState(if (raised) raisedBottom else 16.dp, label = "captionBottom")
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .padding(bottom = bottom),
+        contentAlignment = Alignment.BottomCenter,
+    ) {
+        Text(
+            text = text,
+            color = Color.White,
+            fontSize = size.sp.sp,
+            lineHeight = (size.sp * 1.3f).sp,
+            fontWeight = FontWeight.Medium,
+            textAlign = TextAlign.Center,
+            maxLines = 4,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .widthIn(max = 620.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(Color(0x99000000))
+                .padding(horizontal = 10.dp, vertical = 5.dp),
+        )
+    }
+}
 
 /** A seek worth taking back: where the playhead was, and where it went. */
 private data class SeekUndo(val beforeMs: Long, val afterMs: Long)
@@ -2451,17 +2724,6 @@ private fun SeekUndoChip(undo: SeekUndo, onUndo: () -> Unit, modifier: Modifier 
     }
 }
 
-/**
- * One section of the page under the picture: a rounded surface with the theme's quiet fill, so the
- * page reads as sections rather than as one run of text (`114914`). The chevrons were already
- * there; this is the box they belong to.
- */
-@Composable
-private fun Modifier.playerCard(): Modifier = this
-    .padding(horizontal = 8.dp, vertical = 4.dp)
-    .clip(RoundedCornerShape(16.dp))
-    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.30f))
-
 private fun segmentColor(category: String): Color =
     com.presaince.glasstube.data.sponsorblock.SponsorCategories.color(category)
 
@@ -2484,142 +2746,6 @@ private fun SponsorChip(
             style = MaterialTheme.typography.labelMedium,
             color = Color.White,
         )
-    }
-}
-
-/**
- * The gesture readout. Volume and brightness get one bare percentage above the finger; a scrub
- * or a skip gets a wide pill clear above the finger that asked for it, or below when the
- * finger is too near the top, carrying the whole video's progress in its bottom edge. Speed
- * sticks to the left edge at the finger's height, out of the way of the picture.
- */
-@Composable
-private fun HudPill(hud: Hud) {
-    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        val level = hud.fraction
-        val progress = hud.progress
-        val anchorY = (hud.anchor?.y ?: 0.5f).coerceIn(0f, 1f)
-        val anchorX = (hud.anchor?.x ?: 0.5f).coerceIn(0f, 1f)
-        when {
-            progress != null -> {
-                val pillHeight = 48.dp
-                val below = anchorY < 0.25f
-                // 64dp of air, not 28: at 28 the bottom line sat half under the thumb, and the
-                // pill's bottom edge carries the progress bar.
-                val raw = if (below) {
-                    maxHeight * anchorY + 56.dp
-                } else {
-                    maxHeight * anchorY - pillHeight - 64.dp
-                }
-                val y = raw.coerceIn(8.dp, (maxHeight - pillHeight - 8.dp).coerceAtLeast(8.dp))
-                ScrubPill(
-                    label = hud.label.orEmpty(),
-                    secondary = hud.secondary,
-                    progress = progress,
-                    // The pill follows the finger instead of owning the middle of the picture
-                    // (`111834`): the same placement rule the level readouts use, clamped inside.
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .offset(
-                            x = readoutLeft(maxWidth * anchorX, maxWidth, 176.dp),
-                            y = y,
-                        ),
-                )
-            }
-            level != null -> {
-                // The seek pill's capsule, carrying the level's icon and its whole percent,
-                // 64dp clear above the finger and travelling with it. Above is the safe side
-                // for either hand: the finger's mass lies below the contact point, which is why
-                // there is no handedness setting to consult.
-                LevelReadout(
-                    icon = hud.icon ?: R.drawable.ic_volume,
-                    level = level,
-                    modifier = Modifier.offset(
-                        x = readoutLeft(maxWidth * anchorX, maxWidth),
-                        y = readoutTop(
-                            fingerY = maxHeight * anchorY,
-                            pictureHeight = maxHeight,
-                            bandTop = LEVEL_BAND_TOP_DP.dp,
-                        ),
-                    ),
-                )
-            }
-            hud.leftEdge -> {
-                val y = (maxHeight * anchorY - 24.dp)
-                    .coerceIn(8.dp, (maxHeight - 56.dp).coerceAtLeast(8.dp))
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .offset(x = 12.dp, y = y)
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(Color(0xE6101014))
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
-                ) {
-                    Text(
-                        text = hud.label.orEmpty(),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = Color.White,
-                    )
-                }
-            }
-            hud.label != null -> Box(Modifier.fillMaxSize(), Alignment.Center) {
-                Text(
-                    text = hud.label,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = Color.White,
-                    modifier = Modifier
-                        .background(Color(0xCC101014), RoundedCornerShape(24.dp))
-                        .padding(horizontal = 20.dp, vertical = 8.dp),
-                )
-            }
-        }
-    }
-}
-
-/** The scrub readout: the distance as the headline, the target underneath, progress inside. */
-@Composable
-private fun ScrubPill(
-    label: String,
-    secondary: String?,
-    progress: Float,
-    modifier: Modifier = Modifier,
-) {
-    Box(
-        modifier = modifier
-            .width(176.dp)
-            .height(56.dp)
-            .clip(RoundedCornerShape(28.dp))
-            .background(Color(0xE6101014)),
-        contentAlignment = Alignment.Center,
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.titleMedium,
-                color = Color.White,
-            )
-            if (secondary != null) {
-                Text(
-                    text = secondary,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color.White.copy(alpha = 0.7f),
-                )
-            }
-        }
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .height(5.dp)
-                .background(Color(0x33FFFFFF)),
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(progress.coerceIn(0f, 1f))
-                    .fillMaxHeight()
-                    .background(MaterialTheme.colorScheme.primary),
-            )
-        }
     }
 }
 
@@ -2648,15 +2774,18 @@ private fun ControlsOverlay(
     qualityStops: List<com.presaince.glasstube.core.QualityStop>,
     onPickQuality: (Int) -> Unit,
     speedPresets: List<Float>,
+    /** The tracks, whether they are on, and which one is read. */
+    captions: CaptionChoice,
+    /** A track to turn on, or null to turn them off. */
+    onCaptions: (com.presaince.glasstube.data.model.CaptionTrackInfo?) -> Unit,
+    /** Which popup is open, owned by the screen so the idle timer can see it. */
+    overlay: PlayerOverlay,
+    onOverlay: (PlayerOverlay) -> Unit,
 ) {
     var overlayCoords by remember { mutableStateOf<androidx.compose.ui.layout.LayoutCoordinates?>(null) }
     var speedBoxCoords by remember { mutableStateOf<androidx.compose.ui.layout.LayoutCoordinates?>(null) }
     // The dial stops where the reader's presets stop (`111118`): tenths, low to high.
-    val speedRange = remember(speedPresets) {
-        val low = ((speedPresets.minOrNull() ?: 0.3f) * 10).roundToInt().coerceIn(3, 50)
-        val high = ((speedPresets.maxOrNull() ?: 5f) * 10).roundToInt().coerceIn(low, 50)
-        low to high
-    }
+    val speedRange = remember(speedPresets) { speedRangeTenths(speedPresets) }
     AnimatedVisibility(visible = visible, enter = fadeIn(), exit = fadeOut()) {
         Box(modifier = Modifier.fillMaxSize().onGloballyPositioned { overlayCoords = it }) {
             Box(
@@ -2750,7 +2879,6 @@ private fun ControlsOverlay(
                     // The player's own position, not the last UI sample. Seeking is the slide
                     // gesture now, so the arrow buttons are gone.
                     var dial by remember { mutableStateOf<SpeedDial?>(null) }
-                    var qualityMenuOpen by remember { mutableStateOf(false) }
                     val ticks = rememberTicks()
                     fun speedTick(fromTenths: Int, toTenths: Int) {
                         // The snap back at 1.0x, gated by its own setting inside TickRunner.
@@ -2784,7 +2912,7 @@ private fun ControlsOverlay(
                                         if (adjusting) {
                                             val steps = (travelled / 24f).roundToInt()
                                             val tenths = (baseTenths + steps)
-                                                .coerceIn(speedRange.first, speedRange.second)
+                                                .coerceIn(speedRange.first, speedRange.last)
                                             if (tenths != applied) {
                                                 val previous = applied
                                                 applied = tenths
@@ -2844,12 +2972,12 @@ private fun ControlsOverlay(
                             style = MaterialTheme.typography.labelSmall,
                             color = Color.White.copy(alpha = 0.7f),
                             modifier = Modifier
-                                .clickable { qualityMenuOpen = true }
+                                .clickable { onOverlay(PlayerOverlay.Quality) }
                                 .padding(horizontal = 6.dp, vertical = 6.dp),
                         )
                         DropdownMenu(
-                            expanded = qualityMenuOpen,
-                            onDismissRequest = { qualityMenuOpen = false },
+                            expanded = overlay == PlayerOverlay.Quality,
+                            onDismissRequest = { onOverlay(PlayerOverlay.None) },
                         ) {
                             Text(
                                 text = qualityConnection,
@@ -2870,10 +2998,62 @@ private fun ControlsOverlay(
                                         )
                                     },
                                     onClick = {
-                                        qualityMenuOpen = false
+                                        onOverlay(PlayerOverlay.None)
                                         onPickQuality(stop.height)
                                     },
                                 )
+                            }
+                        }
+                    }
+                    // Captions. Hidden until the track list has been asked for, so a video with
+                    // none never shows a button that opens an empty menu.
+                    if (captions.loaded && captions.tracks.isNotEmpty()) {
+                        Box {
+                            Text(
+                                text = "CC",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = if (captions.on) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    Color.White.copy(alpha = 0.7f)
+                                },
+                                modifier = Modifier
+                                    .clickable { onOverlay(PlayerOverlay.Captions) }
+                                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                            )
+                            DropdownMenu(
+                                expanded = overlay == PlayerOverlay.Captions,
+                                onDismissRequest = { onOverlay(PlayerOverlay.None) },
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Off") },
+                                    onClick = {
+                                        onOverlay(PlayerOverlay.None)
+                                        onCaptions(null)
+                                    },
+                                )
+                                captions.tracks.forEach { track ->
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                text = track.label +
+                                                    if (track.autoGenerated) " (auto)" else "",
+                                                color = if (
+                                                    captions.on &&
+                                                    captions.chosen?.languageTag == track.languageTag
+                                                ) {
+                                                    MaterialTheme.colorScheme.primary
+                                                } else {
+                                                    MaterialTheme.colorScheme.onSurface
+                                                },
+                                            )
+                                        },
+                                        onClick = {
+                                            onOverlay(PlayerOverlay.None)
+                                            onCaptions(track)
+                                        },
+                                    )
+                                }
                             }
                         }
                     }
@@ -3106,9 +3286,32 @@ private fun ShareSheet(
     }
 }
 
-/** Speed fill fraction: the shared LevelPill language, so speed reads like volume/brightness. */
-private fun speedFill(speed: Float): Float =
-    ((speed - 0.25f) / (5.0f - 0.25f)).coerceIn(0f, 1f)
+/**
+ * The speeds a dial can reach, in tenths, low to high: the reader's own presets, inside the
+ * player's limits. `111118` stopped the dial at the presets; flattening the two copies of that
+ * arithmetic here is what lets the pill agree with the dial about where the range ends.
+ */
+internal fun speedRangeTenths(presets: List<Float>): IntRange {
+    val low = ((presets.minOrNull() ?: 0.3f) * 10).roundToInt().coerceIn(3, 50)
+    val high = ((presets.maxOrNull() ?: 5f) * 10).roundToInt().coerceIn(low, 50)
+    return low..high
+}
+
+/**
+ * Speed fill fraction: the shared LevelPill language, so speed reads like volume/brightness.
+ *
+ * The fraction is a place inside the reader's own range, not on a fixed 0.25..5.0 scale. A fixed
+ * scale left the pill a third full at the 2.0x their presets stop at, so a full pill was a speed
+ * they had switched off; here their top speed is full and their bottom speed is empty.
+ */
+internal fun speedFill(speed: Float, presets: List<Float>): Float {
+    val range = speedRangeTenths(presets)
+    // One preset left: the only speed they can reach is also their top, and an empty pill at
+    // the sole setting reads as broken.
+    if (range.last <= range.first) return 1f
+    val tenths = (speed * 10).roundToInt()
+    return ((tenths - range.first).toFloat() / (range.last - range.first)).coerceIn(0f, 1f)
+}
 
 /**
  * Speed: a level-fill pill that opens just above the control you tapped, under the finger, so
@@ -3129,9 +3332,7 @@ private fun SpeedPanel(
     var lastTenths by remember { mutableIntStateOf((speed * 10).roundToInt()) }
     // The reader's presets are the range: a panel that offered 5.0x when the list stops at 2.0x is
     // a control advertising speeds they have switched off (`111118`).
-    val lowestTenths = ((presets.minOrNull() ?: 0.3f) * 10).roundToInt().coerceIn(3, 50)
-    val highestTenths = ((presets.maxOrNull() ?: 5f) * 10).roundToInt()
-        .coerceIn(lowestTenths, 50)
+    val speedRange = remember(presets) { speedRangeTenths(presets) }
     val ticks = rememberTicks()
     fun panelTick(fromTenths: Int, toTenths: Int) {
         ticks.speedHome(fromTenths, toTenths)
@@ -3192,7 +3393,7 @@ private fun SpeedPanel(
                             accumulated += -delta
                             val steps = (accumulated / 24f).roundToInt()
                             val tenths = ((dragBase * 10).roundToInt() + steps)
-                                .coerceIn(lowestTenths, highestTenths)
+                                .coerceIn(speedRange.first, speedRange.last)
                             if (tenths != lastTenths) {
                                 val previous = lastTenths
                                 lastTenths = tenths
@@ -3212,7 +3413,7 @@ private fun SpeedPanel(
             // gone; the fill is the reading. The way back sits at the top, clear of the thumb
             // that is on the panel.
             LevelPill(
-                level = speedFill(preview),
+                level = speedFill(preview, presets),
                 width = 84.dp,
                 height = 96.dp,
                 fillColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
@@ -3249,7 +3450,7 @@ private data class SpeedDial(val speed: Float, val fingerY: Float)
 @Composable
 private fun SpeedLadder(presets: List<Float>, current: Float) {
     LevelPill(
-        level = speedFill(current),
+        level = speedFill(current, presets),
         width = 72.dp,
         height = 64.dp,
         trackColor = Color(0xD9000000),
@@ -3305,7 +3506,10 @@ private fun maxVolume(audio: AudioManager): Float =
     audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1).toFloat()
 
 private fun volumeFraction(audio: AudioManager): Float =
-    (rawVolume(audio) / maxVolume(audio)).coerceIn(0f, 1f)
+    volumeFraction(
+        audio.getStreamVolume(AudioManager.STREAM_MUSIC),
+        audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC),
+    )
 
 /** Window brightness is unset while the system value is in charge; 50% is the honest guess. */
 private fun brightnessFraction(activity: Activity?): Float {
@@ -3324,7 +3528,3 @@ internal fun restoreSystemBrightness(window: Window?) {
 /** "-12s" / "+12s": the size of the jump is the headline, so the sign stays visible. */
 private fun formatSeekDelta(deltaMs: Long): String =
     com.presaince.glasstube.core.seekDelta(deltaMs / 1000)
-
-/** The scrub pill sits above the finger, or below it when the finger is too near the top. */
-private fun scrubProgress(positionMs: Long, durationMs: Long): Float =
-    if (durationMs <= 0L) 0f else (positionMs.toFloat() / durationMs).coerceIn(0f, 1f)

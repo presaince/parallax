@@ -24,10 +24,6 @@ class ThemeController(context: Context) {
     var accent: Accent by mutableStateOf(readAccent(context))
         private set
 
-    /** Glass only: an escape hatch for contrast or performance, remembered like the theme. */
-    var solidSurfaces: Boolean by mutableStateOf(readSolidSurfaces(context))
-        private set
-
     /** Glass only: continuous 0..1 fill, 0 clearest to 1 nearly solid. Default 0.42. */
     var glassLevel: Float by mutableStateOf(readGlassLevel(context))
         private set
@@ -47,7 +43,7 @@ class ThemeController(context: Context) {
      * Declared below [glassBase] on purpose: this initialiser reads [dark], and Kotlin runs property
      * initialisers top to bottom, so above it the delegate is still null.
      */
-    private var levelCap: Float = maxGlassLevel(accent, dark, solidSurfaces, contrast)
+    private var levelCap: Float = maxGlassLevel(accent, dark, contrast)
 
     /** A new accent on a rhythm the reader picked: daily, hourly, or on every open. */
     var shuffle: ShuffleCadence by mutableStateOf(readShuffleCadence(context))
@@ -92,12 +88,6 @@ class ThemeController(context: Context) {
         clampGlassLevel()
     }
 
-    fun chooseSolidSurfaces(solid: Boolean) {
-        solidSurfaces = solid
-        writeSolidSurfaces(context, solid)
-        clampGlassLevel()
-    }
-
     fun chooseGlassLevel(level: Float, persist: Boolean = true) {
         glassLevel = level.coerceIn(0f, levelCap)
         // The drag writes state every move but only touches prefs on release, so the
@@ -117,7 +107,7 @@ class ThemeController(context: Context) {
     }
 
     private fun clampGlassLevel() {
-        levelCap = maxGlassLevel(accent, dark, solidSurfaces, contrast)
+        levelCap = maxGlassLevel(accent, dark, contrast)
         if (glassLevel > levelCap) {
             glassLevel = levelCap
             writeGlassLevel(context, glassLevel)
@@ -147,7 +137,6 @@ class ThemeController(context: Context) {
         accent = readAccent(context)
         contrast = readContrast(context)
         shuffle = readShuffleCadence(context)
-        solidSurfaces = readSolidSurfaces(context)
         glassLevel = readGlassLevel(context)
         clampGlassLevel()
     }
@@ -164,7 +153,6 @@ class ThemeController(context: Context) {
                     contrast,
                     glass = mode == ThemeMode.GLASS,
                     dark = dark,
-                    solid = solidSurfaces,
                     level = glassLevel,
                 )
         }

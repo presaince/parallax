@@ -56,6 +56,15 @@ sealed interface SourceError {
         override val userMessage = "This video is only for members of the channel."
     }
 
+    /**
+     * A premiere or a scheduled stream that has not begun. YouTube answers with the same generic
+     * unavailability it uses for a removed video, which is how `192409` read "private or removed"
+     * on a picture that was merely early. Not permanent: the same video plays once it starts.
+     */
+    data object NotStarted : SourceError {
+        override val userMessage = "This live stream has not started yet."
+    }
+
     /** True when trying again cannot change the answer. The UI offers no retry for these. */
     val permanent: Boolean
         get() = this is MembersOnly || this is PrivateOrRemoved || this is AgeRestricted ||
